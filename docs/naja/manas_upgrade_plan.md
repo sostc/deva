@@ -216,16 +216,20 @@ confidence 0.35→0.6136、manas_score 0.294→0.5126、α 0.300→0.3145 离开
 
 **计划外修复**：§1.4 的 #12 —— `_get_awakening_level()` 死代码。
 
-**如实记录的两处「未解耦」**（本轮不做，但要知道）：
+**曾经如实记录的两处「未解耦」**（现状如下）：
 
-1. **加载期耦合仍在**。`import deva.naja.attention.kernel.manas_engine` 会先执行
+1. ~~**加载期耦合仍在**。~~ **已解（2026-10-12 抽象轮）**。原先
+   `import deva.naja.attention.kernel.manas_engine` 会先执行
    `deva/naja/attention/__init__.py`，而它 eager 导入 `.os`（→ os_kernel → bandit …）
-   与 `.orchestration`。所以"搬出交易域"目前只在**运行期**成立（引擎不需要交易对象），
-   在**加载期**不成立（模块仍拖重依赖）。要真正拆开，需把 `attention/__init__.py`
-   改成 `deva/naja/__init__.py` 那样的 PEP 562 惰性导出；本轮未做——爆炸半径大，
-   且不影响运行期契约。
+   与 `.orchestration`——实测 **3.4s / 3158 个模块**，其中 10 个是交易域模块。
+   现已把 `attention/__init__.py` 与 `kernel/__init__.py` 改成
+   `deva/naja/__init__.py` 那样的 **PEP 562 惰性导出**，并抽出公共门面
+   `deva.naja.manas`。改造后：**~0.9s / ~1338 模块 / 交易域模块 0**。
+   验证：`scripts/verify/verify_manas_standalone.py --strict`（6 组检查，含子进程
+   与静态守卫）。复用指南见 `docs/naja/manas_reuse_guide.md`。
 2. **没有把引擎物理挪出 `attention/kernel/`**。移动文件会改动大量 import 路径，
-   收益只是目录语义；本轮只保证"可脱离交易对象运行"，不搬文件。
+   收益只是目录语义；本轮只保证「可脱离交易对象运行」+「加载期不拖交易域」，
+   不搬文件。物理抽成独立包（可 pip 装）属独立立项，见复用指南 §7。
 
 #### 复用样板：把 ManasEngine 搬出交易域
 
@@ -327,9 +331,8 @@ manas 单文件 pytest   →  58 passed（38 → 51 → 58）
 - **不删除任何兜底默认值**。兜底本身是合理的（回测、冷启动都要用）；
   要修的是"真实路径上也在兜底"。
 - **不动四维门控 / AdaptiveManas**。它们与本次诊断无关，避免扩大爆炸半径。
-- **不搬 `manas_engine.py` 的物理位置，不改 `attention/__init__.py` 的加载方式**。
-  P3 只保证**运行期**可脱离交易对象（详见 P3 小节末的「两处边界」），
-  加载期包耦合与目录搬迁都不在本轮范围。
+- **不搬 `manas_engine.py` 的物理位置**。P3 只保证**运行期**可脱离交易对象；
+  目录搬迁不在本轮范围（加载期包耦合后已于「抽象轮」解决，见 P3 小节末）。
 
 ---
 
@@ -344,10 +347,14 @@ manas_score 全部复活），**12 处同族缺陷被清掉**（诊断期 4 处 
 **可见性与留痕补齐**（分量 / 偏差镜子 / 行动门审计），
 **引擎获得脱离交易对象运行的运行期保证**。
 
-仍未动的三件事，都已在上文标注清楚，属于"知道代价后主动不做/待确认"，而非遗漏：
+原本仍未动的三件事（**现状已更新**）：
 
-1. `α` 下限支配（公式维度）；
-2. 加载期包耦合（架构维度）；
-3. **觉醒维度三重断点**（P3 事实核查时发现）：生产者存在但未接线、
-   `TradingCenter` 读错字段、无弱信号喂入。接线会改变行为且快照基线抓不到
-   （基线脚本 monkeypatch 了 `_get_awakening_level`），需单独立项 + 确认。
+1. `α` 下限支配（公式维度）——**仍未动**，属打分公式维度，需重新定标。
+2. 加载期包耦合（架构维度）——**已解（2026-10-12 抽象轮）**：
+   包入口改 PEP 562 惰性导出 + 抽 `deva.naja.manas` 门面，
+   加载期交易域依赖从 10 个模块降到 **0**。
+3. 觉醒维度三重断点（P3 事实核查时发现）——**已解（2026-10-12，D3 `b7e73d6`）**：
+   ①manas 侧改为注入点并由容器注入 provider；②`TradingCenter._get_awakening_level()`
+   改读共享 `AwakenedAlaya.awakening_engine`；③平仓结果投影为弱信号回流。
+   验证：`scripts/verify/verify_awakening_feedback.py --strict`。
+   详见 `docs/naja/decision_action_center_design.md`。

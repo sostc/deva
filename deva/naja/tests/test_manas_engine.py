@@ -821,9 +821,9 @@ class TestObjectFreeReuse(unittest.TestCase):
       2. 四维分数随输入变化，不是常数；
       3. 原本指向不存在函数的觉醒取数已变成显式注入点。
 
-    不覆盖的部分（如实记录）：`import manas_engine` 仍会经包级 __init__
-    传递性加载 attention.os / bandit 等重模块——这是**加载期**耦合，与
-    本类验证的**运行期**无对象计算无关，见 docs/naja/manas_upgrade_plan.md。
+    加载期耦合（`import manas_engine` 是否被包级 __init__ 拖着拉 attention.os /
+    bandit 等重模块）**已于 2026-10-12「抽象轮」解决**——见
+    `TestManasStandaloneFacade`（包入口改 PEP 562 惰性导出 + `deva.naja.manas` 门面）。
     """
 
     FAVORABLE = dict(
@@ -960,6 +960,138 @@ class TestObjectFreeReuse(unittest.TestCase):
         engine = ManasEngine()
         self.assertIsNone(engine._awakening_level_provider)
         self.assertEqual(engine._get_awakening_level(), "dormant")
+
+
+class TestManasStandaloneFacade(unittest.TestCase):
+    """manas 作为「可脱离交易系统单独使用的通用原语」的可验证契约（抽象轮）。
+
+    覆盖三件事：
+      1. 门面 ``deva.naja.manas`` 是**同一份实现**的 re-export（不是副本）；
+      2. 包入口是 PEP 562 惰性的，``import`` 不再拖入交易域（静态 + 子进程双证）；
+      3. 便利封装 ``create_engine`` / ``ManasSession`` 端到端可用。
+
+    与 ``TestObjectFreeReuse`` 的分工：那边证的是**运行期**（喂 dict 能出分数），
+    这边补的是**加载期**（import 时不被交易域拖累）与**公共入口的稳定性**。
+    """
+
+    FAVORABLE = dict(
+        market_status="open", remaining_seconds=5400, market_volatility=0.8,
+        ticks={"600000": 1.2, "000001": 0.9}, us_trading_phase="trading",
+        available_capital=70.0, total_capital=100.0, total_return=6.0,
+        position_returns=[0.02, 0.03, -0.01], total_trades=30,
+    )
+    ADVERSE = dict(
+        market_status="closed", remaining_seconds=None, market_volatility=2.6,
+        ticks={"600000": -1.5}, us_trading_phase="closed",
+        available_capital=20.0, total_capital=100.0, total_return=-12.0,
+        position_returns=[-0.02, -0.03], total_trades=30,
+    )
+
+    def test_facade_reexports_same_objects(self):
+        """门面必须是同一份实现，不能是副本（副本 = 迟早分叉）。"""
+        from deva.naja import manas as facade
+        from deva.naja.attention.kernel import manas_config, manas_engine, manas_inputs
+
+        self.assertIs(facade.ManasEngine, manas_engine.ManasEngine)
+        self.assertIs(facade.ManasConfig, manas_config.ManasConfig)
+        self.assertIs(facade.DictBackedInputs, manas_inputs.DictBackedInputs)
+        self.assertIs(facade.ClockView, manas_inputs.ClockView)
+        self.assertIs(facade.MarketView, manas_inputs.MarketView)
+        self.assertIs(facade.PortfolioView, manas_inputs.PortfolioView)
+        self.assertIs(facade.StrategyView, manas_inputs.StrategyView)
+        self.assertIs(facade.MANAS_OUTPUT_GROUPS, MANAS_OUTPUT_GROUPS)
+
+    def test_facade_all_names_resolvable(self):
+        """``__all__`` 里的每个名字都真能取到（防「导出了但取不到」）。"""
+        from deva.naja import manas as facade
+
+        missing = [n for n in facade.__all__ if not hasattr(facade, n)]
+        self.assertEqual(missing, [])
+
+    def test_create_engine_end_to_end(self):
+        """便利封装：换输入必须换输出（否则退化成常数）。"""
+        from deva.naja.manas import create_engine
+
+        session = create_engine(throttle=False, **self.FAVORABLE)
+        out = session.compute()
+        self.assertGreaterEqual(out.manas_score, 0.0)
+        self.assertLessEqual(out.manas_score, 1.0)
+
+        session.update(**self.ADVERSE)
+        out2 = session.compute()
+        self.assertNotAlmostEqual(out.manas_score, out2.manas_score, places=6)
+
+    def test_throttle_controls_result_cache(self):
+        """默认 1 秒节流会返回上一次结果；``throttle=False`` 每次立即重算。
+
+        这是复用时的头号坑，必须把行为钉死（而不是靠文档口头提醒）。
+        """
+        from deva.naja.manas import create_engine
+
+        throttled = create_engine(**self.FAVORABLE)          # 默认节流
+        first = throttled.compute()
+        throttled.update(**self.ADVERSE)
+        cached = throttled.compute()
+        self.assertAlmostEqual(
+            first.manas_score, cached.manas_score, places=9,
+            msg="默认节流下，同一秒内改输入应仍返回上一次结果",
+        )
+
+        free = create_engine(throttle=False, **self.FAVORABLE)
+        first2 = free.compute()
+        free.update(**self.ADVERSE)
+        fresh = free.compute()
+        self.assertNotAlmostEqual(first2.manas_score, fresh.manas_score, places=6)
+
+    def test_check_contract_accepts_dict_backed_inputs(self):
+        """DictBackedInputs 必须满足全部四个契约（它是契约的样板实现）。"""
+        for name in ("ClockView", "MarketView", "PortfolioView", "StrategyView"):
+            self.assertEqual(check_contract(DictBackedInputs(), name), [], name)
+
+    def test_package_entrypoints_are_lazy(self):
+        """静态守卫：两个包入口保持 PEP 562 惰性，别回退成 eager。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[3]
+        for rel in ("deva/naja/attention/__init__.py",
+                    "deva/naja/attention/kernel/__init__.py"):
+            src = (root / rel).read_text(encoding="utf-8")
+            self.assertIn("def __getattr__", src, rel)
+            self.assertIn("_LAZY_EXPORTS", src, rel)
+
+        att = (root / "deva/naja/attention/__init__.py").read_text(encoding="utf-8")
+        for bad in ("from .os import", "from .orchestration import", "from .portfolio import"):
+            self.assertNotIn(bad, att, f"attention/__init__.py 又变回 eager 导入: {bad}")
+
+    def test_subprocess_import_pulls_no_trading_modules(self):
+        """加载期硬证据：全新进程 import 门面，不得拖入交易域模块。
+
+        必须用子进程——本进程早已 import 过一堆东西，测不出「加载期」。
+        """
+        import json as _json
+        import subprocess
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[3]
+        env = dict(os.environ)
+        env.pop("PYTHONPATH", None)          # 宿主注入的 shim 会干扰导入
+        snippet = (
+            "import sys, json;"
+            f"sys.path.insert(0, {str(root)!r});"
+            "import deva.naja.manas;"
+            "markers=('trading_center','orchestration','attention.os','bandit');"
+            "print('PULLED', json.dumps("
+            "[m for m in sys.modules if any(x in m for x in markers)]))"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", snippet], env=env,
+            capture_output=True, text=True, cwd=str(root), timeout=180,
+        )
+        self.assertEqual(proc.returncode, 0, (proc.stderr or "")[-500:])
+        lines = [l for l in proc.stdout.splitlines() if l.startswith("PULLED ")]
+        self.assertTrue(lines, (proc.stdout or "")[-500:])
+        pulled = _json.loads(lines[0][len("PULLED "):])
+        self.assertEqual(pulled, [], f"加载期被拖入交易域模块: {pulled}")
 
 
 if __name__ == '__main__':
