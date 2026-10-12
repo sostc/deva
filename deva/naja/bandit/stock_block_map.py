@@ -173,12 +173,12 @@ US_STOCK_BLOCKS: Dict[str, Dict[str, str]] = {
     },
     "baba": {
         "name": "阿里巴巴",
-        "industry_code": "e_commerce",
-        "industry_name": "电商/云计算",
+        "industry_code": "cloud_computing",
+        "industry_name": "云计算/AI/电商",
         "market_cap": "large_cap",
         "exchange": "US",
-        "narrative": "电商",
-        "blocks": ["电商", "云计算", "阿里云", "AI"],
+        "narrative": "云计算",
+        "blocks": ["云计算", "阿里云", "AI", "电商"],
     },
     "pdd": {
         "name": "拼多多",
@@ -336,6 +336,25 @@ US_STOCK_BLOCKS: Dict[str, Dict[str, str]] = {
         "exchange": "US",
         "narrative": "AI",
         "blocks": ["AI", "芯片", "半导体", "存储", "HBM"],
+    },
+    # 2026-10-12 补：NVDA 的直接上游（原缺映射 → 推导时被漏掉）
+    "skx": {
+        "name": "SK海力士",
+        "industry_code": "ai_chip",
+        "industry_name": "存储芯片/HBM",
+        "market_cap": "large_cap",
+        "exchange": "US",
+        "narrative": "AI",
+        "blocks": ["AI", "芯片", "半导体", "存储", "HBM"],
+    },
+    "lumentum": {
+        "name": "Lumentum",
+        "industry_code": "optical",
+        "industry_name": "光通信/光模块",
+        "market_cap": "mid_cap",
+        "exchange": "US",
+        "narrative": "AI",
+        "blocks": ["AI", "光模块", "光通信", "数据中心"],
     },
     "lam": {
         "name": "Lam Research",
@@ -555,13 +574,13 @@ US_STOCK_BLOCKS: Dict[str, Dict[str, str]] = {
         "blocks": ["加密货币", "区块链", "AI", "身份认证"],
     },
     "crwv": {
-        "name": "Crown Castle",
+        "name": "CoreWeave",
         "industry_code": "cloud_ai",
-        "industry_name": "数据中心/塔站",
-        "market_cap": "large_cap",
+        "industry_name": "AI云算力服务",
+        "market_cap": "mid_cap",
         "exchange": "US",
-        "narrative": "云服务",
-        "blocks": ["云服务", "数据中心", "塔站", "5G"],
+        "narrative": "AI",
+        "blocks": ["AI", "算力", "云计算", "GPU云", "AI基础设施"],
     },
 
     # Cloud & Security (补充)
