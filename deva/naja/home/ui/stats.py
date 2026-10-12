@@ -17,7 +17,7 @@ def render_stats_cards(ctx: dict, ds_stats: dict, task_stats: dict,
         os = tc.get_attention_os()
         orch_stats = {"registered_strategies": 0}
         try:
-            orch_stats["registered_strategies"] = len(os.market_scheduler._symbol_weights)
+            orch_stats["registered_strategies"] = len(os.strategy_decision_maker._symbol_weights)
         except Exception:
             pass
 

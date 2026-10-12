@@ -14,8 +14,11 @@
 > | D3 闭环反馈 | ✅ 已完成 | `b7e73d6` | 中 |
 > | D4 实盘执行 | ⏸ 未做（独立立项） | — | 高 |
 >
-> 一句话验收：**全量单测 227 passed；快照基线 diff=0；契约 `--strict` exit 0；
+> 一句话验收：**全量单测 231 passed；快照基线 diff=0；契约 `--strict` exit 0；
 > 觉醒闭环验证 `--strict` exit 0。**
+>
+> 后续清理（C 轮）：G6 死路径已清——`market_scheduler` 重命名遗留（6 处）+
+> 两个无调用者方法。见 §1.4 与 §4.1。
 
 ---
 
@@ -90,13 +93,21 @@
 
 ### 1.4 死路径（挡路的陈年断点）
 
-- `TradingCenter.process_market_data`（`trading_center.py`）—— 生产环境**无调用者**。
-- `TradingCenter.make_decision`（`trading_center.py:314`）—— **无调用者**。
-- `TradingCenter.process_datasource_data`（`trading_center.py:337`）—— 访问
-  `self.attention_os.market_scheduler`，而 `AttentionOS` **没有这个属性**，
-  异常被 `try/except` 吞掉 → **静默死路**（`datasource/entry.py:797` 还在调）。
-- `attention/kernel/kernel.py:21` 的 `AttentionKernel`（889 行）、
-  `decision_attention.py:57` 的 `DecisionAttention` —— **无生产实例化**（休眠）。
+> **状态（2026-10-12，C 轮）**：前 3 条已清。`market_scheduler` 的根因是**一次重命名
+> 遗留**，不是缺组件——真实属性叫 `strategy_decision_maker`，只是调用点没跟着改。
+> 第 4 条（休眠模块）保留：它们是"无实例化"，删了有回归风险，且不构成静默失效。
+
+- ✅ `TradingCenter.process_market_data`（`trading_center.py`）—— 生产环境**无调用者**，
+  已删除。
+- ✅ `TradingCenter.make_decision`（`trading_center.py`）—— **无调用者**（仅测试在调），
+  已删除。
+- ✅ `TradingCenter.process_datasource_data` —— 访问 `self.attention_os.market_scheduler`，
+  而 `AttentionOS` **没有这个属性**（真实属性是 `strategy_decision_maker`，
+  `attention_os.py:83`）。异常被 `try/except` 吞掉 → **静默死路**。共 **6 处**引用
+  受影响（`trading_center.py`、`market_observer.py`×2、`snapshot.py`×2、
+  `home/ui/stats.py`），已全部修正。
+- ⏸ `attention/kernel/kernel.py:21` 的 `AttentionKernel`（889 行）、
+  `decision_attention.py:57` 的 `DecisionAttention` —— **无生产实例化**（休眠，保留）。
 
 ---
 
@@ -261,6 +272,22 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 **顺手清掉的老问题**（D0–D3 期间）：审批阈值硬编码 0.4（收口为常量 + 可配）、
 `_get_adaptive_stop_loss` 死分支、觉醒等级读陈旧字典。
 
+**C 轮：死路径清理**（2026-10-12，**行为变更**）
+
+- 修 `market_scheduler` 重命名遗留：`AttentionOS` 真实属性是 `strategy_decision_maker`
+  （`attention_os.py:83`），`market_scheduler` 是被重命名后**没改调用点**的 6 处遗留，
+  且全部被 `try/except` 吞成静默 no-op。已修正为 `strategy_decision_maker` /
+  公开包装 `schedule_market()`：`trading_center.py`、`market_observer.py`×2、
+  `snapshot.py`×2、`home/ui/stats.py`。
+- 删除无调用者方法：`TradingCenter.process_market_data`、`TradingCenter.make_decision`
+  （后者仅有测试在调，测试同步移除）。
+- 新增 `TestAttentionSchedulingGuard`（`test_alaya_manas.py`，5 例）：正确属性存在 /
+  坏名字不存在 / `schedule_market()` 真出权重 / 兼容入口不再静默 /
+  **全仓源码不再出现 `market_scheduler`**（静态守卫，防复发）。
+- 验证：全量 **231 passed**（227 → 231）；快照 diff=0；契约 `--strict` exit 0；
+  觉醒闭环 `--strict` exit 0；端到端 `process_datasource_data` 恢复实效
+  （`_strategy_decision_maker._symbol_weights` 真有值，不再 `AttributeError` 静默）。
+
 ---
 
 ## 5. 明确不做 / 边界
@@ -276,9 +303,11 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 1. **觉醒是短时放大器，不是长期成长值**。`AwakeningEngine` 弱信号半衰期只有 **60 秒**，
    一次结果只能在几分钟内抬高等级，随后衰减回 `dormant`。要"长期"效果需要另立设计
    （例如给 AwakeningEngine 增加持久化累积通道），本轮不做。
-2. **死路径仍在**（D0 诊断的 G6）。`TradingCenter.process_market_data` / `make_decision`
-   无调用者，`process_datasource_data` 依赖不存在的 `attention_os.market_scheduler`。
-   本轮未清理（属独立整理工作项，删路径有回归风险）。
+2. ~~**死路径仍在**（D0 诊断的 G6）。~~ **已清（2026-10-12，C 轮）**：
+   `market_scheduler` 是重命名遗留（真实属性 `strategy_decision_maker`），
+   6 处引用已修正、`process_datasource_data` 恢复实效；
+   `process_market_data` / `make_decision` 两个无调用者方法已删除。
+   仅遗留 `AttentionKernel` / `DecisionAttention` 两个休眠模块（删有回归风险）。
 3. **`DecisionPlan` 尚未被 UI 消费**。契约已产出并可 `to_dict()`，但 dashboard 仍读旧的
    散字段。接 UI 属 §6.4 的 query service 工作，未纳入本轮。
 
