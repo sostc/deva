@@ -36,6 +36,10 @@ log = logging.getLogger(__name__)
 
 PORTFOLIO_MANAGER_TABLE = "naja_bandit_portfolio_manager"
 UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
+# 「手动」账户：用户手填的真实仓位（没接同步器、或只想记账的）。
+# 与「虚拟测试」（模拟盘）、券商同步账户（Spark/Cutie/FutuReal）并列，
+# 新闻筛选 / 决策 / 报告一视同仁——都是"我的钱"。
+MANUAL_ACCOUNT = "手动"
 
 
 @dataclass
@@ -250,6 +254,61 @@ class USStockPortfolio:
 
             return position
 
+    def update_position(
+        self,
+        position_id: str,
+        *,
+        quantity: Optional[float] = None,
+        entry_price: Optional[float] = None,
+        stock_name: Optional[str] = None,
+        current_price: Optional[float] = None,
+    ) -> Optional[USStockPosition]:
+        """修改一个未平仓持仓（手动记账的「改」）。
+
+        只改传进来的字段。返回 ``None`` 表示持仓不存在 / 已平仓 / 参数非法。
+        ``quantity <= 0`` 直接拒绝——想清仓请用 :meth:`sell_position`，
+        那条路径会保留历史（status=CLOSED），而这里改数量不留痕。
+        """
+        with self._lock:
+            position = self._positions.get(position_id)
+            if not position or position.status != "OPEN":
+                return None
+
+            if quantity is not None:
+                try:
+                    quantity = float(quantity)
+                except (TypeError, ValueError):
+                    return None
+                if quantity <= 0:
+                    log.warning(
+                        "[%s] update_position 拒绝非正数量: %s", self.account_name, quantity
+                    )
+                    return None
+                position.quantity = quantity
+
+            if entry_price is not None:
+                try:
+                    entry_price = float(entry_price)
+                except (TypeError, ValueError):
+                    return None
+                if entry_price < 0:
+                    return None
+                position.entry_price = entry_price
+
+            if stock_name:
+                position.stock_name = str(stock_name)
+
+            if current_price is not None:
+                position.current_price = float(current_price)
+
+            position.last_update_time = time.time()
+            self._save_positions()
+            log.info(
+                "[%s] 修改持仓: %s x%s @ %s",
+                self.account_name, position.stock_name, position.quantity, position.entry_price,
+            )
+            return position
+
     def get_position(self, position_id: str) -> Optional[USStockPosition]:
         return self._positions.get(position_id)
 
@@ -418,23 +477,49 @@ class PortfolioManager:
         """
         return dict(self._us_portfolios)
 
-    def register_futu_account(self, account_name: str) -> USStockPortfolio:
-        """注册一个富途账户到 PortfolioManager
+    def ensure_account(self, account_name: str, *, persist: bool = True) -> USStockPortfolio:
+        """确保账户存在（不存在则创建），幂等。
+
+        与 ``register_futu_account`` 的区别：本方法默认**持久化**账户名到
+        ``account_names``，重启后能自动重建。用户手建的账户必须持久化——
+        否则重启后账户消失，而磁盘里的持仓还在，读出来却是空
+        （就是 2026-10-12「持仓恒为空」事故的同款形状）。
 
         Args:
-            account_name: 账户名称（如 FutuReal）
-
-        Returns:
-            USStockPortfolio 实例
+            account_name: 账户名（如 ``手动``）
+            persist: 是否写入账户名册；券商同步账户由同步器每次注册，可传 False
         """
-        if account_name in self._us_portfolios:
-            return self._us_portfolios[account_name]
+        with self._lock:
+            existing = self._us_portfolios.get(account_name)
+            if existing is not None:
+                return existing
 
-        portfolio = USStockPortfolio(account_name)
-        self._us_portfolios[account_name] = portfolio
-        self._accounts[account_name] = portfolio
-        log.info(f"[PortfolioManager] 注册富途账户: {account_name}")
-        return portfolio
+            portfolio = USStockPortfolio(account_name)
+            self._us_portfolios[account_name] = portfolio
+            self._accounts[account_name] = portfolio
+
+            if persist:
+                names = list(self._db.get("account_names", []))
+                if account_name not in names:
+                    names.append(account_name)
+                    self._db["account_names"] = names
+
+            log.info(
+                "[PortfolioManager] 创建账户: %s（persist=%s）", account_name, persist
+            )
+            return portfolio
+
+    def get_or_create_manual_account(self) -> USStockPortfolio:
+        """获取（或创建）「手动」账户——用户手填仓位专用。"""
+        return self.ensure_account(MANUAL_ACCOUNT, persist=True)
+
+    def register_futu_account(self, account_name: str) -> USStockPortfolio:
+        """注册一个富途账户（由 ``futu_portfolio_syncer`` 调用，每次启动重新注册）。
+
+        **不持久化**账户名：同步器每次都会注册，写进名册反而会在同步器不跑时
+        留下一个永远为空的僵尸账户。
+        """
+        return self.ensure_account(account_name, persist=False)
 
     def get_all_account_names(self) -> List[str]:
         return list(self._accounts.keys())

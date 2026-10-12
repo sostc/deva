@@ -112,6 +112,22 @@ class PortfolioSummary:
     block_alloc: Dict[str, float]         # 【block】block配置
 
 
+def position_to_dict(pos: Any) -> Dict[str, Any]:
+    """持仓对象 → 纯 dict（供 UI 消费，不把 dataclass 漏出去）。"""
+    return {
+        "position_id": getattr(pos, "position_id", ""),
+        "stock_code": getattr(pos, "stock_code", ""),
+        "stock_name": getattr(pos, "stock_name", ""),
+        "account": getattr(pos, "account_name", ""),
+        "entry_price": round(float(getattr(pos, "entry_price", 0.0) or 0.0), 4),
+        "current_price": round(float(getattr(pos, "current_price", 0.0) or 0.0), 4),
+        "quantity": float(getattr(pos, "quantity", 0.0) or 0.0),
+        "return_pct": round(float(getattr(pos, "return_pct", 0.0) or 0.0), 2),
+        "entry_time": float(getattr(pos, "entry_time", 0.0) or 0.0),
+        "status": getattr(pos, "status", ""),
+    }
+
+
 class Portfolio:
     """
     【我们-核心】持仓与自选股统一视图
@@ -262,6 +278,119 @@ class Portfolio:
                 ))
 
         return watchlist
+
+    # ── 手动持仓（「手动」账户：用户手填的真实仓位）──────────────────────
+    def _manual_portfolio(self, create: bool = False) -> Optional[Any]:
+        """取「手动」账户。
+
+        ``create=False`` 且账户不存在时返回 ``None`` —— **不产生副作用**。
+        展示 / 健康检查一律走这条路（本项目铁律：只读检查不许顺手创建东西）。
+        """
+        pm = self._get_pm()
+        if create:
+            ensure = getattr(pm, "get_or_create_manual_account", None)
+            return ensure() if callable(ensure) else None
+        from deva.naja.bandit.portfolio_manager import MANUAL_ACCOUNT
+        getter = getattr(pm, "get_us_portfolio", None)
+        return getter(MANUAL_ACCOUNT) if callable(getter) else None
+
+    def get_manual_holdings(self, create: bool = False) -> List[StockInfo]:
+        """「手动」账户的持仓（用户手填的真实仓位）。"""
+        from deva.naja.bandit.portfolio_manager import MANUAL_ACCOUNT
+        portfolio = self._manual_portfolio(create=create)
+        if portfolio is None:
+            return []
+        return [
+            StockInfo(
+                code=pos.stock_code,
+                name=pos.stock_name,
+                account=MANUAL_ACCOUNT,
+                source="portfolio",
+                entry_price=pos.entry_price,
+                current_price=pos.current_price,
+                quantity=pos.quantity,
+                return_pct=pos.return_pct,
+            )
+            for pos in portfolio.get_open_positions()
+        ]
+
+    def list_manual_positions(self) -> List[Dict[str, Any]]:
+        """「手动」账户的持仓（纯 dict，含 position_id，供 UI 增删改）。"""
+        portfolio = self._manual_portfolio(create=False)
+        if portfolio is None:
+            return []
+        return [position_to_dict(p) for p in portfolio.get_open_positions()]
+
+    def add_manual_position(
+        self,
+        code: str,
+        name: str = "",
+        price: float = 0.0,
+        quantity: float = 0.0,
+        entry_time: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """在「手动」账户新增持仓。返回 ``{"ok": bool, ...}`` 纯 dict。"""
+        code = str(code or "").strip().lower()
+        if not code:
+            return {"ok": False, "reason": "股票代码不能为空"}
+        try:
+            quantity = float(quantity)
+        except (TypeError, ValueError):
+            return {"ok": False, "reason": f"数量非法: {quantity!r}"}
+        if quantity <= 0:
+            return {"ok": False, "reason": "数量必须为正数"}
+        try:
+            price = float(price or 0.0)
+        except (TypeError, ValueError):
+            return {"ok": False, "reason": f"价格非法: {price!r}"}
+        if price < 0:
+            return {"ok": False, "reason": "价格不能为负"}
+
+        portfolio = self._manual_portfolio(create=True)
+        if portfolio is None:
+            return {"ok": False, "reason": "手动账户不可用（PortfolioManager 不支持）"}
+        pos = portfolio.add_position(code, str(name or code), price, quantity, entry_time)
+        if pos is None:
+            return {"ok": False, "reason": "写入被底层拒绝（检查参数）"}
+        return {"ok": True, "position": position_to_dict(pos)}
+
+    def update_manual_position(self, position_id: str, **fields) -> Dict[str, Any]:
+        """修改「手动」账户的一个持仓（只改传进来的字段）。"""
+        portfolio = self._manual_portfolio(create=False)
+        if portfolio is None:
+            return {"ok": False, "reason": "手动账户不存在"}
+        updater = getattr(portfolio, "update_position", None)
+        if not callable(updater):
+            return {"ok": False, "reason": "底层不支持修改持仓"}
+        allowed = {"quantity", "entry_price", "stock_name", "current_price"}
+        unknown = set(fields) - allowed
+        if unknown:
+            return {"ok": False, "reason": f"不支持的字段: {sorted(unknown)}"}
+        try:
+            pos = updater(position_id, **fields)
+        except TypeError as e:
+            return {"ok": False, "reason": f"字段类型不正确: {e}"}
+        if pos is None:
+            return {"ok": False, "reason": "持仓不存在、已平仓，或参数非法"}
+        return {"ok": True, "position": position_to_dict(pos)}
+
+    def remove_manual_position(self, position_id: str, exit_price: float = 0.0) -> Dict[str, Any]:
+        """移除「手动」账户的一个持仓。
+
+        **软删除**：复用 ``sell_position`` 置为 CLOSED 并保留历史。
+        手填错了也能从记录里找回来，不做物理删除。
+        """
+        portfolio = self._manual_portfolio(create=False)
+        if portfolio is None:
+            return {"ok": False, "reason": "手动账户不存在"}
+        pos = portfolio.get_position(position_id)
+        if pos is None:
+            return {"ok": False, "reason": f"持仓不存在: {position_id}"}
+        price = float(exit_price or pos.current_price or pos.entry_price or 0.0)
+        done = portfolio.sell_position(position_id, price)
+        if done is None:
+            return {"ok": False, "reason": "该持仓已平仓"}
+        return {"ok": True, "position": position_to_dict(done)}
 
     def get_all_codes(self) -> Set[str]:
         """获取所有关注股票代码（持仓+自选）"""
