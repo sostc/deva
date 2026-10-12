@@ -8,6 +8,9 @@
 
 它回答的是「现在该不该动 / 多确信 / 多危险」三个问题。这里的输入是**手搓的**
 dict，真实接入时换成你自己的数据源即可（契约见 manas_inputs.ClockView 等）。
+
+想要一个**完整小应用**的骨架（一天的快照时间线 → 决策报告），看
+`deva/examples/manas_decision_desk.py`（典型案例）。
 """
 
 from __future__ import annotations

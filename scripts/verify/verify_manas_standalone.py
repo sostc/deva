@@ -239,6 +239,52 @@ def main() -> int:
     except AttributeError:
         check("未知名字抛 AttributeError（不静默）", True, "")
 
+    # ── ⑦ 典型案例：一个小应用能真的跑通并给出有区分度的结论 ───────────────
+    print()
+    print("=" * 68)
+    print("⑦ 典型案例（deva/examples/manas_decision_desk.py）端到端")
+    print("=" * 68)
+    import importlib.util
+
+    example_path = PROJECT_ROOT / "deva/examples/manas_decision_desk.py"
+    spec = importlib.util.spec_from_file_location("manas_decision_desk", example_path)
+    desk = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(desk)
+        check("案例脚本可导入", True, example_path.name)
+    except Exception as e:  # noqa: BLE001
+        check("案例脚本可导入", False, repr(e))
+        desk = None
+
+    if desk is not None:
+        payload = desk.load_snapshots(example_path.parent / "data/manas_typical_day.json")
+        rows = desk.run_case(payload["snapshots"])
+        n = len(payload["snapshots"])
+
+        check("每个快照都跑出结论", len(rows) == n, f"{len(rows)}/{n}")
+        actionable = [r for r in rows if r["should_act"]]
+        check("至少一个时点开出行动门（案例必须真的可行动）",
+              len(actionable) >= 1, f"开门时点={[r['time'] for r in actionable]}")
+        states = sorted({r["harmony_state"] for r in rows})
+        check("至少两种 harmony 状态（有区分度）", len(states) >= 2, f"{states}")
+        scores = [r["manas_score"] for r in rows]
+        check("分数有跨度（max−min > 0.2）", max(scores) - min(scores) > 0.2,
+              f"{min(scores):.4f}~{max(scores):.4f}")
+        rows2 = desk.run_case(payload["snapshots"])
+        check("同输入两次运行结果一致（可复现）",
+              [r["manas_score"] for r in rows] == [r["manas_score"] for r in rows2], "")
+        report = desk.render_report_html(payload, rows)
+        check("报告可渲染且含关键字段",
+              "manas_score" in report and "action_type" in report, f"len={len(report)}")
+
+        # 静态守卫：案例的 import 只能走公共门面，不得深入内部路径
+        src = example_path.read_text(encoding="utf-8")
+        imports = [ln.strip() for ln in src.splitlines()
+                   if ln.strip().startswith(("import ", "from "))]
+        deep = [ln for ln in imports
+                if "deva.naja.attention" in ln or "deva.naja.decision" in ln]
+        check("案例的 import 只走公共门面（deva.naja.manas）", deep == [], f"{deep}")
+
     # ── 汇总 ─────────────────────────────────────────────────────────────
     print()
     print("=" * 68)

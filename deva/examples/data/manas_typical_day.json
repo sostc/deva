@@ -1,0 +1,110 @@
+{
+  "title": "A 股某交易日 · 择时决策时间线",
+  "scenario": "一个独立的研究脚本（不属于交易系统）想回答：今天这几个时点里，哪些该动手、哪些该忍住。它把当天采集到的一串市场快照喂给 manas，逐点拿到判断。",
+  "source_note": "真实接入时，snapshots 来自你自己的数据源；这里落成 JSON 只为可复现。字段语义见 deva/naja/attention/kernel/manas_inputs.py::DictBackedInputs。",
+  "unit_note": "total_return 为百分数口径（-6.2 表示 -6.2%）；available_capital / total_capital 用于推现金比 cash_ratio；position_returns 为逐笔收益率（小数）。",
+  "snapshots": [
+    {
+      "time": "09:35",
+      "label": "开市平稳",
+      "note": "集合竞价平稳，组合刚建仓，量能温和放大",
+      "inputs": {
+        "market_status": "open",
+        "remaining_seconds": 16200,
+        "market_volatility": 0.4,
+        "ticks": {"600000": 2.0, "000001": 1.6, "600519": 2.4},
+        "us_trading_phase": "trading",
+        "available_capital": 95.0,
+        "total_capital": 100.0,
+        "total_return": 0.0,
+        "position_returns": [0.02, 0.01],
+        "total_trades": 2
+      }
+    },
+    {
+      "time": "10:30",
+      "label": "波动抬升",
+      "note": "指数翻绿，个股分化，波动率明显上行",
+      "inputs": {
+        "market_status": "open",
+        "remaining_seconds": 12600,
+        "market_volatility": 1.5,
+        "ticks": {"600000": -0.4, "000001": -0.9, "600519": 0.3},
+        "us_trading_phase": "trading",
+        "available_capital": 78.0,
+        "total_capital": 100.0,
+        "total_return": 2.4,
+        "position_returns": [-0.01, 0.02, -0.015],
+        "total_trades": 8
+      }
+    },
+    {
+      "time": "11:15",
+      "label": "午前跳水",
+      "note": "权重股杀跌，波动率飙到 2.4，组合由盈转亏",
+      "inputs": {
+        "market_status": "open",
+        "remaining_seconds": 5400,
+        "market_volatility": 2.4,
+        "ticks": {"600000": -2.3, "000001": -2.8, "600519": -1.5},
+        "us_trading_phase": "closed",
+        "available_capital": 52.0,
+        "total_capital": 100.0,
+        "total_return": -6.2,
+        "position_returns": [-0.03, -0.02, -0.035],
+        "total_trades": 12
+      }
+    },
+    {
+      "time": "13:40",
+      "label": "午后修复",
+      "note": "指数收窄跌幅，波动率回落，但组合仍在亏",
+      "inputs": {
+        "market_status": "open",
+        "remaining_seconds": 4200,
+        "market_volatility": 1.1,
+        "ticks": {"600000": 0.9, "000001": 0.6, "600519": 1.2},
+        "us_trading_phase": "trading",
+        "available_capital": 66.0,
+        "total_capital": 100.0,
+        "total_return": -1.2,
+        "position_returns": [0.01, -0.005, 0.015],
+        "total_trades": 14
+      }
+    },
+    {
+      "time": "14:50",
+      "label": "尾盘企稳",
+      "note": "指数翻红、波动率回到低位，组合基本打平",
+      "inputs": {
+        "market_status": "open",
+        "remaining_seconds": 600,
+        "market_volatility": 0.6,
+        "ticks": {"600000": 1.7, "000001": 1.3, "600519": 2.0},
+        "us_trading_phase": "trading",
+        "available_capital": 88.0,
+        "total_capital": 100.0,
+        "total_return": 0.3,
+        "position_returns": [0.02, 0.015, 0.01],
+        "total_trades": 16
+      }
+    },
+    {
+      "time": "15:05",
+      "label": "收盘后",
+      "note": "已收盘，任何行动都只能等到下一交易日",
+      "inputs": {
+        "market_status": "closed",
+        "remaining_seconds": null,
+        "market_volatility": 0.8,
+        "ticks": {},
+        "us_trading_phase": "closed",
+        "available_capital": 88.0,
+        "total_capital": 100.0,
+        "total_return": 0.5,
+        "position_returns": [0.02, 0.015, 0.01],
+        "total_trades": 16
+      }
+    }
+  ]
+}
