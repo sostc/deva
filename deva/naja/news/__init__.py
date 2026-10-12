@@ -5,7 +5,7 @@
 三层结构：
 
     focus.py    「我们关心什么」      —— 持仓 / 自选 / 关注叙事 / 关注主题（复用 manas + Portfolio）
-    triage.py   「哪条更值得看」      —— 持仓优先的相关度打分与分组（纯计算）
+    triage.py   「哪条更值得看」      —— 分档制相关度打分与分组（纯计算，持仓数学上必然优先）
     digest.py   「呈现出来」          —— 每日 HTML 报告 / 纯文本 / UI 出口
 
 用法::
@@ -47,8 +47,19 @@ from .triage import (
     GROUP_MACRO,
     GROUP_ORDER,
     GROUP_THEME,
+    PIERCE_MAX_SENTIMENT,
+    PIERCE_MIN_IMPORTANCE,
+    THEME_NUDGE,
+    TIER_HOLDING,
+    TIER_MACRO,
+    TIER_ORDER,
+    TIER_PIERCE,
+    TIER_THEME,
+    TIER_WATCHLIST,
     NewsTriage,
     ScoredNews,
+    TierBand,
+    TriageConfig,
 )
 
 __all__ = [
@@ -60,11 +71,22 @@ __all__ = [
     # 筛选
     "NewsTriage",
     "ScoredNews",
+    "TriageConfig",
+    "TierBand",
     "GROUP_HOLDING",
     "GROUP_THEME",
     "GROUP_MACRO",
     "GROUP_ORDER",
     "GROUP_LABELS",
+    "TIER_HOLDING",
+    "TIER_THEME",
+    "TIER_WATCHLIST",
+    "TIER_MACRO",
+    "TIER_PIERCE",
+    "TIER_ORDER",
+    "THEME_NUDGE",
+    "PIERCE_MIN_IMPORTANCE",
+    "PIERCE_MAX_SENTIMENT",
     # 报告
     "build_digest",
     "get_news_digest_summary",
