@@ -292,48 +292,163 @@ def _record_fake_plan(center, approved=None, **overrides):
     return payload
 
 
+TEST_JOURNAL_TABLE = "naja_decision_journal_test"
+
+
+def _temp_journal(center):
+    """把 TradingCenter 的落盘日志换成**临时表**，用完清掉。
+
+    必须这么做：TradingCenter 是单例，默认写的是真实决策库
+    （``naja_decision_journal`` / ``~/.deva/nb.sqlite``），测试不该污染它。
+    """
+    from contextlib import contextmanager
+
+    from deva.naja.decision.journal import DecisionJournal
+
+    @contextmanager
+    def _cm():
+        original = getattr(center, "_decision_journal", None)
+        journal = DecisionJournal(table=TEST_JOURNAL_TABLE, maxsize=200)
+        journal.clear()
+        center._decision_journal = journal
+        center._recent_plans.clear()
+        try:
+            yield journal
+        finally:
+            journal.clear()
+            center._decision_journal = original
+            center._recent_plans.clear()
+
+    return _cm()
+
+
 def test_trading_center_records_decision_plans():
     """每次产出 DecisionPlan 都留痕；查询返回纯 dict 且键集正确。"""
     from deva.naja.attention.orchestration.trading_center import get_trading_center
 
     center = get_trading_center()
-    before = center.get_decision_plan_summary(limit=1)["stats"]["total"]
-    _record_fake_plan(center, approved=True)
+    with _temp_journal(center) as journal:
+        _record_fake_plan(center, approved=True)
 
-    summary = center.get_decision_plan_summary(limit=5)
-    assert summary["available"] is True
-    assert summary["stats"]["total"] == before + 1
+        summary = center.get_decision_plan_summary(limit=5)
+        assert summary["available"] is True
+        assert summary["stats"]["total"] == 1
+        assert summary["stats"]["persisted"] is True
 
-    latest = center.get_latest_decision()
-    assert isinstance(latest, dict)
-    # 留痕 = to_dict() 的副本 + recorded_at（+ approved，若有传入）
-    from deva.naja.decision import DecisionPlan
+        latest = center.get_latest_decision()
+        assert isinstance(latest, dict)
+        # 留痕 = to_dict() 的副本 + recorded_at（+ approved，若有传入）
+        from deva.naja.decision import DecisionPlan
 
-    assert set(latest) == set(DecisionPlan.__dataclass_fields__) | {"recorded_at", "approved"}
-    assert latest["symbol"] == "600000"
-    assert latest["action_type"] == "act_carefully"
-    assert latest["approved"] is True
-    assert isinstance(latest["recorded_at"], float)
+        assert set(latest) == set(DecisionPlan.__dataclass_fields__) | {"recorded_at", "approved"}
+        assert latest["symbol"] == "600000"
+        assert latest["action_type"] == "act_carefully"
+        assert latest["approved"] is True
+        assert isinstance(latest["recorded_at"], float)
 
-    # 未传 approved 时不硬塞该键（避免 UI 误判"已批准"）
-    _record_fake_plan(center, symbol="000002")
-    assert "approved" not in center.get_latest_decision()
+        # 未传 approved 时不硬塞该键（避免 UI 误判"已批准"）
+        _record_fake_plan(center, symbol="000002")
+        assert "approved" not in center.get_latest_decision()
+
+        # 确实落了盘（而不只是内存队列）
+        assert journal.count() == 2
+        assert journal.recent(1)[0]["symbol"] == "000002"
+
+
+def test_recent_decisions_survive_restart():
+    """核心诉求：换一个进程（新 TradingCenter）也能读到旧决策。
+
+    这里用"绕过内存队列、直接读落盘"来模拟重启：清空 deque 后
+    ``get_recent_decisions`` 仍应返回落盘历史。
+    """
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
+
+    center = get_trading_center()
+    with _temp_journal(center) as journal:
+        _record_fake_plan(center, symbol="600519", approved=True)
+
+        # 模拟重启：内存队列清空（落盘不动）
+        center._recent_plans.clear()
+        assert center.get_latest_decision()["symbol"] == "600519"
+
+        # 再模拟一次"全新进程"：换一个 DecisionJournal 实例指向同一张表
+        from deva.naja.decision.journal import DecisionJournal
+
+        fresh = DecisionJournal(table=TEST_JOURNAL_TABLE, maxsize=200)
+        assert fresh.recent(5)[0]["symbol"] == "600519"
+        assert journal.count() == 1
+
+
+def test_decision_history_window_filters_by_time():
+    """回放窗口按时间过滤：48 小时前的决策不该出现在 24h 窗口里。"""
+    import time
+
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
+    from deva.naja.decision import get_decision_history
+
+    center = get_trading_center()
+    with _temp_journal(center) as journal:
+        _record_fake_plan(center, symbol="FRESH")
+
+        # 直接写一条 48 小时前的（绕开 record() 的单调递增护栏）。
+        # 表的 maxsize 还有富余，故不会被立刻淘汰——淘汰只在超容时发生。
+        old_ts = time.time() - 48 * 3600
+        journal._db.append(
+            {"symbol": "ANCIENT", "recorded_at": old_ts}, key=old_ts
+        )
+
+        window_24h = get_decision_history(hours=24, limit=100)
+        assert [e["symbol"] for e in window_24h] == ["FRESH"]
+
+        window_72h = get_decision_history(hours=72, limit=100)
+        assert [e["symbol"] for e in window_72h] == ["FRESH", "ANCIENT"]
+
+        # 极窄窗口（cutoff=now）→ 空
+        assert get_decision_history(hours=0, limit=100) == []
+        # limit 生效
+        assert len(get_decision_history(hours=72, limit=1)) == 1
 
 
 def test_decision_query_returns_copies_not_live_refs():
-    """查询结果必须是副本——UI 改不动留痕队列。"""
+    """查询结果必须是副本——UI 改不动留痕存储。"""
     from deva.naja.attention.orchestration.trading_center import get_trading_center
     from deva.naja.decision import get_recent_decision_plans
 
     center = get_trading_center()
-    _record_fake_plan(center, symbol="000001")
+    with _temp_journal(center):
+        _record_fake_plan(center, symbol="000001")
 
-    recent = get_recent_decision_plans(limit=1)
-    assert recent and recent[0]["symbol"] == "000001"
-    recent[0]["symbol"] = "TAMPERED"
+        recent = get_recent_decision_plans(limit=1)
+        assert recent and recent[0]["symbol"] == "000001"
+        recent[0]["symbol"] = "TAMPERED"
 
-    again = get_recent_decision_plans(limit=1)
-    assert again[0]["symbol"] == "000001", "查询结果被外部修改污染了留痕队列"
+        again = get_recent_decision_plans(limit=1)
+        assert again[0]["symbol"] == "000001", "查询结果被外部修改污染了留痕存储"
+
+
+def test_record_plan_falls_back_to_deque_when_journal_unavailable():
+    """落盘不可用时不能崩——留痕降级到内存队列，且如实标注 persisted=False。"""
+    from deva.naja.attention.orchestration.trading_center import get_trading_center
+    from deva.naja.decision.journal import DecisionJournal
+
+    center = get_trading_center()
+    original = getattr(center, "_decision_journal", None)
+    dead = DecisionJournal(table=TEST_JOURNAL_TABLE, db=None)  # 强制不可用
+    dead._db = None
+    try:
+        center._decision_journal = dead
+        center._recent_plans.clear()
+
+        _record_fake_plan(center, symbol="DEGRADED")
+        assert dead.record({"x": 1}) is None
+
+        summary = center.get_decision_plan_summary(limit=5)
+        assert summary["available"] is True          # 内存兜底仍能看到
+        assert summary["stats"]["persisted"] is False
+        assert summary["latest"]["symbol"] == "DEGRADED"
+    finally:
+        center._decision_journal = original
+        center._recent_plans.clear()
 
 
 def test_decision_query_is_honest_when_empty():
@@ -407,13 +522,24 @@ def test_decision_plan_panel_renders_empty_and_filled():
             "reasons": ["融合降级"], "approved": True,
         },
         "recent": [],
-        "stats": {"total": 1, "shown": 1, "approved": 1, "actionable": 1},
+        "stats": {"total": 1, "shown": 1, "approved": 1, "actionable": 1, "persisted": True},
     })
     assert "600000" in filled
     assert "谨慎行动" in filled          # action_type 有人话标签
     assert "60%" in filled               # size_hint 渲染成百分比
     assert "时机尚可，轻仓试探" in filled  # gate_reason
     assert "融合降级" in filled           # reasons
+    assert "已落盘" in filled             # 持久化状态可见
+
+    # 落盘不可用时要如实标注，而不是默默显示"已落盘"
+    degraded = render_decision_plan_panel({
+        "available": True,
+        "latest": {"symbol": "600000", "action_type": "hold", "side": "none"},
+        "recent": [],
+        "stats": {"total": 1, "shown": 1, "approved": 0, "actionable": 0, "persisted": False},
+    })
+    assert "仅内存" in degraded
+    assert "已落盘" not in degraded
 
 
 def test_decision_plan_panel_escapes_html():

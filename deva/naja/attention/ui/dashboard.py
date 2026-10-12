@@ -187,7 +187,8 @@ def _get_decision_plan_state() -> Dict[str, Any]:
             "available": False,
             "latest": None,
             "recent": [],
-            "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0},
+            "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0,
+                      "persisted": False},
             "reason": "决策查询服务不可用",
         }
 
@@ -324,7 +325,8 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "manas_engine": {"available": False, "timing_engine": {}, "regime_engine": {}, "output": {}},
         "manas_gate_audit": {"available": False, "stats": {}, "recent": []},
         "decision_plan": {"available": False, "latest": None, "recent": [],
-                          "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0}},
+                          "stats": {"total": 0, "shown": 0, "approved": 0,
+                                    "actionable": 0, "persisted": False}},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
         "symbol_weights": {"top_symbols": [], "top_blocks": []},

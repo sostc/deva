@@ -9,10 +9,12 @@ UI 侧**不**直接持有 ``DecisionPlan`` / ``FusionOutput`` 这些核心对象
 反过来 UI 也无法"顺手"改决策对象。
 
 约定：
-- 所有函数返回**副本**，调用方改不动留痕队列。
+- 所有函数返回**副本**，调用方改不动留痕存储。
 - 没有决策历史时**如实返回空**（``available=False`` / ``None`` / ``[]``），
   绝不兜底合成一条"看起来像"的计划——那会把"还没决策"伪装成"决策了"，
   正是本项目反复踩的静默失效。
+- 决策历史**已落盘**（``decision/journal.py``，NB time 模式），所以这里的查询
+  能读到**上次重启之前**的决策；``get_decision_history`` 提供时间窗回放。
 - 本模块**惰性**导入 ``TradingCenter``（``trading_center`` 依赖 ``decision``
   包，模块级反向导入会成环）。
 """
@@ -66,7 +68,10 @@ def get_latest_decision_plan() -> Optional[Dict[str, Any]]:
 
 
 def get_recent_decision_plans(limit: int = 10) -> List[Dict[str, Any]]:
-    """最近若干条决策产物（最新在前）；没有则空列表。"""
+    """最近若干条决策产物（最新在前）；没有则空列表。
+
+    读的是**落盘历史**，因此包含上次重启之前的决策。
+    """
     center = _get_center()
     if center is None:
         return []
@@ -77,12 +82,33 @@ def get_recent_decision_plans(limit: int = 10) -> List[Dict[str, Any]]:
         return []
 
 
+def get_decision_history(hours: float = 24.0, limit: int = 200) -> List[Dict[str, Any]]:
+    """时间窗内的决策历史（最新在前）——**回放**用。
+
+    与 ``get_recent_decision_plans`` 的差别：按时间窗取，不只看最新 N 条。
+    """
+    center = _get_center()
+    if center is None:
+        return []
+    try:
+        return center.get_decision_history(hours=hours, limit=limit)
+    except Exception as e:
+        log.debug(f"[decision.query] 读取决策回放窗口失败: {e}")
+        return []
+
+
 def _empty_summary(reason: str) -> Dict[str, Any]:
     return {
         "available": False,
         "latest": None,
         "recent": [],
-        "stats": {"total": 0, "shown": 0, "approved": 0, "actionable": 0},
+        "stats": {
+            "total": 0,
+            "shown": 0,
+            "approved": 0,
+            "actionable": 0,
+            "persisted": False,
+        },
         "reason": reason,
     }
 
@@ -91,4 +117,5 @@ __all__ = [
     "get_decision_plan_summary",
     "get_latest_decision_plan",
     "get_recent_decision_plans",
+    "get_decision_history",
 ]

@@ -41,6 +41,7 @@ from deva.naja.decision import (
     compute_plan_size_hint,
     side_from_signal_type,
 )
+from deva.naja.decision.journal import get_decision_journal
 from ..os.attention_os import AttentionOS, get_attention_os
 
 # process_strategy_signal_event 需要的类型
@@ -158,7 +159,9 @@ class TradingCenter:
 
         # 决策留痕：每次产出 DecisionPlan（含降级/否决路径）都记一条，
         # 供 dashboard 经查询接口读取（§6.4：UI 只吃 dict，不深入核心对象）。
+        # 内存 deque 是**快路径/兜底**；真正的权威副本在落盘日志（重启可回放）。
         self._recent_plans: Deque[Dict[str, Any]] = deque(maxlen=RECENT_DECISION_CAPACITY)
+        self._decision_journal = get_decision_journal()
 
         self._decision_orchestrator = DecisionOrchestrator(
             attention_os=self.attention_os,
@@ -365,6 +368,11 @@ class TradingCenter:
     # ── 决策留痕（DecisionPlan）────────────────────────────────────────────
     # §6.4：UI 不深入核心对象。这里只把 ``DecisionPlan.to_dict()`` 的副本
     # 存进有界队列，查询接口再返回副本，UI 拿到的是纯 dict。
+    #
+    # 两层存储：
+    #   ① 落盘日志 ``DecisionJournal``（权威，跨进程存活，重启可回放）
+    #   ② 内存 deque（快路径 + 落盘不可用时的兜底）
+    # 写入**写穿**两层；读取**优先落盘**。
 
     def _recent_plans_deque(self) -> Deque[Dict[str, Any]]:
         """取留痕队列；``__init__`` 早退（单例已初始化）时兜底补建。"""
@@ -374,8 +382,19 @@ class TradingCenter:
             self._recent_plans = deque_
         return deque_
 
+    def _journal(self):
+        """取落盘日志；``__init__`` 早退时兜底补建（并允许测试注入）。"""
+        j = getattr(self, "_decision_journal", None)
+        if j is None:
+            j = get_decision_journal()
+            self._decision_journal = j
+        return j
+
     def _record_plan(self, plan: DecisionPlan, *, approved: Optional[bool] = None) -> None:
-        """记录一条决策产物。任何一条 ``DecisionPlan`` 都应经此留痕。"""
+        """记录一条决策产物。任何一条 ``DecisionPlan`` 都应经此留痕。
+
+        写穿落盘日志 + 内存队列。落盘失败**不**影响返回值——留痕是旁路。
+        """
         try:
             entry = plan.to_dict()
         except Exception as e:  # pragma: no cover - to_dict 不该抛
@@ -385,17 +404,40 @@ class TradingCenter:
         entry["recorded_at"] = time.time()
         if approved is not None:
             entry["approved"] = bool(approved)
+
+        # 落盘（权威副本）；返回实际写入时间键，保证两层时间戳一致
+        saved_ts = self._journal().record(entry)
+        if saved_ts is not None:
+            entry["recorded_at"] = saved_ts
+
         self._recent_plans_deque().append(entry)
 
     def get_recent_decisions(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """[公开] 最近若干条决策产物（最新在前，纯 dict 副本）。"""
+        """[公开] 最近若干条决策产物（最新在前，纯 dict 副本）。
+
+        优先读**落盘历史**（含上次重启之前的决策）；落盘不可用时回落内存队列。
+        """
         try:
             n = max(0, int(limit))
         except (TypeError, ValueError):
             n = 10
+        if n <= 0:
+            return []
+
+        persisted = self._journal().recent(limit=n)
+        if persisted:
+            return persisted
+
         items = list(self._recent_plans_deque())
         items.reverse()
         return [dict(item) for item in items[:n]]
+
+    def get_decision_history(self, hours: float = 24.0, limit: int = 200) -> List[Dict[str, Any]]:
+        """[公开] 时间窗内的决策历史（最新在前）——**回放**用。
+
+        与 ``get_recent_decisions`` 的差别：这里按时间窗取，不只看最新 N 条。
+        """
+        return self._journal().history(hours=hours, limit=limit)
 
     def get_latest_decision(self) -> Optional[Dict[str, Any]]:
         """[公开] 最新一条决策产物；从未产生过决策时返回 ``None``。
@@ -408,18 +450,22 @@ class TradingCenter:
 
     def get_decision_plan_summary(self, limit: int = 10) -> Dict[str, Any]:
         """[公开] dashboard 用的决策面板数据（纯 dict）。"""
+        journal = self._journal()
         recent = self.get_recent_decisions(limit=limit)
         approved = sum(1 for item in recent if item.get("approved") is True)
         actionable = sum(1 for item in recent if self._plan_entry_actionable(item))
+        persisted_total = journal.count()
         return {
             "available": bool(recent),
             "latest": recent[0] if recent else None,
             "recent": recent,
             "stats": {
-                "total": len(self._recent_plans_deque()),
+                # 落盘总条数（跨重启累计）；落盘不可用时退回本进程队列长度
+                "total": persisted_total if persisted_total else len(self._recent_plans_deque()),
                 "shown": len(recent),
                 "approved": approved,
                 "actionable": actionable,
+                "persisted": journal.stats().get("available", False),
             },
         }
 
