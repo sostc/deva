@@ -16,8 +16,14 @@ from deva.naja.news import (
     GROUP_HOLDING,
     GROUP_MACRO,
     GROUP_THEME,
+    TIER_HOLDING,
+    TIER_MACRO,
+    TIER_PIERCE,
+    TIER_THEME,
+    TIER_WATCHLIST,
     NewsFocusState,
     NewsTriage,
+    TriageConfig,
     build_digest,
     get_news_digest_summary,
     render_digest_html,
@@ -32,6 +38,14 @@ _SAMPLE_FOCUS = NewsFocusState(
     themes=(("AI", ("大模型", "算力", "英伟达")), ("芯片", ("半导体", "晶圆"))),
     narrative_risk=0.72,
 )
+
+
+class _Stock:
+    """假的 ``StockInfo``（焦点层只读 code / name 两个字段）。"""
+
+    def __init__(self, code, name):
+        self.code = code
+        self.name = name
 
 
 def _items():
@@ -96,6 +110,133 @@ def test_focus_state_empty_detection():
     assert NewsFocusState(holdings=("X",)).is_empty() is False
 
 
+# ── 持仓链路可达性（反静默）────────────────────────────────────────────
+
+def test_focus_prefers_merged_holdings_across_accounts():
+    """合并全部券商账户：只看默认账户会漏掉"我真正持有的票"。"""
+    from deva.naja.news.focus import build_focus_state
+
+    class _MultiAccount:
+        def get_all_holdings(self):
+            return [_Stock("nvda", "英伟达"), _Stock("06666", "EVERG SERVICES")]
+
+        def get_holdings(self):
+            raise AssertionError("有 get_all_holdings 时不该再退回单账户")
+
+        def get_watchlist(self):
+            return []
+
+        def get_account_status(self):
+            return {"brokerage_initialized": ["Spark", "FutuReal"], "failures": []}
+
+    focus = build_focus_state(
+        portfolio=_MultiAccount(), focus_manager=None, manas_manager=None, use_cache=False
+    )
+    assert "英伟达" in focus.holdings and "nvda" in focus.holdings
+    assert "EVERG SERVICES" in focus.holdings
+    assert any(s.startswith("持仓账户:") for s in focus.sources)
+
+
+def test_focus_never_silently_reports_empty_holdings():
+    """回归：账户一个都没建起来时，持仓为空**必须留痕**。
+
+    历史 bug：``_init_accounts`` 里一个账户抛错中断整个循环，Spark/Cutie 从未创建，
+    ``get_holdings()`` 静默返回 ``[]`` —— 用户真实持仓读出来恒为空、新闻的
+    「持仓档」永远不命中，而且**不报任何错**。这条就是那次的反静默守卫。
+    """
+    from deva.naja.news.focus import build_focus_state
+
+    class _NeverInitialized:
+        def get_all_holdings(self):
+            return []
+
+        def get_watchlist(self):
+            return []
+
+        def get_account_status(self):
+            return {
+                "expected": ["虚拟测试", "Spark"],
+                "initialized": [],
+                "brokerage_initialized": [],
+                "failures": ["虚拟测试"],
+                "has_virtual": False,
+            }
+
+    focus = build_focus_state(
+        portfolio=_NeverInitialized(), focus_manager=None, manas_manager=None,
+        use_cache=False,
+    )
+    assert focus.holdings == ()
+    assert focus.degraded, "持仓为空却没有留痕 —— 这正是要防的静默失效"
+    assert any("初始化失败" in d or "不太可区分" in d or "不可区分" in d
+               for d in focus.degraded), focus.degraded
+
+
+def test_focus_reports_partial_account_failure():
+    """部分账户失败也要说出来（哪怕其它账户读到了持仓）。"""
+    from deva.naja.news.focus import build_focus_state
+
+    class _Partial:
+        def get_all_holdings(self):
+            return [_Stock("nvda", "英伟达")]
+
+        def get_watchlist(self):
+            return []
+
+        def get_account_status(self):
+            return {"brokerage_initialized": ["Spark"], "failures": ["虚拟测试"]}
+
+    focus = build_focus_state(
+        portfolio=_Partial(), focus_manager=None, manas_manager=None, use_cache=False
+    )
+    assert focus.holdings == ("nvda", "英伟达")
+    assert any("初始化失败" in d for d in focus.degraded), focus.degraded
+
+
+def test_focus_state_field_count_matches_to_dict():
+    """dataclass 字段数必须 == to_dict() 键数（本项目已踩过两次，固化成测试）。"""
+    import dataclasses
+
+    n_fields = len(dataclasses.fields(NewsFocusState))
+    n_keys = len(NewsFocusState().to_dict())
+    assert n_fields == n_keys, f"字段 {n_fields} 个，to_dict 出 {n_keys} 个键"
+
+
+def test_collapse_identifiers_folds_case_variants_for_display():
+    """展示层折叠大小写变体（lg新能源 → LG新能源），但不改匹配数据。"""
+    from deva.naja.news.focus import collapse_identifiers
+
+    assert collapse_identifiers(["lg新能源", "LG新能源", "宁德时代"]) == (
+        "LG新能源", "宁德时代")
+    assert collapse_identifiers([]) == ()
+    assert collapse_identifiers(["300750"]) == ("300750",)
+
+
+def test_focus_labels_prefer_human_names_over_codes():
+    """展示名优先中文名 —— 否则报告里会列成"baba、阿里巴巴、nvda、英伟达"。"""
+    from deva.naja.news.focus import build_focus_state
+
+    class _Paired:
+        def get_all_holdings(self):
+            return [_Stock("baba", "阿里巴巴"), _Stock("nvda", "英伟达")]
+
+        def get_watchlist(self):
+            return [_Stock("lg新能源", "LG新能源")]
+
+        def get_account_status(self):
+            return {"brokerage_initialized": ["Spark"], "failures": []}
+
+    focus = build_focus_state(
+        portfolio=_Paired(), focus_manager=None, manas_manager=None, use_cache=False
+    )
+    # 匹配仍保留代码+名称两套写法
+    assert focus.holdings == ("baba", "阿里巴巴", "nvda", "英伟达")
+    # 展示只要人可读名
+    assert focus.holdings_labels == ("阿里巴巴", "英伟达")
+    assert focus.watchlist_labels == ("LG新能源",)
+    assert focus.to_dict()["holdings_labels"] == ["阿里巴巴", "英伟达"]
+
+
 # ── 相关度筛选 ──────────────────────────────────────────────────────────
 
 def test_holding_news_outranks_high_importance_macro_news():
@@ -104,14 +245,130 @@ def test_holding_news_outranks_high_importance_macro_news():
     groups = result["groups"]
 
     holding = groups[GROUP_HOLDING]
-    assert len(holding) == 2
-    assert holding[0]["relevance"] > max(
-        (m["relevance"] for m in groups[GROUP_MACRO]), default=0.0
-    )
+    assert len(holding) == 1, "自选（特斯拉）已归入外部要闻，不再与持仓同组"
+    assert holding[0]["title"].startswith("宁德时代")
+
+    others = [row for g in (GROUP_THEME, GROUP_MACRO) for row in groups[g]]
+    assert holding[0]["relevance"] > max(r["relevance"] for r in others)
 
     eu = next(m for m in groups[GROUP_MACRO] if "欧盟" in m["title"])
     assert eu["base_importance"] > holding[0]["base_importance"], "前提：宏观那条本身更重要"
     assert eu["relevance"] < holding[0]["relevance"], "但相关度必须被持仓压过"
+
+
+def test_watchlist_never_outranks_holding_at_any_importance():
+    """硬分层的数学保证：自选**在任何重要度下**都压不过持仓。
+
+    这是从加分制改成分档制的**理由**——旧版 `base*0.45 + bonus` 下，
+    自选条只要重要度高 0.267 就能反超持仓条（自选你"在看"的票
+    挤掉了你"持有"的票）。现在穷举档位区间两端验证不变量。
+    """
+    cfg = TriageConfig()
+    holding_top = cfg.band(TIER_HOLDING)
+    watchlist_top = cfg.band(TIER_WATCHLIST)
+
+    worst_holding = holding_top.apply(0.0)      # 持仓条重要度垫底
+    best_watchlist = watchlist_top.apply(1.0)   # 自选条重要度拉满
+    assert best_watchlist < worst_holding, (
+        f"自选最优 {best_watchlist:.3f} 不得 ≥ 持仓最差 {worst_holding:.3f}"
+    )
+
+
+def test_tier_bands_are_strictly_disjoint():
+    """档位区间必须从高到低严丝合缝——重叠了「持仓永远优先」就失效。"""
+    cfg = TriageConfig()
+    assert cfg.validate() == [], cfg.validate()
+
+    holding = cfg.band(TIER_HOLDING)
+    theme = cfg.band(TIER_THEME)
+    watchlist = cfg.band(TIER_WATCHLIST)
+    macro = cfg.band(TIER_MACRO)
+
+    assert macro.ceiling + cfg.theme_nudge < watchlist.floor
+    assert watchlist.ceiling < theme.floor
+    assert theme.ceiling < holding.floor
+    assert holding.ceiling == 1.0
+
+
+def test_watchlist_item_lands_in_macro_group_not_holding():
+    """自选并入「外部要闻」：它在组内排得比纯宏观高，但不和持仓并列。"""
+    result = NewsTriage(_SAMPLE_FOCUS).analyze(_items(), per_group_limit=10)
+    groups = result["groups"]
+
+    assert all("特斯拉" not in r["title"] for r in groups[GROUP_HOLDING])
+    tesla = next(r for r in groups[GROUP_MACRO] if "特斯拉" in r["title"])
+    assert tesla["tier"] == TIER_WATCHLIST
+    assert tesla["watchlist_hits"] == ["特斯拉"]
+
+    nvidia = next(r for r in groups[GROUP_MACRO] if "英伟达" in r["title"])
+    assert tesla["relevance"] > nvidia["relevance"], "自选应排在纯宏观之上"
+
+
+def test_risk_pierce_lifts_severe_negative_macro_news():
+    """挡机会不挡风险：重大负面外部新闻允许越过自选档。"""
+    triage = NewsTriage(NewsFocusState(holdings=("宁德时代",)))
+
+    severe = triage.score(
+        {"title": "欧盟推进新一轮制裁", "importance_score": 0.95, "sentiment": 0.30}
+    )
+    assert severe.pierced is True
+    assert severe.tier == TIER_PIERCE
+    assert severe.relevance > 0.5
+    assert any("穿透" in r for r in severe.reasons)
+
+    # 反例 1：高重要度但情绪不负面 → 不穿透
+    neutral = triage.score(
+        {"title": "某地举办行业展会", "importance_score": 0.95, "sentiment": 0.80}
+    )
+    assert neutral.pierced is False and neutral.tier == TIER_MACRO
+
+    # 反例 2：负面但重要度不够（且叙事风险中性）→ 不穿透
+    minor = triage.score(
+        {"title": "某公司小幅下调指引", "importance_score": 0.50, "sentiment": 0.20}
+    )
+    assert minor.pierced is False and minor.tier == TIER_MACRO
+
+
+def test_pierce_never_masquerades_as_holding():
+    """穿透可以抬排序，但**绝不能**冒充"我的持仓"（那是两件完全不同的事）。"""
+    triage = NewsTriage(NewsFocusState(holdings=("宁德时代",)))
+    scored = triage.score(
+        {"title": "美联储紧急加息 50bp", "importance_score": 1.0, "sentiment": 0.2}
+    )
+    assert scored.pierced is True
+    assert scored.group == GROUP_MACRO, "穿透条仍属外部要闻，不进行情组"
+    assert scored.holding_hits == ()
+    assert scored.relevance < TriageConfig().band(TIER_HOLDING).floor
+
+
+def test_pierce_preserves_manas_narrative_risk_link():
+    """穿透的第二条路径走 manas 叙事风险——保证这个信号不是死代码。"""
+    risky = NewsFocusState(narrative_risk=0.75)
+    calm = NewsFocusState(narrative_risk=0.20)
+    item = {"title": "某宏观数据不及预期", "importance_score": 0.70, "sentiment": 0.30}
+
+    assert NewsTriage(risky).score(item).pierced is True
+    assert NewsTriage(calm).score(item).pierced is False
+
+
+def test_bad_tier_env_falls_back_to_defaults_and_records_it():
+    """环境变量调坏档位（重叠/语法错）→ 回退默认并留痕，不许静默算错。"""
+    overlapping = TriageConfig.from_env(
+        {"NAJA_NEWS_TIERS": "holding=0.30/0.10,theme=0.50/0.20,"
+                            "watchlist=0.32/0.16,macro=0.00/0.24"}
+    )
+    assert overlapping.degraded and "回退默认" in overlapping.degraded[0]
+    assert overlapping.validate() == []
+
+    syntactically_bad = TriageConfig.from_env({"NAJA_NEWS_TIERS": "holding=0.78"})
+    assert syntactically_bad.degraded and "解析失败" in syntactically_bad.degraded[0]
+
+    good = TriageConfig.from_env(
+        {"NAJA_NEWS_TIERS": "holding=0.85/0.15,theme=0.55/0.20,"
+                            "watchlist=0.35/0.15,macro=0.00/0.25"}
+    )
+    assert good.degraded == ()
+    assert good.band(TIER_HOLDING).floor == 0.85
 
 
 def test_broad_theme_hit_does_not_promote_group():
@@ -262,7 +519,8 @@ def test_digest_renderers_escape_free_text():
 def test_digest_text_renders_groups():
     digest = build_digest(items=_items(), focus_state=_SAMPLE_FOCUS)
     text = render_digest_text(digest)
-    assert "持仓 / 自选相关" in text
+    assert "持仓相关" in text
+    assert "外部要闻" in text
     assert "宁德时代" in text
 
 
@@ -273,7 +531,9 @@ def test_digest_writes_daily_file():
     assert path.exists() and path.suffix == ".html"
     assert (out_dir / "latest.json").exists()
     reloaded = json.loads((out_dir / "latest.json").read_text(encoding="utf-8"))
-    assert reloaded["stats"]["holding"] == 2
+    assert reloaded["stats"]["holding"] == 1
+    assert reloaded["stats"]["macro"] == 3, "自选（特斯拉）已并入外部要闻"
+    assert reloaded["stats"]["pierced"] == 1, "欧盟制裁那条应被风险穿透抬档"
 
 
 def test_get_news_digest_summary_never_raises():
@@ -292,7 +552,7 @@ def test_ui_panel_renders_and_shows_honest_empty_state():
     digest = build_digest(items=_items(), focus_state=_SAMPLE_FOCUS)
     panel = render_news_digest_panel(digest)
     assert "今日新闻消化" in panel
-    assert "持仓 / 自选相关" in panel
+    assert "持仓相关" in panel
 
     empty = render_news_digest_panel({"available": False, "reason": "没有数据"})
     assert "没有数据" in empty

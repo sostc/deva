@@ -530,7 +530,14 @@ def render_news_digest_panel(digest: dict = None) -> str:
     groups = digest.get("groups") or {}
     labels = digest.get("group_labels") or {}
 
-    own = [str(x) for x in (list(focus.get("holdings") or []) + list(focus.get("watchlist") or []))]
+    from deva.naja.news.focus import collapse_identifiers
+
+    own = list(collapse_identifiers(
+        focus.get("holdings_labels") or focus.get("holdings") or []
+    ))
+    watch = list(collapse_identifiers(
+        focus.get("watchlist_labels") or focus.get("watchlist") or []
+    ))
     narratives = [str(x) for x in (focus.get("narratives") or [])]
 
     def _chips(values, color):
@@ -540,13 +547,22 @@ def render_news_digest_panel(digest: dict = None) -> str:
             for v in values[:8]
         )
 
-    focus_html = ""
-    if own:
-        focus_html += (
-            '<div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 5px;">'
-            '<span style="font-size: 10px; color: #64748b; min-width: 62px;">持仓/自选</span>'
-            f"{_chips(own, '#1d4ed8')}</div>"
+    def _focus_row(label, values, color):
+        if not values:
+            return ""
+        return (
+            '<div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center; '
+            'margin-bottom: 5px;">'
+            f'<span style="font-size: 10px; color: #64748b; min-width: 62px;">{label}</span>'
+            f"{_chips(values, color)}</div>"
         )
+
+    # 持仓与自选**分两行**显示：它们是两件事（自己的钱 vs 在看的票），
+    # 合并成一行会让"我持有什么"被"我在看什么"稀释。
+    focus_html = (
+        _focus_row("持仓", own, "#1d4ed8")
+        + _focus_row("自选", watch, "#0891b2")
+    )
     if narratives:
         focus_html += (
             '<div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">'
@@ -606,6 +622,30 @@ def render_news_digest_panel(digest: dict = None) -> str:
     if not sections:
         sections = '<div style="font-size: 11px; color: #94a3b8;">（没有命中任何关注项）</div>'
 
+    # 口径透明：把当前生效的档位区间直接摊开（用户关心"凭什么这么排"）。
+    # 这段是刻意可见的——排序口径改了却看不出来，是上一版的教训。
+    tiers = (digest.get("tier_config") or {}).get("bands") or {}
+    tier_bits = [
+        f'{label} {tiers[key]["floor"]:.2f}–{tiers[key]["ceiling"]:.2f}'
+        for key, label in (("holding", "持仓"), ("theme", "叙事"),
+                           ("watchlist", "自选"), ("macro", "外部"))
+        if key in tiers
+    ]
+    tier_html = (
+        '<div style="font-size: 10px; color: #64748b; margin-bottom: 10px;">'
+        "排序口径（区间严格不重叠）：" + " &gt; ".join(_esc(b) for b in tier_bits)
+        + "</div>"
+    ) if tier_bits else ""
+
+    pierced = int(stats.get("pierced", 0))
+    pierce_chip = (
+        '<div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; '
+        'padding: 4px 10px; text-align: center;">'
+        f'<div style="font-size: 13px; font-weight: 600; color: #b91c1c;">{pierced}</div>'
+        '<div style="font-size: 9px; color: #64748b;">风险穿透</div>'
+        "</div>"
+    ) if pierced else ""
+
     return f"""
     <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
                 padding: 14px; margin: 10px 0;">
@@ -633,8 +673,10 @@ def render_news_digest_panel(digest: dict = None) -> str:
                         {int(stats.get('theme', 0))}</div>
                     <div style="font-size: 9px; color: #64748b;">主题</div>
                 </div>
+                {pierce_chip}
             </div>
         </div>
+        {tier_html}
         {'<div style="margin-bottom: 10px;">' + focus_html + '</div>' if focus_html else ''}
         {degraded_html}
         {sections}

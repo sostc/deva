@@ -3,14 +3,19 @@
 
 覆盖什么
 --------
-① **持仓优先排序**（用户选定的口径）：命中持仓的新闻必须压过"高重要度但与我们无关"的宏观新闻
+① **硬分层不变量**（用户选定的口径，2026-10-12 二次修订）：
+   持仓在**数学上必然**优先于任何非持仓新闻（不再是"倾向于"）；
+   自选并入外部要闻组；重大负面外部新闻允许「风险穿透」
 ② **分组区分度**：manas 默认主题集是宽泛大类（几乎命中一切），单独命中**不得**升级成「关注主题」组
 ③ **去重**：同标题只留相关度最高的一条
 ④ **断线已修**：``TextImportanceScorer`` 接上 provider 后 ``matched_focus_topics`` 不再恒空
-⑤ **降级诚实**：没有新闻时 ``available=False`` + reason；provider 抛错不炸、沿用上次快照
+⑤ **降级诚实**：没有新闻时 ``available=False`` + reason；provider 抛错不炸、沿用上次快照；
+   档位配置调坏（区间重叠）时回退默认并留痕
 ⑥ **报告可渲染 / 可落盘**：HTML + 纯文本结构完整，能写到指定目录
 ⑦ **静态守卫**：容器确实做了接线（防回退成死线）；dashboard 确实有出口
 ⑧ **冷启动回归**：``attention_os`` 作为第一个被 import 的模块不再触发循环导入
+⑨ **持仓链路可达性（反静默）**：券商账户真的被创建；持仓为空时**必须留痕**
+   ——守 ``_init_accounts`` 那个"一个账户抛错中断整个循环"的历史 bug
 
 跑法
 ----
@@ -107,28 +112,60 @@ def main() -> int:
     )
     items = _make_items()
 
-    # ── ① 持仓优先排序 ────────────────────────────────────────────────
+    # ── ① 硬分层不变量 + 持仓优先 + 风险穿透 ──────────────────────────
     print("=" * 68)
-    print("① 持仓优先：命中持仓的新闻压过高重要度的无关宏观新闻")
+    print("① 硬分层不变量：持仓数学上必然优先（不再是「倾向于」）")
     print("=" * 68)
+    from deva.naja.news import TIER_HOLDING, TIER_WATCHLIST, TriageConfig
+
+    cfg = TriageConfig()
+    problems = cfg.validate()
+    check("档位区间严格不重叠（配置自校验）", not problems,
+          "；".join(problems) if problems else "4 档严丝合缝，无重叠")
+
+    holding_band = cfg.band(TIER_HOLDING)
+    watchlist_band = cfg.band(TIER_WATCHLIST)
+    check("自选拉满重要度也压不过持仓垫底（旧版的缺陷 1）",
+          watchlist_band.apply(1.0) < holding_band.apply(0.0),
+          f"自选最优 {watchlist_band.apply(1.0):.3f} < 持仓最差 {holding_band.apply(0.0):.3f}")
+
     result = NewsTriage(focus).analyze(items, per_group_limit=10)
     groups = result["groups"]
 
     holding = groups["holding"]
-    check("有新闻进入「持仓/自选相关」组", len(holding) == 2, f"n={len(holding)}")
-    check("命中的是持仓(宁德时代)与自选(特斯拉)",
-          {h["title"] for h in holding} == {"宁德时代发布新款麒麟电池", "特斯拉上海工厂扩产"},
+    check("持仓组只放持仓（自选已归入外部要闻）",
+          len(holding) == 1 and holding[0]["title"] == "宁德时代发布新款麒麟电池",
           f"{[h['title'] for h in holding]}")
 
     top_rel = holding[0]["relevance"] if holding else 0.0
-    macro_rel = max((m["relevance"] for m in groups["macro"]), default=0.0)
-    check("持仓相关度 > 宏观最高相关度（口径生效）", top_rel > macro_rel,
-          f"holding={top_rel:.3f} vs macro={macro_rel:.3f}")
+    others_max = max((r["relevance"] for g in ("theme", "macro") for r in groups[g]), default=0.0)
+    check("持仓相关度 > 所有非持仓新闻（硬保证，旧版的缺陷 2）",
+          top_rel > others_max, f"holding={top_rel:.3f} vs 其它最高={others_max:.3f}")
 
     euva = next((m for m in groups["macro"] if "欧盟" in m["title"]), None)
-    check("重要度 0.95 的无关新闻确实落在 macro 组", euva is not None, "")
-    check("它仍然排不上持仓新闻之前", euva is not None and euva["relevance"] < top_rel,
+    check("重要度 0.95 的无关新闻落在外部要闻组", euva is not None, "")
+    check("它排不上持仓新闻之前",
+          euva is not None and euva["relevance"] < top_rel,
           f"euva={euva['relevance']:.3f} vs holding={top_rel:.3f}")
+
+    # 风险穿透：挡机会 ≠ 挡风险
+    check("重大负面外部新闻被「风险穿透」抬档（挡机会不挡风险）",
+          bool(euva and euva.get("pierced")),
+          f"tier={euva.get('tier')} rel={euva['relevance']:.3f}" if euva else "未找到该条")
+    check("穿透条仍属外部要闻组，不冒充持仓",
+          bool(euva and euva["group"] == "macro" and not euva["holding_hits"]),
+          f"group={euva.get('group')} holding_hits={euva.get('holding_hits')}" if euva else "")
+
+    tesla = next((m for m in groups["macro"] if "特斯拉" in m["title"]), None)
+    nvidia_for_order = next((m for m in groups["macro"] if "英伟达" in m["title"]), None)
+    check("自选条归入外部要闻组（不再与持仓并列）",
+          bool(tesla and tesla.get("tier") == "watchlist"),
+          f"tier={tesla.get('tier')}" if tesla else "未找到该条")
+    check("同组内自选排在纯宏观之前（自选仍有独立档位）",
+          bool(tesla and nvidia_for_order
+               and tesla["relevance"] > nvidia_for_order["relevance"]),
+          f"自选={tesla['relevance']:.3f} vs 纯宏观={nvidia_for_order['relevance']:.3f}"
+          if tesla and nvidia_for_order else "")
 
     # ── ② 分组区分度（回归：宽泛主题不得升级成 theme 组）──────────────
     print()
@@ -216,6 +253,22 @@ def main() -> int:
     check("provider 抛错 → 沿用上次快照，不抛异常",
           "新能源" in captured[-1].matched_focus_topics, f"{captured[-1].matched_focus_topics}")
 
+    # 档位口径调坏时必须回退（本项目的规矩：宁可退回已知安全的口径）
+    bad_env = TriageConfig.from_env(
+        {"NAJA_NEWS_TIERS": "holding=0.30/0.10,theme=0.50/0.20,"
+                            "watchlist=0.32/0.16,macro=0.00/0.24"}
+    )
+    check("档位区间被调重叠 → 回退默认并留痕（不静默算错）",
+          bool(bad_env.degraded) and bad_env.validate() == [],
+          bad_env.degraded[0] if bad_env.degraded else "无降级记录（不应如此）")
+    good_env = TriageConfig.from_env(
+        {"NAJA_NEWS_TIERS": "holding=0.85/0.15,theme=0.55/0.20,"
+                            "watchlist=0.35/0.15,macro=0.00/0.25"}
+    )
+    check("合法调参生效（无需改代码就能调口径）",
+          good_env.degraded == () and good_env.band(TIER_HOLDING).floor == 0.85,
+          f"holding.floor={good_env.band(TIER_HOLDING).floor}")
+
     # ── ⑥ 报告可渲染 / 可落盘 ─────────────────────────────────────────
     print()
     print("=" * 68)
@@ -230,10 +283,16 @@ def main() -> int:
     panel = render_news_digest_panel(digest)
 
     check("HTML 是完整文档且含关键区块",
-          html.startswith("<!DOCTYPE html>") and "持仓 / 自选相关" in html
-          and "关注主题" in html, f"len={len(html)}")
+          html.startswith("<!DOCTYPE html>") and "持仓相关" in html
+          and "关注叙事" in html and "外部要闻" in html, f"len={len(html)}")
+    check("HTML 摊开了排序口径（数字可见，不是黑箱）",
+          "排序口径" in html and "0.78" in html, "")
+    check("HTML 标出了风险穿透条",
+          "风险穿透" in html and "tag-pierce" in html, "")
     check("纯文本含分组标题与精选计数",
-          "持仓 / 自选相关" in text and "扫描" in text, f"len={len(text)}")
+          "持仓相关" in text and "扫描" in text, f"len={len(text)}")
+    check("纯文本把持仓与自选分行（不再混为一谈）",
+          "持仓：宁德时代" in text and "自选：特斯拉" in text, "")
     check("dashboard 面板片段可渲染", "今日新闻消化" in panel and len(panel) > 300,
           f"len={len(panel)}")
 
@@ -280,6 +339,56 @@ def main() -> int:
     ok_cold, out_cold = _child_import_check()
     check("子进程冷启动导入成功", ok_cold,
           (out_cold.splitlines() or [""])[-1])
+
+    # ── ⑨ 持仓链路可达性（反静默）──────────────────────────────────────
+    print()
+    print("=" * 68)
+    print("⑨ 持仓链路可达性：账户真的建起来了；持仓为空必须留痕")
+    print("=" * 68)
+    from deva.naja.attention.portfolio import get_portfolio
+    from deva.naja.news.digest import _load_scored_news
+    from deva.naja.news.focus import build_focus_state, invalidate_focus_cache
+
+    pf = get_portfolio()
+    status = pf.get_account_status()
+    brokerage = list(status.get("brokerage_initialized") or [])
+    failures = list(status.get("failures") or [])
+
+    # 历史 bug：虚拟测试抛 RuntimeError 逃过 except KeyError → 循环中断 →
+    # Spark / Cutie 从未创建 → get_holdings() 静默返回 []
+    check("券商账户确实被创建（历史上被一个失败账户连累，全部没建起来）",
+          bool(brokerage),
+          f"brokerage_initialized={brokerage} failures={failures}")
+
+    invalidate_focus_cache()
+    live = build_focus_state(use_cache=False)
+
+    if brokerage:
+        check("真实持仓被读到（不再恒为空）", bool(live.holdings),
+              f"holdings={list(live.holdings)[:8]}")
+    else:
+        check("账户未初始化时持仓为空**必须留痕**",
+              any("初始化失败" in d or "不可区分" in d for d in live.degraded),
+              f"degraded={list(live.degraded)}")
+
+    check("焦点快照记录了持仓来源账户（可回溯钱是从哪个账户读的）",
+          any(str(s).startswith("持仓账户:") for s in live.sources),
+          f"sources={list(live.sources)}")
+
+    # 核心反静默断言：绝不允许出现「持仓为空却没有任何解释」的状态
+    check("不存在「持仓为空却零解释」的静默状态",
+          bool(live.holdings) or bool(live.degraded),
+          f"holdings={len(live.holdings)} degraded={len(live.degraded)}")
+
+    # 持仓链路通了之后，AI/英伟达类新闻应当能进「持仓相关」档
+    if live.holdings:
+        live_items, _ = _load_scored_news(hours=168, limit=300)
+        live_result = NewsTriage(live).analyze(live_items, per_group_limit=20)
+        n_holding = live_result["stats"]["holding"]
+        check("真实新闻里已出现「持仓相关」命中（持仓档不再是死档）",
+              n_holding > 0,
+              f"holding={n_holding} theme={live_result['stats']['theme']} "
+              f"macro={live_result['stats']['macro']}")
 
     # ── 汇总 ──────────────────────────────────────────────────────────
     print()

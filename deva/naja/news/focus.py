@@ -7,13 +7,30 @@ manas 只负责提供它的注意力状态（关注主题 / 自选股 / 叙事�
 
 三条数据链（全部优雅降级，**降级必留痕**——本项目反复踩过的静默失效）：
 
-  1. 持仓 / 自选股   ← ``attention.portfolio.get_portfolio()``（表 ``naja_watchlist``）
-  2. 关注叙事 / 题材 ← ``attention.focus_manager``（表 ``naja_focus_config``）
-  3. 关注主题        ← manas ``get_focus_themes()``（退化为 ``keyword_registry`` 预设）
+  1. **持仓**          ← ``attention.portfolio.get_all_holdings()``（**合并全部券商账户**）
+     + **自选**        ← ``get_watchlist()``（表 ``naja_watchlist`` 的 ``stocks`` 键）
+  2. 关注叙事 / 题材   ← ``attention.focus_manager``（表 ``naja_focus_config``）
+  3. 关注主题          ← manas ``get_focus_themes()``（退化为 ``keyword_registry`` 预设）
 
 实测坑（2026-10-12）：``naja_watchlist`` 里存的可能是**中文名**而不是代码
 （如 ``宁德时代`` / ``lg新能源``），所以匹配必须**同时认代码与名称**，
 只比代码会漏掉全部持仓相关新闻。
+
+第二组坑（同日，更严重）：**持仓为什么一直是空的**。根因不在本模块，而在
+``PortfolioManager._init_accounts()``——"虚拟测试"账户注入失败时抛的
+``RuntimeError`` 逃过了内层 ``except KeyError``，被外层 ``except Exception`` 吞掉，
+**整个初始化循环中断**，排在后面的 ``Spark`` / ``Cutie`` 从未被创建；而
+``Portfolio.get_holdings()`` 在账户不存在时**静默返回 ``[]``**。
+于是用户真实持仓（NVDA 英伟达等）读出来恒为空、新闻的「持仓档」永远不命中，
+且不报任何错。修法有三层，缺一不可：
+
+  * ``_init_accounts`` 改为**逐账户兜错**（一个账户坏掉不连累其它）；
+  * ``get_account_status()`` 把「账户没建起来」与「账户真的为空」区分开；
+  * 本模块 ``_note_account_health()`` 在持仓为空时**显式留痕**（``degraded``）。
+
+另外 ``get_all_holdings()`` 合并**所有已初始化券商账户**——钱通常散在多个账户里
+（实测 Spark 2 只 + FutuReal 9 只），只看默认账户会把"我真正持有的票"的新闻
+错当成"外部机会"。
 """
 
 from __future__ import annotations
@@ -47,6 +64,11 @@ class NewsFocusState:
     # 【我们】持仓 / 自选（代码与中文名混在一起，都用来做文本匹配）
     holdings: Tuple[str, ...] = ()
     watchlist: Tuple[str, ...] = ()
+    # 【展示】与上面一一对应的人可读名（优先中文名/带大写的名称）。
+    # 只用于渲染——匹配必须保留代码+名称两套写法（新闻里两种都可能出现），
+    # 但报告里列成"baba、阿里巴巴、nvda、英伟达"太难读。
+    holdings_labels: Tuple[str, ...] = ()
+    watchlist_labels: Tuple[str, ...] = ()
     # 【关注】主动 follow 的叙事 / 题材
     narratives: Tuple[str, ...] = ()
     blocks: Tuple[str, ...] = ()
@@ -119,6 +141,8 @@ class NewsFocusState:
         return {
             "holdings": list(self.holdings),
             "watchlist": list(self.watchlist),
+            "holdings_labels": list(self.holdings_labels or self.holdings),
+            "watchlist_labels": list(self.watchlist_labels or self.watchlist),
             "narratives": list(self.narratives),
             "blocks": list(self.blocks),
             "themes": [{"name": n, "keywords": list(k)} for n, k in self.themes],
@@ -131,6 +155,44 @@ class NewsFocusState:
 def _eligible(text: str) -> bool:
     """长度太短的标识符不做子串匹配（防 1 字符噪声）。"""
     return bool(text) and len(text.strip()) >= _MIN_IDENTIFIER_LEN
+
+
+def _has_cjk(text: str) -> bool:
+    return any("\u4e00" <= ch <= "\u9fff" for ch in text)
+
+
+def collapse_identifiers(values: Sequence[str]) -> Tuple[str, ...]:
+    """把同一标的的 ``code`` / ``name`` 折叠成一个，**仅用于展示**。
+
+    匹配需要同时保留代码与名称（实测两者都可能出现在新闻里），
+    但报告里列成"baba、阿里巴巴、nvda、英伟达"很吵。
+    折叠规则（同 key 分组，key = 小写）：
+
+      1. 优先含中日韩文字的（通常是名称）；
+      2. 其次优先带大写的（``lg新能源`` → ``LG新能源``、``crwv`` → ``CoreWeave``）；
+      3. 再不行取先出现的。
+
+    保持首次出现顺序，不改任何匹配用的数据。
+    """
+    groups: Dict[str, List[str]] = {}
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            groups.setdefault(text.lower(), []).append(text)
+
+    def _rank(text: str) -> Tuple[int, int]:
+        return (1 if _has_cjk(text) else 0, 1 if text != text.lower() else 0)
+
+    picks: Dict[str, str] = {}
+    for key, variants in groups.items():
+        picks[key] = max(variants, key=lambda t: (_rank(t), -variants.index(t)))
+
+    seen: Dict[str, None] = {}
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            seen.setdefault(picks[text.lower()], None)
+    return tuple(seen)
 
 
 def _haystack(texts: Sequence[str]) -> str:
@@ -177,6 +239,8 @@ def build_focus_state(
     degraded: List[str] = []
     holdings: Tuple[str, ...] = ()
     watchlist: Tuple[str, ...] = ()
+    holdings_labels: Tuple[str, ...] = ()
+    watchlist_labels: Tuple[str, ...] = ()
     narratives: Tuple[str, ...] = ()
     blocks: Tuple[str, ...] = ()
 
@@ -186,8 +250,13 @@ def build_focus_state(
         if pf is None:
             degraded.append("持仓/自选：Portfolio 不可用")
         else:
-            holdings = _collect_identifiers(_safe_call(pf, "get_holdings"), degraded, "持仓")
-            watchlist = _collect_identifiers(_safe_call(pf, "get_watchlist"), degraded, "自选")
+            holdings, holdings_labels = _collect_identifiers(
+                _holdings_of(pf), degraded, "持仓"
+            )
+            watchlist, watchlist_labels = _collect_identifiers(
+                _safe_call(pf, "get_watchlist"), degraded, "自选"
+            )
+            _note_account_health(pf, holdings, degraded, sources)
             sources.append("portfolio")
     except Exception as e:  # pragma: no cover - 防御
         degraded.append(f"持仓/自选：{type(e).__name__}: {e}")
@@ -227,6 +296,8 @@ def build_focus_state(
     state = NewsFocusState(
         holdings=holdings,
         watchlist=watchlist,
+        holdings_labels=holdings_labels,
+        watchlist_labels=watchlist_labels,
         narratives=narratives,
         blocks=blocks,
         themes=themes,
@@ -320,19 +391,73 @@ def _safe_call(obj: Any, method: str) -> Any:
         return None
 
 
-def _collect_identifiers(items: Any, degraded: List[str], label: str) -> Tuple[str, ...]:
-    """从 ``StockInfo`` 列表同时收 code 与 name —— 实测这两者都可能是中文名。"""
+def _holdings_of(pf: Any) -> Any:
+    """取持仓：优先**合并全部券商账户**，退化到默认账户。
+
+    历史坑（2026-10-12）：只读默认账户 ``Spark`` 会漏掉富途实盘等账户里的持仓，
+    于是"我真正持有的票"的新闻被错当成"外部机会"。
+    """
+    merged = _safe_call(pf, "get_all_holdings")
+    if merged is not None:
+        return merged
+    return _safe_call(pf, "get_holdings")
+
+
+def _note_account_health(
+    pf: Any, holdings: Tuple[str, ...], degraded: List[str], sources: List[str]
+) -> None:
+    """反静默：持仓为空时，必须能区分「账户没建起来」与「真的没有持仓」。
+
+    历史 bug（2026-10-12）：``_init_accounts`` 里一个账户抛错中断了整个循环，
+    ``Spark``/``Cutie`` 从未创建，``get_holdings()`` 静默返回 ``[]`` ——
+    用户真实持仓（NVDA 等）读出来恒为空，新闻的「持仓档」永远不命中，
+    而且不报任何错。这条检查就是为了让同类事情**下次一定看得见**。
+    """
+    status = _safe_call(pf, "get_account_status")
+    if not isinstance(status, dict):
+        return
+
+    failures = [str(x) for x in (status.get("failures") or [])]
+    if failures:
+        degraded.append(
+            f"持仓：账户初始化失败（{'、'.join(failures)}）——其持仓被读作空"
+        )
+
+    brokerage = [str(x) for x in (status.get("brokerage_initialized") or [])]
+    if brokerage:
+        sources.append(f"持仓账户:{','.join(brokerage)}")
+
+    if not holdings and not brokerage:
+        degraded.append(
+            "持仓：券商账户一个都没初始化 → 持仓读作空；"
+            "这与「真的没有持仓」不可区分，已显式留痕"
+        )
+
+
+def _collect_identifiers(
+    items: Any, degraded: List[str], label: str
+) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """从 ``StockInfo`` 列表收「匹配用标识符」+「展示用人可读名」。
+
+    匹配必须同时收 ``code`` 与 ``name`` —— 实测这两者都可能是中文名，
+    新闻里两种写法都会出现（``英伟达`` / ``NVDA``）。展示则优先 ``name``，
+    否则报告里会列成"baba、阿里巴巴、nvda、英伟达"这种重复噪声。
+    """
     if items is None:
         degraded.append(f"{label}：读取失败")
-        return ()
-    out: List[str] = []
+        return (), ()
+    ids: List[str] = []
+    labels: List[str] = []
     for it in items:
         code = getattr(it, "code", None)
         name = getattr(it, "name", None)
         for value in (code, name):
-            if value and value not in out:
-                out.append(str(value))
-    return tuple(out)
+            if value and str(value) not in ids:
+                ids.append(str(value))
+        display = str(name or code or "").strip()
+        if display and display not in labels:
+            labels.append(display)
+    return tuple(ids), tuple(labels)
 
 
 def _collect_focus_ids(items: Any) -> Tuple[str, ...]:
@@ -398,4 +523,5 @@ __all__ = [
     "build_focus_state",
     "build_manas_focus_state",
     "invalidate_focus_cache",
+    "collapse_identifiers",
 ]
