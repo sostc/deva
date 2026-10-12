@@ -914,6 +914,31 @@ def execute() -> dict:
                 bandit_tracker=self._bandit_tracker,
             )
 
+        # D3 闭环反馈（读取端）：把 manas 的觉醒维度接到共享 AwakenedAlaya 上。
+        # 之前该环节指向一个全仓不存在的 get_awakening_controller → 恒 ×1.0。
+        # 这里用 lambda 延迟求值：TradingCenter 是单例，且其内部 alaya 懒创建，
+        # 装配期直接取可能拿到未初始化的实例。
+        if kernel is not None:
+            engine = getattr(kernel, "manas_engine", None)
+            if engine is None and hasattr(kernel, "get_manas_engine"):
+                try:
+                    engine = kernel.get_manas_engine()
+                except Exception:
+                    engine = None
+            if engine is not None and hasattr(engine, "set_awakening_level_provider"):
+                def _awakening_level_provider():
+                    try:
+                        from ..attention.orchestration.trading_center import get_trading_center
+                        tc = get_trading_center()
+                        if tc is not None:
+                            return tc.get_awakening_level()
+                    except Exception:
+                        pass
+                    return "dormant"
+
+                engine.set_awakening_level_provider(_awakening_level_provider)
+                log.info("[AppContainer] Manas 觉醒维度已接入共享 AwakenedAlaya")
+
         # 启动即启用：内核侧 OSAttentionKernel 是无条件计算末那识的（os_kernel.py
         # 无 _enable_manas 门闩），manager 侧必须同步启用，否则
         # container.manas_engine 恒为 None，UI 拿到的又是另一个引擎的状态

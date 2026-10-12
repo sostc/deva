@@ -10,7 +10,7 @@ from .cognitive_events import (
 )
 from .hotspot_events import HotspotComputedEvent, HotspotShiftEvent, MarketSnapshotEvent, SymbolUpdateEvent
 from .text_events import TextFetchedEvent, TextFocusedEvent
-from .trading_events import StrategySignalEvent, TradeDecisionEvent
+from .trading_events import StrategySignalEvent, TradeDecisionEvent, TradeOutcomeEvent
 
 
 COGNITIVE_EVENT_CLASSES = (
@@ -29,6 +29,7 @@ COGNITIVE_EVENT_CLASSES = (
 TRADING_EVENT_CLASSES = (
     StrategySignalEvent,
     TradeDecisionEvent,
+    TradeOutcomeEvent,
 )
 
 EVENT_BUS_MAP: Dict[Type[Any], str] = {
