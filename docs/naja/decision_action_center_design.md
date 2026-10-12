@@ -323,8 +323,35 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
 **验证**：全量 **238 passed**（231 → 238）；快照 **差异字段 0**（UI 轮零行为变化）；
 契约 `--strict` exit 0；觉醒闭环 `--strict` exit 0。
 
-**刻意保留的边界**：留痕只在**进程内存**（不落盘）——重启即清空。
-要让决策历史可回放需另立"决策落盘"设计，本轮不做。
+> 留痕的**持久化**在 §4.3 补上（原"只在进程内存"的边界已收口）。
+
+### 4.3 落盘轮：决策留痕跨进程可回放（2026-10-12）
+
+目标：内存队列只能答"本进程最近决策了什么"，重启即清；做复盘 / 归因 / 审计
+需要决策历史**跨进程存活**。复用本仓既有 `NB`（命名 DBStream）落盘设施，与
+`SnapshotManager` / `LoopAudit` 同构。
+
+**两层存储（写穿 + 优先读落盘）**::
+
+    写  _record_plan ─┬─► DecisionJournal（落盘，权威，跨进程存活）
+                      └─► 内存 deque（快路径 + 落盘不可用时兜底）
+    读  get_recent_decisions ─► 优先落盘；空则回落 deque
+
+- `deva/naja/decision/journal.py`（新）：`DecisionJournal`
+  = `NB(table, key_mode="time", time_dict_policy="append", maxsize=2000)`。
+  提供 `record / recent / history(hours) / count / stats / clear`。
+  - `key_mode="time"` 键是时间戳（天然有序）；`maxsize` 让表**不无限增长**。
+  - **写穿时间戳对齐**：`record()` 返回实际写入键，`_record_plan` 把它回填给内存
+    副本，保证两层 `recorded_at` 一致（`_next_ts` 对同微秒二次写入做单调 +1e-6）。
+  - **落盘是旁路**：`record()` 任何异常都吞掉返回 `None`，绝不向决策路径抛。
+- `deva/naja/decision/query.py`：新增 `get_decision_history(hours, limit)`（时间窗回放）。
+- `attention/ui/components.py`：面板标注 `已落盘 / 仅内存`（`stats.persisted`），
+  不把"落盘挂了"默默显示成"已落盘"。
+
+**验证**：`scripts/verify/verify_decision_journal.py --strict` exit 0——
+**子进程写、新进程读**证明真落盘；另有 maxsize 裁剪 / 时间窗 / 降级不抛 / 静态守卫
+（3 处 `_record_plan`）共 7 组检查。全量 **241 passed**（238 → 241）。
+测试用**临时表**（`naja_decision_journal_test`），不污染生产库。
 
 ---
 
@@ -350,6 +377,9 @@ multiplier = action_factor(action_type) × alpha_factor(α) × risk_factor(T)
    **已接（2026-10-12，UI 轮）**：`TradingCenter` 对每条 `DecisionPlan` 留痕（有界队列 20 条），
    经 `deva/naja/decision/query.py` 以**纯 dict** 暴露，dashboard 新增「决策计划」面板。
    详见 §4.2。
+4. ~~**留痕只在进程内存（不落盘）**，重启即清。~~ **已落盘（2026-10-12，落盘轮）**：
+   `DecisionJournal`（NB time 模式）写穿留痕，查询优先读落盘历史，
+   跨进程可回放（`verify_decision_journal.py --strict` 证）。详见 §4.3。
 
 ---
 
