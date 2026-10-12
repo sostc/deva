@@ -260,21 +260,36 @@ class AppContainer:
         # 只读 _scheduler 而不调 get_scheduler()：后者有「不存在就创建并启动」
         # 的副作用，健康检查不该把没在跑的东西启动起来。
         #
-        # 只查「在不在跑」这一件事，不查作业数量：这里的调度器是自研的
-        # （deva/core/when.py），外加 SchedulerManager._timer_handles 只承接
-        # start_timer() 那条路径，而 Naja 的任务实际走 cron/interval 作业，
-        # 于是任何基于 _timer_handles 的判断都会恒假 —— 宁缺一个指标，
-        # 也不放一个天天谎报的检查项进这块面板。
+        # 判定方式也是踩出来的：这个 scheduler 是 deva/core/when.py 里的自研
+        # 流式调度器，**没有 running 属性**，用 getattr(s, "running", False)
+        # 判活必然恒 False（第一版就栽在这，恒红假告警）。它表达存活的方式是
+        # 内部的 asyncio 事件循环 —— loop.asyncio_loop.is_running()。
         def check_shared_scheduler():
+            from deva.naja.scheduler.common import SchedulerManager
+
+            scheduler = getattr(SchedulerManager(), "_scheduler", None)
+            if scheduler is None:
+                return False
+            asyncio_loop = getattr(getattr(scheduler, "loop", None), "asyncio_loop", None)
+            if asyncio_loop is None:
+                return False
+            is_running = getattr(asyncio_loop, "is_running", None)
+            return bool(is_running and is_running())
+
+        def check_jobs_registered():
+            """至少有一个作业/定时器在册（两条注册路径都算）。"""
             from deva.naja.scheduler.common import SchedulerManager
 
             shared = SchedulerManager()
             scheduler = getattr(shared, "_scheduler", None)
-            if scheduler is None:
-                return False
-            return bool(getattr(scheduler, "running", False))
+            jobs = scheduler.get_jobs() if scheduler is not None and hasattr(scheduler, "get_jobs") else []
+            handles = getattr(shared, "_timer_handles", None) or {}
+            return len(jobs) + len(handles) > 0
 
-        manager.register("tasks", {"shared_scheduler": check_shared_scheduler})
+        manager.register("tasks", {
+            "shared_scheduler": check_shared_scheduler,
+            "jobs_registered": check_jobs_registered,
+        })
 
     def _assemble_core_components(self) -> None:
         """装配核心组件（显式依赖注入）"""
