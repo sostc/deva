@@ -29,12 +29,11 @@ ICON_PURPLE = str(STATIC_DIR / "naja_tray_purple_22.png")
 ICON_GREEN = str(STATIC_DIR / "naja_tray_red_22.png")
 
 
-def _is_trading_time() -> bool:
-    """通过 API 或本地计算判断是否在交易时段"""
-    data = _http_get("/api/trading/status")
-    if data and data.get("success"):
-        return data.get("is_trading", False)
-    return _is_trading_time_local()
+# 注意：这里**刻意不提供**「HTTP 版」的交易时段判断。
+# 它原来长这样：`_http_get("/api/trading/status")`（5s 超时、无缓存），
+# 只在 _build_menu() 里被调用一次 —— 也就是 AppKit 主线程上。
+# 服务端口径（含节假日）已经随 /api/tray/data 进了 _menu_cache['trading']，
+# 主线程只需要「缓存优先、回退本地纯计算」两条路，任何一条都不允许发请求。
 
 
 def _is_trading_time_local() -> bool:
@@ -129,8 +128,6 @@ class MenuBarTray:
         self._naja_ready = False
         self._last_timeline_data = None
         self._last_timeline_ts = 0
-        self._last_system_status = None
-        self._last_system_status_ts = 0
         self._last_menu_build_ts = 0
         self._notified_news_ids = set()
         self._notification_enabled = True
@@ -202,21 +199,6 @@ class MenuBarTray:
         self._preload_thread = threading.Thread(target=preloader, daemon=True)
         self._preload_thread.start()
         logger.info("[Tray] 后台预加载线程已启动")
-
-    def _get_system_status_cached(self):
-        """获取系统状态（后台缓存版本）"""
-        import time
-        now = time.time()
-        
-        if self._last_system_status and (now - self._last_system_status_ts < 30):
-            return self._last_system_status
-        
-        health_data = _http_get("/api/health")
-        result = health_data if health_data else {"status": "unknown", "message": "无法连接"}
-        
-        self._last_system_status = result
-        self._last_system_status_ts = now
-        return result
 
     # ── 通知聚合限流参数 ─────────────────────────────────────────────
     # 修好时间线截断（见 select_timeline_events）后，单轮可能出现多条达标新闻，
@@ -641,11 +623,20 @@ class MenuBarTray:
         log_dir = NAJA_DIR / "logs"
         try:
             import subprocess
-            subprocess.run(["open", str(log_dir)], check=False)
+            # Popen（非阻塞）而非 run：run 会同步等 `open` 退出，虽然是毫秒级，
+            # 但没必要在 AppKit 主线程上等任何子进程。
+            subprocess.Popen(["open", str(log_dir)])
         except Exception as e:
             logger.error(f"打开日志目录失败: {e}")
 
     def _on_quit(self, sender):
+        """退出托盘并停掉 Naja 服务。
+
+        这里是**唯一有意保留的主线程阻塞**：SIGTERM 后忙等最多 10s，等优雅退出，
+        超时再 SIGKILL。之所以不挪到后台线程——托盘进程一退，daemon 线程随之消失，
+        就没人做"超时升级到 SIGKILL"这一步了，服务可能永远不退出。
+        代价仅在用户主动点「退出」时发生（菜单本就即将消失），可接受。
+        """
         logger.info("托盘菜单触发退出")
         import rumps
         import time
@@ -982,29 +973,27 @@ class MenuBarTray:
             logger.error(f"发送到钉钉失败: {e}")
             return False
 
-    def _show_summary_notification(self, summary, summary_file, events=None):
-        """显示总结通知并打开HTML页面"""
+    def _show_summary_notification(self, summary, html_file=None, events=None):
+        """总结完成：弹通知 + 打开 HTML 页面（**仅在主线程调用**）
+
+        生成 HTML 属文件 IO，已挪到后台线程（见 _on_timer 的 _finish_summary）；
+        这里只做 UI：通知 + 用 Popen（非阻塞）拉起页面。
+        注意 `open` 用 Popen 而非 `run`——`run` 会同步等 `open` 退出。
+        """
         import rumps
         import subprocess
-        from datetime import datetime
-        
-        # 简短通知
-        if len(summary) > 100:
-            summary_display = summary[:100] + "..."
-        else:
-            summary_display = summary
-        
+
+        summary_display = summary[:100] + "..." if len(summary) > 100 else summary
+
         rumps.notification(
             title="✨ 市场总结完成",
             subtitle="已复制到剪贴板并发送到钉钉",
             message=summary_display
         )
-        
-        # 生成并打开漂亮的HTML页面
-        html_file = self._generate_html_summary(summary, events)
+
         if html_file:
             try:
-                subprocess.run(['open', str(html_file)], check=False)
+                subprocess.Popen(['open', str(html_file)])
                 logger.info(f"已打开HTML总结: {html_file}")
             except Exception as e:
                 logger.error(f"打开HTML总结失败: {e}")
@@ -1473,27 +1462,35 @@ class MenuBarTray:
         except Exception as e:
             logger.error(f"清理缓存失败: {e}")
 
-    def _get_system_status(self):
-        """获取系统运行状态（带缓存）"""
-        import time
-        now = time.time()
-        
-        # 缓存 10秒
-        if self._last_system_status and (now - self._last_system_status_ts < 10):
-            return self._last_system_status
-        
-        health_data = _http_get("/api/health")
-        result = health_data if health_data else {"status": "unknown", "message": "无法连接"}
-        
-        # 保存缓存
-        self._last_system_status = result
-        self._last_system_status_ts = now
-        return result
+    # 注：原 _get_system_status() / _get_system_status_cached() 已删除。
+    # 两者都是「GET /api/health」，且都只在主线程被调用；健康数据现在随
+    # /api/tray/data 一并进 _menu_cache['status']，由后台预加载线程负责刷新。
+    # 留着它们只会诱导后来人再次把 HTTP 塞回主线程。
 
     def _check_naja_ready(self) -> bool:
-        """检查 Naja 主进程是否已启动"""
+        """检查 Naja 主进程是否已启动（HTTP 版，**仅限后台线程**调用）
+
+        _wait_for_naja_ready() 在后台线程用它轮询，需要"API 真的能应答"这一
+        强语义（端口 listen ≠ 应用已就绪）。主线程**必须**改用
+        _check_naja_listening()。
+        """
         health_data = _http_get("/api/health", timeout=2.0)
         return health_data is not None
+
+    def _check_naja_listening(self) -> bool:
+        """检查 Naja 端口是否已监听（**主线程安全**：纯 TCP 探测，0.3s 封顶）
+
+        _on_timer 跑在 AppKit 主线程，原来在这里调 _check_naja_ready()
+        （HTTP、2s 超时）——启动期每 5 秒就可能把菜单冻住 2 秒。
+        改为端口探测：连得上即认为服务已起来；"数据是否真的可用"由后台
+        预加载线程（10s 一轮 /api/tray/data）兜底。
+        """
+        import socket
+        try:
+            with socket.create_connection(("127.0.0.1", _get_naja_port()), timeout=0.3):
+                return True
+        except OSError:
+            return False
 
     def _build_simple_menu(self):
         """构建简化菜单（不依赖 Naja 进程，用于快速启动）"""
@@ -1534,25 +1531,26 @@ class MenuBarTray:
         if self._app is None:
             return
 
+        # ── 性能铁律：_build_menu 跑在 AppKit 主线程 ───────────────────────
+        # （rumps 定时器回调 / 菜单点击 / 重启后刷新）
+        # 本方法内**只允许读内存缓存**，绝不允许发 HTTP、绝不允许抓取。
+        # 历史上这里踩过三个坑，全部是"同步堵塞主线程最长 5~15s"：
+        #   ① 缓存未就绪时回退本地实时抓取 → Playwright 同步阻塞最长 15s；
+        #   ② _get_system_status() → GET /api/health（5s 超时）——而它的返回值
+        #      在菜单里**从未被使用**，是纯粹浪费的阻塞（已删除该取数）；
+        #   ③ _is_trading_time() → GET /api/trading/status（5s 超时、**无缓存**）
+        #      ——已删除，改用纯 datetime 的 _is_trading_time_local()。
+        # 且 ②③ 原本还在 _menu_cache_lock **内**执行 → 持锁做 IO，连带把
+        # 后台预加载线程也堵死在锁上（锁只应保护 dict 读写这几条毫秒级语句）。
         with self._menu_cache_lock:
             if self._menu_cache:
                 self._timeline_events = self._menu_cache.get('timeline', {})
-                system_status = self._menu_cache.get('status', {})
                 trading_time = self._menu_cache.get('trading', False)
             else:
-                # 性能约束：_build_menu 运行在 AppKit 主线程（rumps 定时器回调）。
-                # 缓存未就绪时**绝不能**回退到本地实时抓取——那会同步阻塞最长 15s
-                # （Playwright 的 wait_for_selector 超时），冻结菜单栏并推迟图标绘制。
-                # 这里只复用后台预加载线程从 /api/tray/data 取到的数据。
                 self._timeline_events = self._last_timeline_data or {"success": False, "stats": {}, "list": []}
-
-                try:
-                    system_status = self._get_system_status()
-                except Exception as e:
-                    logger.error(f"获取系统状态失败: {e}")
-                    system_status = {}
-
-                trading_time = _is_trading_time()
+                # 缓存未就绪：本地纯计算兜底（零 IO）。服务端口径（含节假日）
+                # 会在预加载线程拿到 /api/tray/data 后由缓存接管。
+                trading_time = _is_trading_time_local()
 
         try:
             port = _get_naja_port()
@@ -1772,6 +1770,7 @@ class MenuBarTray:
 
     def _on_timer(self, _sender):
         import time
+        import threading
         import rumps
         now = time.time()
         
@@ -1802,24 +1801,31 @@ class MenuBarTray:
                 # 处理成功结果（缓存或新生成）
                 summary = result['summary']
                 events = result['events']
-                
-                # 显示总结结果
                 logger.info(f"总结完成: {summary[:100]}...")
-                
-                # 保存完整总结到本地文件
-                summary_file = self._save_summary_to_file(summary)
-                
-                # 复制到剪贴板
-                self._copy_to_clipboard(summary)
-                
-                # 发送到钉钉
-                self._send_to_dingtalk(summary)
-                
-                # 显示简短通知，同时打开完整总结
-                self._show_summary_notification(summary, summary_file, events)
+
+                # 收尾动作看似"轻"，其实全是同步阻塞调用：写文件、pbcopy、
+                # 钉钉（构造 Dtalk + io_loop）、`open` 拉起浏览器。它们原来
+                # 直接跑在这儿 —— 也就是 AppKit 主线程。整体丢到后台线程，
+                # 只有"弹通知 + 打开页面"这两件 UI 事回主线程做。
+                def _finish_summary(summary=summary, events=events):
+                    summary_file = None
+                    html_file = None
+                    try:
+                        summary_file = self._save_summary_to_file(summary)
+                        self._copy_to_clipboard(summary)
+                        self._send_to_dingtalk(summary)
+                        html_file = self._generate_html_summary(summary, events)
+                    except Exception as e:
+                        logger.error(f"总结收尾失败: {e}")
+                    self._call_on_main_thread(
+                        lambda: self._show_summary_notification(summary, html_file, events)
+                    )
+
+                threading.Thread(target=_finish_summary, daemon=True).start()
         
         if not self._naja_ready:
-            if self._check_naja_ready():
+            # 主线程安全：端口探测（0.3s 封顶），不再用 HTTP（原 2s 超时/每 5s）。
+            if self._check_naja_listening():
                 logger.info("检测到 Naja 已启动，切换到完整菜单")
                 self._naja_ready = True
                 self._build_menu()
@@ -1845,38 +1851,46 @@ class MenuBarTray:
         """更新数据（清除缓存，强制刷新）"""
         self._last_timeline_data = None
         self._last_timeline_ts = 0
-        self._last_system_status = None
-        self._last_system_status_ts = 0
         self._last_menu_build_ts = 0
         self._build_menu()
 
     def _on_toggle_autostart(self, sender):
-        """切换登录启动项状态"""
-        import rumps
-        
+        """切换登录启动项状态（**不在主线程执行 launchctl**）
+
+        toggle_login_item() 内部是 subprocess.run(["launchctl", ...], timeout=5)
+        + plist 写盘；放在菜单回调（AppKit 主线程）里会把菜单冻住最多 5 秒。
+        改为后台线程执行，只有"改勾选状态 + 弹通知"回主线程。
+        """
+        import threading
+
         new_state = 1 - sender.state
-        try:
-            if new_state == 1:
+        action = "启用" if new_state == 1 else "禁用"
+
+        def work():
+            try:
                 success = toggle_login_item()
-                action = "启用" if success else "启用"
-            else:
-                success = toggle_login_item()
-                action = "禁用" if success else "禁用"
-            
+            except Exception as e:
+                logger.error(f"切换登录启动项失败: {e}")
+                success = False
+
             if success:
-                sender.state = new_state
                 logger.info(f"登录启动项已{action}")
-                rumps.notification(
-                    title="🚀 登录启动项",
-                    subtitle=f"已{action}登录时自动启动",
-                    message="重启电脑后生效" if new_state == 1 else "已取消自动启动"
-                )
             else:
                 logger.error(f"登录启动项{action}失败")
-                sender.state = 1 - new_state
-        except Exception as e:
-            logger.error(f"切换登录启动项失败: {e}")
-            sender.state = 1 - new_state
+
+            def apply():
+                import rumps
+                sender.state = new_state if success else 1 - new_state
+                if success:
+                    rumps.notification(
+                        title="🚀 登录启动项",
+                        subtitle=f"已{action}登录时自动启动",
+                        message="重启电脑后生效" if new_state == 1 else "已取消自动启动",
+                    )
+
+            self._call_on_main_thread(apply)
+
+        threading.Thread(target=work, daemon=True).start()
 
 
 _tray_instance: Optional[MenuBarTray] = None
