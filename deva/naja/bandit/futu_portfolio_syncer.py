@@ -106,8 +106,10 @@ SIM_ACC_TYPE_SUFFIX: Dict[str, str] = {
 _MARKET_CURRENCY: Dict[str, str] = {
     "HK": "HKD",
     "US": "USD",
+    # ``HKCC`` = 港股通，走离岸人民币（CNH）；A 股（``CN``）是**在岸**人民币（CNY）。
+    # 两者不是一回事，混用会让资金口径对不上。
     "HKCC": "CNH",
-    "CN": "CNH",
+    "CN": "CNY",
     "SG": "SGD",
     "JP": "JPY",
 }
@@ -258,10 +260,18 @@ class FutuPortfolioSyncer:
             return None
 
         try:
-            from futu import OpenSecTradeContext, SecurityFirm
+            from futu import OpenSecTradeContext, SecurityFirm, TrdMarket
 
             target = getattr(SecurityFirm, firm, SecurityFirm.FUTUSECURITIES)
-            return OpenSecTradeContext(host=HOST, port=PORT, security_firm=target)
+            # ❗``filter_trdmarket`` **必须显式传**：futu SDK 的默认值是
+            # ``TrdMarket.HK``，不传这个参数就**只看得到港股账户** ——
+            # 美股 / A 股模拟账户会被服务端直接过滤掉，既不报错也不告警。
+            # 实测（2026-10-14）：默认只返回 2 个港股模拟账户；传 ``NONE``
+            # 才拿到全部 10 个（含美股 ``STOCK_AND_OPTION`` 与 A 股模拟）。
+            return OpenSecTradeContext(
+                filter_trdmarket=TrdMarket.NONE, host=HOST, port=PORT,
+                security_firm=target,
+            )
         except Exception as e:
             log.error("[FutuSyncer] 创建交易上下文失败（%s）: %s", firm, e)
             return None
@@ -315,10 +325,12 @@ class FutuPortfolioSyncer:
             return False, []
 
         try:
-            from futu import OpenSecTradeContext, RET_OK, SecurityFirm
+            from futu import OpenSecTradeContext, RET_OK, SecurityFirm, TrdMarket
 
+            # ❗必须显式传 filter_trdmarket（默认 TrdMarket.HK 会把美股/A股
+            # 模拟账户静默过滤掉）。见 ``_create_trade_context`` 的说明。
             ctx = OpenSecTradeContext(
-                host=HOST, port=PORT,
+                filter_trdmarket=TrdMarket.NONE, host=HOST, port=PORT,
                 security_firm=getattr(SecurityFirm, firm, SecurityFirm.FUTUSECURITIES),
             )
             try:
@@ -337,6 +349,7 @@ class FutuPortfolioSyncer:
                     "acc_id": int(row.get("acc_id", 0) or 0),
                     "card_num": _card_num(row),
                     "acc_type": _clean(row.get("acc_type", "")),
+                    "acc_status": _clean(row.get("acc_status", "")),
                     "trd_env": _clean(row.get("trd_env", "")),
                     "market_auth": _market_auth(row),
                     "acc_role": _clean(row.get("acc_role", "")),
@@ -359,8 +372,18 @@ class FutuPortfolioSyncer:
         return accounts
 
     def _select_main_accounts(self, rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """从某品牌的账户行里挑出本次要同步的账户。"""
-        wanted = [r for r in rows if r["trd_env"].upper() == self.trd_env.upper()]
+        """从某品牌的账户行里挑出本次要同步的账户。
+
+        ❗**先把非 ACTIVE 的账户剔掉**。显式传 ``filter_trdmarket=NONE`` 之后，
+        枚举结果里会**多出一批 ``DISABLED`` 的真实子账户**（实测 5 个：
+        HKCC / HKFUND / USFUND 等旧号）。它们不该被查询 —— 对着一个停用的
+        账户反复取数只会刷一堆「同步失败」，把页面徽章染红。
+        """
+        wanted = [
+            r for r in rows
+            if r["trd_env"].upper() == self.trd_env.upper()
+            and r.get("acc_status", "ACTIVE").upper() == "ACTIVE"
+        ]
         if not wanted:
             return []
         if self.trd_env.upper() != "REAL":
