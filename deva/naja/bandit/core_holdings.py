@@ -65,8 +65,10 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, replace
-from typing import Dict, List, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Optional, Tuple
+
+from .intraday_deviation import RotationThresholds
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +90,82 @@ DEFAULT_TARGET_SHARES = 0.0
 DEFAULT_ROUND_LOT = 100.0
 
 
+# ---------------------------------------------------------------- 市场档位
+
+
+@dataclass(frozen=True)
+class MarketProfile:
+    """一个市场的做 T 参数档。
+
+    为什么要分市场
+    --------------
+    判据参数**不是**可以跨市场共用的常数。它们是按「标的的日內波动尺度」
+    标出来的，而三个市场的尺度差了一个数量级（2026-10-14 实测当日振幅）：
+
+        A 股 588200 **6.02%** ｜ 港股 00700 **1.36%** ｜ 美股 QQQ **0.72%**
+
+    拿 A 股那套（``min_amplitude=1.0`` / ``dev_close=1.5``）去套 QQQ，
+    QQQ 连"死水"闸门都过不去 —— **永不触发**，而且不报错、不告警，
+    看上去就是"今天没机会"。这是最典型的静默失效。
+
+    ⚠️ 以下费率是**按各市场常见零售费率粗标的**，目的是让
+    ``min_net_edge`` 与成本处在同一量级，不是精算结果。
+    真实费率以券商为准，实盘前需重新标定。
+    """
+
+    market: str
+    #: 本币代码。用户拍板（2026-10-14）：**各市场独立本币记账，不做汇率换算**。
+    #: 所以 ``max_round_amount`` 的单位就是这里的币种。
+    currency: str
+    round_lot: float
+    max_round_amount: float
+    thresholds: RotationThresholds = field(default_factory=RotationThresholds)
+    note: str = ""
+
+
+MARKET_PROFILES: Dict[str, MarketProfile] = {
+    "CN": MarketProfile(
+        market="CN", currency="CNY", round_lot=100.0, max_round_amount=200000.0,
+        # 场内 ETF：免印花税。振幅大（~6%），闸门可以放宽
+        thresholds=RotationThresholds(
+            commission_pct=0.025, slippage_pct=0.05, stamp_duty_pct=0.0,
+            min_commission=5.0,
+            buy_dev_close=1.5, sell_dev_close=1.5,
+            min_amplitude=1.0, min_net_edge=0.35, max_dev_close=8.0,
+        ),
+        note="A股场内ETF：免印花税，日内振幅大（实测 6%）",
+    ),
+    "HK": MarketProfile(
+        market="HK", currency="HKD", round_lot=100.0, max_round_amount=200000.0,
+        # 港股：印花税 0.1% 单边，佣金也高于 A 股 → 往返成本约 0.30%
+        thresholds=RotationThresholds(
+            commission_pct=0.05, slippage_pct=0.05, stamp_duty_pct=0.1,
+            min_commission=20.0,
+            buy_dev_close=0.8, sell_dev_close=0.8,
+            min_amplitude=0.6, min_net_edge=0.10, max_dev_close=5.0,
+        ),
+        note="港股：含 0.1% 印花税，往返成本约 0.30%，振幅中等（实测 1.4%）",
+    ),
+    "US": MarketProfile(
+        market="US", currency="USD", round_lot=1.0, max_round_amount=30000.0,
+        # 美股：无印花税、可 1 股起。ETF 振幅小（~0.7%），闸门必须放低，
+        # 否则按 A 股那套永远不会触发
+        thresholds=RotationThresholds(
+            commission_pct=0.03, slippage_pct=0.03, stamp_duty_pct=0.0,
+            min_commission=1.0,
+            buy_dev_close=0.5, sell_dev_close=0.5,
+            min_amplitude=0.35, min_net_edge=0.10, max_dev_close=4.0,
+        ),
+        note="美股：1 股起、无印花税，但振幅小（实测 0.72%），闸门须放低",
+    ),
+}
+
+
+def market_profile(market: str) -> MarketProfile:
+    """取市场档位。认不出的市场**回落到 A 股档**（保守：闸门更严）。"""
+    return MARKET_PROFILES.get(str(market or "").strip().upper(), MARKET_PROFILES["CN"])
+
+
 def _floor_lot(value: float, lot: float) -> float:
     """向下取整到交易单位的整数倍。宁可少买，不可超出预算或买成零股。"""
     if lot <= 0 or value <= 0:
@@ -102,6 +180,7 @@ class CoreHoldingSpec:
     code: str            # 归一化代码，如 "588200"
     bus_code: str        # 行情总线代码，如 "sh588200"
     name: str            # 中文名
+    market: str          # CN / HK / US —— 决定时段、每手、判据参数、币种
     target_shares: float  # 显式指定的目标份额；0 = 未指定，按 alloc_pct 折算
     round_lot: float = DEFAULT_ROUND_LOT
     alloc_pct: float = DEFAULT_ALLOC_PCT  # 占总资产百分比
@@ -113,6 +192,15 @@ class CoreHoldingSpec:
     def explicit(self) -> bool:
         """是否显式指定了份额（人的手填数字优先于按比例折算）。"""
         return self.target_shares > 0
+
+    @property
+    def profile(self) -> MarketProfile:
+        """该标的所在市场的参数档。"""
+        return market_profile(self.market)
+
+    @property
+    def currency(self) -> str:
+        return self.profile.currency
 
     def target_budget(self, total_assets: float) -> float:
         """这份底仓对应多少钱。"""
@@ -135,6 +223,8 @@ class CoreHoldingSpec:
             "code": self.code,
             "bus_code": self.bus_code,
             "name": self.name,
+            "market": self.market,
+            "currency": self.currency,
             "target_shares": self.target_shares,
             "round_lot": self.round_lot,
             "alloc_pct": self.alloc_pct,
@@ -143,31 +233,50 @@ class CoreHoldingSpec:
         }
 
 
-#: 备选清单（名称与代码均于 2026-10-13 用新浪行情逐个核对过）。
-#: 当前只启用 588200 —— 用户点名科创芯片 ETF；其余保留供切换/对比。
+#: 已登记的底仓标的清单（名称与代码均用富途行情逐个核对过）。
 #:
-#: 当日真实特征（同一天同一时刻取数，可见三者振幅接近）：
-#:   588200 昨收 0.996  振幅 (1.013-0.953)/0.996 = 6.02%
-#:   512480 昨收 0.888  振幅 (0.899-0.848)/0.888 = 5.74%
-#:   159995 昨收 0.973  振幅 (0.987-0.933)/0.973 = 5.55%
-# 三者的 target_shares 一律为 0 —— 走 alloc_pct 折算，不写死份额。
-CHIP_ETF_CATALOG: Dict[str, CoreHoldingSpec] = {
+#: ★ 用户的三个仓（2026-10-14 拍板）：
+#:     A 股 588200 科创芯片ETF —— 长期持有的指数底仓
+#:     美股 QQQ   纳指100ETF  —— 指数底仓
+#:     港股 00700 腾讯控股    —— **选它做 T 而非指数**，理由是日内振幅
+#:
+#: ❗「持有指数」与「持续做 T」之间有张力：做 T 吃的是日内波动，
+#:   而指数波动天然小于个股。同一时刻实测振幅：
+#:     588200 **6.02%** ｜ 00700 **1.36%** ｜ QQQ **0.72%**
+#:   拿指数做 T，扣掉往返摩擦后剩下的空间很薄；用户点名腾讯做 T 是对的直觉。
+#:   指数更适合「底仓 + 偶尔倒 T」，不适合高频做 T。
+#:
+#: 三者的 target_shares 一律为 0 —— 走 alloc_pct 折算，不写死份额。
+CORE_CATALOG: Dict[str, CoreHoldingSpec] = {
     "588200": CoreHoldingSpec(
-        code="588200", bus_code="sh588200", name="科创芯片ETF嘉实",
-        target_shares=DEFAULT_TARGET_SHARES,
-        note="默认底仓：跟踪上证科创板芯片指数，成分股全是半导体",
+        code="588200", bus_code="sh588200", name="科创芯片ETF嘉实", market="CN",
+        target_shares=DEFAULT_TARGET_SHARES, round_lot=100.0,
+        note="A股底仓：跟踪上证科创板芯片指数，成分股全是半导体",
     ),
     "512480": CoreHoldingSpec(
-        code="512480", bus_code="sh512480", name="半导体ETF国联安",
-        target_shares=DEFAULT_TARGET_SHARES,
+        code="512480", bus_code="sh512480", name="半导体ETF国联安", market="CN",
+        target_shares=DEFAULT_TARGET_SHARES, round_lot=100.0,
         note="备选：覆盖沪深两市半导体，含部分非科创板标的",
     ),
     "159995": CoreHoldingSpec(
-        code="159995", bus_code="sz159995", name="芯片ETF",
-        target_shares=DEFAULT_TARGET_SHARES,
+        code="159995", bus_code="sz159995", name="芯片ETF", market="CN",
+        target_shares=DEFAULT_TARGET_SHARES, round_lot=100.0,
         note="备选：国证芯片指数，与 588200 高度重叠",
     ),
+    "QQQ": CoreHoldingSpec(
+        code="QQQ", bus_code="gb_qqq", name="纳指100ETF", market="US",
+        target_shares=DEFAULT_TARGET_SHARES, round_lot=1.0,
+        note="美股底仓：每手 1 股，日内振幅小（实测 0.72%），判据已按美股档放宽",
+    ),
+    "00700": CoreHoldingSpec(
+        code="00700", bus_code="hk00700", name="腾讯控股", market="HK",
+        target_shares=DEFAULT_TARGET_SHARES, round_lot=100.0,
+        note="港股做T标的：振幅中等（实测 1.36%），含 0.1% 印花税",
+    ),
 }
+
+#: 兼容旧名（既有代码与文档里用的是 CHIP_ETF_CATALOG）
+CHIP_ETF_CATALOG = CORE_CATALOG
 
 
 def _env(name: str) -> str:
@@ -245,10 +354,55 @@ def _parse_targets(raw: str, codes: List[str]) -> Dict[str, float]:
     return out
 
 
+def _parse_symbols(raw: str) -> List[Tuple[Optional[str], str]]:
+    """解析 ``NAJA_T_ROTATION_SYMBOLS``。
+
+    两种写法：**裸代码**（``588200``，市场按代码形态推断）与
+    **显式市场**（``US:QQQ`` / ``HK:00700``）。
+
+    为什么要支持显式写法：``qqq`` 是裸字母，代码形态**说不出它属于哪个市场**
+    （5 位数字=港股、6 位数字=A 股，字母只有查注册表才认得）。让用户在配置里
+    直接说清楚，比依赖一份可能漏登记的代码宇宙可靠得多。
+    """
+    out: List[Tuple[Optional[str], str]] = []
+    for chunk in (raw or "").split(","):
+        piece = chunk.strip()
+        if not piece:
+            continue
+        if ":" in piece:
+            mkt, cod = piece.split(":", 1)
+            mkt, cod = mkt.strip().upper(), cod.strip()
+            if not cod:
+                log.warning(f"[CoreHoldings] 标的片段 {piece!r} 缺代码，忽略")
+                continue
+            out.append((mkt, cod))
+        else:
+            out.append((None, piece))
+    return out
+
+
+def _infer_market(code: str) -> str:
+    """按代码形态猜市场。猜不出**回落到 CN**（保守：A 股档闸门最严）。"""
+    try:
+        from .execution import infer_market
+
+        mkt, _note = infer_market(code)
+        if mkt:
+            return mkt
+    except Exception as e:  # pragma: no cover
+        log.debug(f"[CoreHoldings] 推断 {code} 的市场失败: {e}")
+
+    text = str(code or "").strip()
+    if text.isdigit():
+        return "HK" if len(text) == 5 else "CN"
+    return "CN"
+
+
 def load_core_holdings() -> List[CoreHoldingSpec]:
     """读取启用中的底仓标的。这是调用方唯一该用的入口。"""
     raw_codes = _env("NAJA_T_ROTATION_SYMBOLS")
-    codes = [c.strip() for c in raw_codes.split(",") if c.strip()] if raw_codes else [DEFAULT_CORE_CODE]
+    pairs = _parse_symbols(raw_codes) if raw_codes else [(None, DEFAULT_CORE_CODE)]
+    codes = [c for _, c in pairs]
 
     overrides = _parse_targets(_env("NAJA_T_ROTATION_TARGET_SHARES"), codes)
     alloc_pct = env_float("NAJA_T_ROTATION_ALLOC_PCT", DEFAULT_ALLOC_PCT)
@@ -266,30 +420,50 @@ def load_core_holdings() -> List[CoreHoldingSpec]:
         alloc_pct = DEFAULT_ALLOC_PCT
 
     specs: List[CoreHoldingSpec] = []
-    for code in codes:
-        base = CHIP_ETF_CATALOG.get(code)
+    for declared_market, code in pairs:
+        # 清单查找按**大写**归一：用户写 qqq 也要能命中 QQQ
+        base = CORE_CATALOG.get(code) or CORE_CATALOG.get(code.upper())
         if base is None:
-            # 不在备选清单里（比如用户想拿某只票做 T）也放行，
+            mkt = declared_market or _infer_market(code)
+            prof = market_profile(mkt)
+            # 不在清单里（比如用户想拿某只票做 T）也放行，
             # 但名字只能退化成代码本身 —— 宁可显示难看，也不假装知道它叫什么。
             base = CoreHoldingSpec(
                 code=code,
                 bus_code=_bus_code_for(code),
                 name=code,
+                market=mkt,
                 target_shares=overrides.get(code, DEFAULT_TARGET_SHARES),
+                round_lot=prof.round_lot,
                 alloc_pct=alloc_pct,
-                note="未登记的标的：请自行确认其为 ETF（否则摩擦成本参数不适用）",
+                note=f"未登记的标的：按 {mkt} 档参数处理（{prof.note}）",
             )
             log.warning(
-                f"[CoreHoldings] {code} 不在备选 ETF 清单中，"
-                f"按默认精度/交易单位处理"
+                f"[CoreHoldings] {code} 不在底仓清单中，按 {mkt} 档处理"
+                f"（每手 {prof.round_lot:g}，币种 {prof.currency}）"
             )
         else:
             base = replace(base, alloc_pct=alloc_pct)
+            # 显式声明的市场压过清单里的：用户写在配置里的更可信
+            if declared_market and declared_market != base.market:
+                log.warning(
+                    f"[CoreHoldings] {code} 配置声明 {declared_market}，"
+                    f"覆盖清单里的 {base.market}"
+                )
+                base = replace(base, market=declared_market)
         if code in overrides:
             base = replace(base, target_shares=overrides[code])
         if base.explicit and base.target_shares <= 0:
             log.warning(f"[CoreHoldings] {code} 目标份额 <=0，本次跳过")
             continue
+        # 每手必须与所在市场档一致，否则会出现「美股按 100 股一手买 QQQ」
+        prof = base.profile
+        if base.round_lot != prof.round_lot:
+            log.warning(
+                f"[CoreHoldings] {code} 每手 {base.round_lot:g} 与 {base.market} 档"
+                f"({prof.round_lot:g}) 不一致，以市场档为准"
+            )
+            base = replace(base, round_lot=prof.round_lot)
         specs.append(base)
     return specs
 
@@ -312,6 +486,10 @@ __all__ = [
     "DEFAULT_ALLOC_PCT",
     "DEFAULT_ROUND_LOT",
     "CHIP_ETF_CATALOG",
+    "CORE_CATALOG",
+    "MARKET_PROFILES",
+    "MarketProfile",
+    "market_profile",
     "CoreHoldingSpec",
     "load_core_holdings",
     "core_summary",
