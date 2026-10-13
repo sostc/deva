@@ -50,6 +50,35 @@ _STATIC_MARKET_NAMES = {
 }
 
 
+def source_id() -> str:
+    """发送方标识：主机名:PID"""
+    import os
+    import socket
+
+    try:
+        if os.getenv("NAJA_DTALK_SOURCE_TAG", "1") == "0":
+            return ""
+        return f"{socket.gethostname()}:{os.getpid()}"
+    except Exception:
+        return ""
+
+
+def source_tag() -> str:
+    """
+    发送方来源标记（追加到钉钉消息尾部）
+
+    同一个钉钉机器人常被多处实例共用（本机 naja、远端 naja、其它项目…），
+    一旦群里冒出重复消息，没有来源标记就只能靠猜。带上「主机名:PID」
+    之后，收到消息就能立刻知道是哪台机器、哪个进程发的。
+
+    用 NAJA_DTALK_SOURCE_TAG=0 可以关掉（不想在手机上看到的话）。
+    """
+    sid = source_id()
+    if not sid:
+        return ""
+    return f"\n> `{sid}` · {datetime.now().strftime('%H:%M:%S')}"
+
+
 def market_display_name(market_id: str) -> str:
     """把 market_id 转成人能读的名字"""
     if not market_id:
@@ -478,6 +507,10 @@ class LiquidityNotifier:
 
     def _add_notification(self, notification: LiquidityNotification):
         """添加通知到历史记录"""
+        # 记录来源，便于事后从 API/历史里回溯是哪个实例在发
+        if source_id():
+            notification.data.setdefault("source", source_id())
+
         self._notifications.appendleft(notification)
 
         # 更新统计
@@ -513,8 +546,8 @@ class LiquidityNotifier:
         try:
             from deva.endpoints import Dtalk
 
-            # 构建 markdown 消息
-            md_message = f"@md@{notification.title}|{notification.message}"
+            # 构建 markdown 消息（尾部统一追加来源标记，便于追溯是哪个实例发的）
+            md_message = f"@md@{notification.title}|{notification.message}{source_tag()}"
 
             # 异步发送
             dtalk = Dtalk()
