@@ -13,10 +13,30 @@ import re
 import threading
 import asyncio
 import time
+import os
 
 import logging
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# A股题材事件「实质变化」门槛（百分比，可按环境变量覆盖）
+#
+# ⚠️ 量纲陷阱：event['change_percent'] 是**题材权重的相对变化率**，不是股票涨跌幅。
+#    权重是 0.00x 级的小数，所以该值天然落在几十~几百 % 的区间（修复跨市场污染后
+#    实测 min≈91 / p50≈100 / max≈400）。
+#
+#    上游 history_tracker 的落盘门槛已经是 |change_percent| >= 5（外加 新进榜/消退），
+#    因此读取端若沿用 3 在**数学上必然恒真**——读出来的事件一定 >5，过滤形同虚设
+#    （实测通过率 100%）。这正是「P2 过滤失效」的真因，不是阈值调低。
+#
+#    这里对齐美股分支（_optimize_us_events 用 |chg| >= 20）设一道**真正有分辨力**的
+#    门槛；待修复后的真实数据积累够多，再用分位数正式标定。
+# ---------------------------------------------------------------------------
+try:
+    CN_EVENT_MIN_PCT: float = float(os.environ.get("NAJA_CN_EVENT_MIN_PCT") or 20.0)
+except (TypeError, ValueError):
+    CN_EVENT_MIN_PCT = 20.0
 
 # ---------------------------------------------------------------------------
 # 统一的金十要闻数据源：进程级别互斥 + 结果缓存
@@ -209,11 +229,12 @@ def _optimize_cn_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not events:
         return []
     
-    # 步骤1：过滤低质量事件（变化幅度低于3%的直接过滤）
+    # 步骤1：过滤实质变化不足的事件（门槛见 CN_EVENT_MIN_PCT 的说明）
     filtered_events = []
     for event in events:
         chg_pct = event.get('change_percent', 0)
-        if abs(chg_pct) >= 3:  # 只保留变化幅度>=3%的事件
+        # 999 / -100 这类「新进榜 / 消退」哨兵值天然通过（abs 足够大）
+        if abs(chg_pct) >= CN_EVENT_MIN_PCT:
             filtered_events.append(event)
     
     if not filtered_events:
