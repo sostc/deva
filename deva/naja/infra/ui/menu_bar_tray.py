@@ -371,6 +371,7 @@ class MenuBarTray:
                 _get_jin10_important_news,
                 select_timeline_events,
                 TRAY_TIMELINE_LIMITS,
+                format_change_percent,
             )
             
             cn_events = _get_a_block_events()
@@ -406,9 +407,7 @@ class MenuBarTray:
                     item['flash_id'] = event.get('flash_id', '')
                     item['url'] = event.get('url', '')
                 elif event_type in ('cn_event', 'us_event'):
-                    change_percent = event.get('change_percent', 0)
-                    sign = '+' if change_percent >= 0 else ''
-                    item['change'] = f"{sign}{change_percent:.1f}%"
+                    item['change'] = format_change_percent(event.get('change_percent', 0))
                     item['weight'] = event.get('weight', 0.5)
                 
                 timeline_items.append(item)
@@ -1565,33 +1564,42 @@ class MenuBarTray:
             self._app.menu.add(rumps.MenuItem("🔄 刷新", callback=self._on_refresh))
             self._app.menu["sep2"] = rumps.separator
             
-            # --- 新闻流（一级直接可见；新闻优先，板块异动在后）---
+            # --- 新闻流（一级直接可见；**按时间倒序**，不做按类型分组）---
             try:
                 import time
                 if self._timeline_events and self._timeline_events.get("success", False):
+                    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                        TRAY_MENU_MAX_EVENTS,
+                    )
+
                     stats = self._timeline_events.get('stats', {})
                     total_count = sum(int(stats.get(k, 0) or 0) for k in
                                       ('cn_events', 'us_events', 'high_score_news', 'jin10_news'))
 
-                    # 新闻流标题——原来「时间线 | 中30 | 美8 | 闻8 | 十7」4 个裸数字合并成一句
-                    flow_head = rumps.MenuItem(f"📰 今日新闻流 · 共 {total_count} 条（新闻优先）")
+                    items = self._timeline_events.get('list', [])
+                    shown = min(len(items), TRAY_MENU_MAX_EVENTS)
+
+                    # 「24h 总量」与「上屏条数」是两个数（配额只放行 12 条），
+                    # 原来只报总量会让标题看起来像 500 条要溢出——如实分开写。
+                    flow_head = rumps.MenuItem(f"📰 今日新闻流 · 24h {total_count} 条 · 显示 {shown}")
                     flow_head.set_callback(self._on_open_page("/market"))
                     self._app.menu.add(flow_head)
 
                     # 一键总结——保留在一级菜单、紧跟标题，点开就能用
                     self._app.menu.add(rumps.MenuItem("✨ 一键总结当前时间线", callback=self._on_one_click_summary))
 
-                    # 新闻优先排序：高分新闻 / 金十快讯置顶，板块异动排最后；组内按时间倒序。
-                    # 条数配额由 select_timeline_events() 保证新闻必现，这里只管呈现顺序。
-                    news_first = {'high_score_news': 0, 'jin10_news': 0, 'cn_event': 1, 'us_event': 1}
+                    # **纯时间倒序**（原先按「新闻优先」分组，结果时间线被切成
+                    # 「新闻段 + 板块段」两截，看着不像时间线）。
+                    # 「新闻不被板块异动挤掉」这件事由取数侧的配额保证——
+                    # select_timeline_events(TRAY_TIMELINE_LIMITS) 已经让
+                    # 板块异动最多只占 3/12 个名额，呈现层再分组就是重复设防。
                     ordered = sorted(
-                        self._timeline_events.get('list', []),
-                        key=lambda e: (news_first.get(e.get('type', ''), 1),
-                                       -float(e.get('timestamp', 0) or 0)),
+                        items,
+                        key=lambda e: -float(e.get('timestamp', 0) or 0),
                     )
 
                     today = time.strftime('%m-%d')
-                    for event in ordered[:12]:
+                    for event in ordered[:TRAY_MENU_MAX_EVENTS]:
                         try:
                             event_date = event.get('date', '')
                             event_time = event.get('time', '')
