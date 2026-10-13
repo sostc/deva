@@ -208,6 +208,40 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 
 ---
 
+### 2.5 主线程零阻塞审计（2026-10-13）
+
+代理问题修完后回头问了一句：「菜单里还有会堵塞的同步代码吗」。**有，而且不止一处。**
+
+前提事实：rumps 的**菜单回调**与 `rumps.timer` 回调都跑在 **AppKit 主 runloop** 上，
+所以任何 HTTP / 抓取 / 子进程等待都会冻住整条菜单栏（图标不刷、点击无响应）。
+
+审计结论与修法：
+
+| # | 位置 | 阻塞调用 | 症状 | 修法 |
+|---|---|---|---|---|
+| ① | `_build_menu()`（空缓存分支） | `_get_system_status()` → `GET /api/health`（5s 超时） | 返回值在菜单里**从未被使用**——纯浪费的阻塞 | 删除该取数（连同 `_get_system_status_cached`） |
+| ② | `_build_menu()`（空缓存分支） | `_is_trading_time()` → `GET /api/trading/status`（5s 超时、**无缓存**） | 每 30s 一次定时刷新都可能卡 5s | 删除；改用纯 datetime 的 `_is_trading_time_local()` 兜底 |
+| ③ | ① ② 都在 `with self._menu_cache_lock` **内** | 持锁做 IO | 连带把后台预加载线程也堵在锁上 | 锁内只留 dict 读写（毫秒级） |
+| ④ | `_on_timer` | `_check_naja_ready()` → `GET /api/health`（2s 超时） | 启动期每 5 秒就可能冻 2 秒 | 新增 `_check_naja_listening()`：**纯 TCP 端口探测**，0.3s 封顶 |
+| ⑤ | `_on_toggle_autostart` | `toggle_login_item()` → `subprocess.run(["launchctl",…], timeout=5)` + plist 写盘 | 点一下最多冻 5s | 移入后台线程；勾选状态回主线程改 |
+| ⑥ | `_on_timer`（总结收尾） | 写文件 / `pbcopy` / 钉钉 / `subprocess.run(["open"])` | 总结完成后主线程串行做四件重活 | 封装 `_finish_summary` 丢后台；主线程只留「弹通知 + `Popen` 打开页面」 |
+
+**有意保留**的唯一主线程阻塞：`_on_quit` 里 SIGTERM 后的等待（最多 10s，超时升级
+`SIGKILL`）。不挪走的原因是——托盘进程一退，daemon 线程随之消失，就没人做"超时
+升级到 SIGKILL"这一步了，服务可能永远不退出；而它的代价只发生在用户**主动点退出**时
+（菜单本就即将消失）。
+
+**关键设计**：主线程只需要"缓存优先、回退纯计算"两条路，任何一条都不允许发请求。
+服务端口径（含节假日）随 `/api/tray/data` 进 `_menu_cache['trading']`，由**后台预加载
+线程**负责刷新——主线程只管读。
+
+**守卫上的一个坑**：静态守卫会被"解释这个坑"的**注释**本身触发。本次就踩到——
+`_build_menu` 里的说明注释写了 `_get_system_status()` 用于标注已删除的取数，
+结果守卫把自己判成违约。故守卫扫描前先 `_strip_comment_lines()` 去掉整行注释
+（只去整行，不做 inline 剥离，避免误伤字符串字面量）。
+
+---
+
 ## 3. 改动清单
 
 | 文件 | 改动 |
@@ -222,6 +256,9 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 | `tests/test_proxy_sanitize.py`（新） | 14 条：URL 解析 7 + 清洗行为 5 + 失败提示 2 |
 | `scripts/verify/verify_tray_focus.py`（新） | 7 段：配额行为 / 托盘取数口径 / 菜单结构静态守卫 / 频率→配额 / 哨兵渲染 / 通知聚合 / 冷启动 |
 | `scripts/verify/verify_proxy_sanitize.py`（新） | 5 段：清洗行为 / 启动接入 / 时序 / 提示自证 / 环境体检 |
+| `infra/ui/menu_bar_tray.py`（2.5 主线程审计） | `_build_menu` 去掉 2 处 HTTP 取数、IO 移出锁；删 `_get_system_status` / `_get_system_status_cached` / `_is_trading_time`；新增 `_check_naja_listening`；`_on_timer` 总结收尾封装 `_finish_summary` 丢后台；`_on_toggle_autostart` 移入后台线程；`open` 改非阻塞 `Popen` |
+| `tests/test_tray_no_block.py`（新） | 12 条：空缓存零 HTTP / 端口探测 / 各回调静态守卫 |
+| `scripts/verify/verify_tray_no_block.py`（新） | 6 段：空缓存零 HTTP / 端口探测 / `_build_menu` 静态守卫 / `_on_timer` + 收尾 / 自启开关 + 死代码 / 冷启动 |
 
 ---
 
@@ -254,6 +291,20 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 
 单测：`deva/naja/tests/test_proxy_sanitize.py` 14 条。
 
+`scripts/verify/verify_tray_no_block.py --strict`（6 段）：
+
+1. **空缓存构建菜单**：spy `_http_get`，构建全过程中 **0 次 HTTP**；降级但菜单照常构建
+2. **就绪探测**：活端口 → True；死端口 → False 且耗时 **< 500ms**
+3. **`_build_menu` 静态守卫**（按方法块切 + 去注释）：无 `_http_get(` / `_get_system_status` /
+   `_is_trading_time(` / `_get_timeline_events(` / `requests.` / `urlopen`
+4. **`_on_timer` 静态守卫**：用 `_check_naja_listening()` 而非 HTTP 版；总结收尾
+   （写文件/pbcopy/钉钉/生成 HTML）在 `_finish_summary` 后台线程内
+5. **自启开关 + 死代码**：`_on_toggle_autostart` 在后台线程、勾选状态回主线程；
+   三个 HTTP 版助手已删除、`_is_trading_time_local` 保留
+6. **冷启动**：`menu_bar_tray` 可独立导入
+
+单测：`deva/naja/tests/test_tray_no_block.py` 12 条。
+
 ---
 
 ## 5. 边界与遗留
@@ -269,4 +320,9 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 - 因此「一键总结」另有一道**兜底重试**：连接失败 → `sanitize_proxy_env()`
   （返回非空 = 确实剔掉了死代理）→ 重试一次。覆盖「启动时代理还活着、之后才死」
   这个启动期清洗够不到的场景。其余 LLM 调用路径**暂未加兜底**（本轮只覆盖用户诉求路径）。
+- 主线程阻塞审计后，剩下的同步调用都只剩**毫秒级**（`webbrowser.open`、`Popen` 起
+  子进程），以及 `_on_quit` 那处**有意保留**的等待（见 2.5）。
+- `_relevance_keywords()` → `build_focus_state()` 仍在主线程被调用，但它自带
+  60s TTL（外加 5min 关键词缓存）、只读内存/本地焦点快照，且失败降级为空集
+  **绝不阻断通知** —— 属可接受量级，未动。
 
