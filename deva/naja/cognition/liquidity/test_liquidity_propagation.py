@@ -18,6 +18,21 @@ import sys
 from typing import Dict, Any
 
 
+def _guard_dry_run():
+    """
+    本文件注入的是硬编码行情（nasdaq -2.5% 等），一旦链路打通就会往真实
+    钉钉群发。默认封掉 outbound，避免"跑个演示 = 群里刷屏"。
+    """
+    import os
+
+    if os.getenv("NAJA_DTALK_REAL_SEND", "0") == "1":
+        return False
+    from deva.naja.cognition.liquidity import get_notifier
+
+    get_notifier().set_dry_run(True)
+    return True
+
+
 def print_section(title: str):
     print("\n" + "=" * 70)
     print(f"  {title}")
@@ -358,11 +373,14 @@ async def test_complete_flow_with_data(market_data):
 
 async def run_all_tests():
     """运行所有测试"""
+    dry_run = _guard_dry_run()
     print("\n" + "#" * 70)
     print("#" + " " * 68 + "#")
     print("#    Liquidity Propagation System - 完整集成测试                #")
     print("#" + " " * 68 + "#")
     print("#" * 70)
+    if dry_run:
+        print("⚠️ dry-run 模式：不会真实发送钉钉（NAJA_DTALK_REAL_SEND=1 可打开）")
 
     try:
         market_data = await test_global_market_api()
@@ -388,4 +406,14 @@ async def run_all_tests():
 
 
 if __name__ == "__main__":
+    # 同上：演示脚本里注入的是硬编码行情（nasdaq -2.5% 等），一旦链路通了
+    # 就会往真实钉钉群发。默认 dry-run，只跑逻辑不 outbound。
+    import os
+
+    if os.getenv("NAJA_DTALK_REAL_SEND", "0") != "1":
+        from deva.naja.cognition.liquidity import get_notifier
+
+        get_notifier().set_dry_run(True)
+        print("⚠️ dry-run 模式：不会真实发送钉钉（NAJA_DTALK_REAL_SEND=1 可打开）")
+
     asyncio.run(run_all_tests())

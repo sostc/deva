@@ -7,14 +7,30 @@
 3. UI 是否能显示通知历史
 """
 
+import os
 import time
 from deva.naja.cognition.liquidity import get_notifier, get_liquidity_cognition
 
 
+def _guard_dry_run():
+    """
+    演示脚本走的是全局单例 get_notifier()，它的 outbound 就是真实钉钉。
+    历史上跑一次这个函数会往群里灌 5 条消息，而且内容与真实通知一字不差，
+    排查时无法区分。默认封掉 outbound；其余链路（去重/限流/历史/UI）照跑。
+    """
+    if os.getenv("NAJA_DTALK_REAL_SEND", "0") == "1":
+        return False
+    get_notifier().set_dry_run(True)
+    return True
+
+
 def test_notifier():
     """测试通知器基本功能"""
+    dry_run = _guard_dry_run()
     print("=" * 60)
     print("测试流动性预测通知器")
+    if dry_run:
+        print("⚠️ dry-run 模式：不会真实发送钉钉（NAJA_DTALK_REAL_SEND=1 可打开）")
     print("=" * 60)
     
     # 获取通知器
@@ -104,6 +120,7 @@ def test_notifier():
 
 def test_liquidity_cognition_integration():
     """测试与 LiquidityCognition 的集成"""
+    _guard_dry_run()
     print("\n" + "=" * 60)
     print("测试 LiquidityCognition 集成")
     print("=" * 60)
@@ -148,6 +165,15 @@ def test_liquidity_cognition_integration():
 
 
 if __name__ == "__main__":
+    # 演示脚本走的也是全局单例 get_notifier()，而它的 outbound 就是真实钉钉。
+    # 直接跑会把 5 条演示消息灌进群里（且内容看起来和真的一模一样）。
+    # 这里默认关掉真实 outbound，其余链路（去重/限流/历史/UI）照常跑满。
+    import os
+
+    if os.getenv("NAJA_DTALK_REAL_SEND", "0") != "1":
+        get_notifier().set_dry_run(True)
+        print("⚠️ dry-run 模式：不会真实发送钉钉（NAJA_DTALK_REAL_SEND=1 可打开）")
+
     try:
         test_notifier()
         test_liquidity_cognition_integration()
