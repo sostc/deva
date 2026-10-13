@@ -55,6 +55,21 @@ def _ensure_clean_event_loop() -> None:
     tornado.platform.asyncio.AsyncIOMainLoop().install()
 
 
+def resolve_open_browser_on_start() -> bool:
+    """启动 Naja 时是否自动打开系统浏览器。
+
+    由托盘菜单里的「🌐 启动时打开浏览器」开关决定（持久化在
+    ``~/.naja/prefs.json``）。**默认 True = 改造前的行为**；读取失败也按 True
+    处理——偏好文件坏了不该顺带把浏览器打开也关掉，那是另一种静默失效。
+    """
+    try:
+        from deva.naja.infra.prefs import get_pref
+        return bool(get_pref("open_browser_on_start", True))
+    except Exception as e:
+        logging.warning(f"读取「启动时打开浏览器」偏好失败，按默认开启处理: {e}")
+        return True
+
+
 def run_web_application(config: AppRuntimeConfig):
     # 第一步：强制清洗 event loop（在 import/boot 之前，否则 container.boot()
     # 里可能有后台组件提前污染 loop 状态）
@@ -114,7 +129,15 @@ def run_web_application(config: AppRuntimeConfig):
     except Exception as e:
         logging.warning(f"检查菜单栏托盘失败: {e}")
 
-    server = NW("naja_webview", host=host, port=port, start=False)
+    # 是否在启动时自动拉起浏览器，由托盘菜单里的开关决定（持久化在
+    # ~/.naja/prefs.json）。默认 True = 改造前的行为。服务与托盘是两个进程，
+    # 所以改动在**下次启动**生效。
+    open_browser = resolve_open_browser_on_start()
+    if not open_browser:
+        print("🚫 已按托盘设置跳过自动打开浏览器")
+
+    server = NW("naja_webview", host=host, port=port, start=False,
+                open_browser=open_browser)
     server.application.add_handlers(".*$", handlers)
 
     try:
