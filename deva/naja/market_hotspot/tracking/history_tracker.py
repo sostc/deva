@@ -27,6 +27,25 @@ def _lab_debug_log(msg: str):
         logging.getLogger(__name__).info(f"[Lab-Debug] {msg}")
 
 
+# change_percent 的语义是「权重变化率(%)」，而权重是 0.00x 级的小数：
+# 分母趋零时会算出五位数百分比（实测出现过 73613%）。超过该上界基本可判定为脏值。
+# 注意：这是「可发现性」改造，不是过滤——数值照旧落盘，只保证它不再静默。
+_CHANGE_PCT_SANE_MAX = 1000.0
+
+
+def _market_key(market: Any) -> Optional[str]:
+    """把快照的 market 标识压成可比较的键。
+
+    只认明确的 ``CN`` / ``US``；无法识别（缺失、``UNKNOWN``、异常拼写）返回 ``None``，
+    由调用方视为「不可比」。
+
+    刻意**不**复用 ``normalize_market``：它把不认识的标识静默兜底成 ``CN``，
+    会让一个 ``UNKNOWN`` 快照被当成 A 股去和美股快照比对——正是本函数要防的事。
+    """
+    raw = str(market or "").strip().upper()
+    return raw if raw in ("CN", "US") else None
+
+
 @dataclass
 class HotspotSnapshot:
     """市场热点快照"""
@@ -614,6 +633,21 @@ class MarketHotspotHistoryTracker:
         import logging
         log = logging.getLogger(__name__)
 
+        # ⚠️ 跨市场快照不可比：CN / US 共用同一个 HistoryTracker，快照交错追加进
+        # 同一个 self.snapshots 列表，因此 old / new 常常分属不同市场。
+        # 而下面的 all_blocks 取的是两个市场的**并集**，再用 old.market 分流——
+        # 结果是「对方市场的板块」被写进本市场的持久化库：
+        #   old=US + new=CN  → 次新股/生物疫苗 等 A 股板块被打上 US 写进 us_block_events.json
+        #   old=CN + new=US  → ev/crypto 混进 cn_block_events.json
+        # 同时产出 999 哨兵（跨市场时"对方板块在本市场恒为 0"）与 73613% 这类无意义变化率。
+        # 代价只有「跨市场切换后的第一批」不产生事件；事件本身是批式的（一次 100+ 条），无感。
+        old_market = _market_key(old.market)
+        if old_market is None or old_market != _market_key(new.market):
+            log.debug(
+                f"[HistoryTracker] 跳过跨市场比对: old={old.market!r} new={new.market!r}"
+            )
+            return
+
         current_time = time.time()
 
         # 时间显示
@@ -626,7 +660,12 @@ class MarketHotspotHistoryTracker:
             market_date = datetime.fromtimestamp(current_time).strftime("%Y-%m-%d")
         
         # ========== 检测题材重大变化 ==========
+        # 入口守卫已保证 old / new 同市场，这里的并集只在「同一市场内」成立。
         all_blocks = set(old.block_weights.keys()) | set(new.block_weights.keys())
+
+        # 量纲自检：分母趋零导致的无意义变化率不拦截（照旧落盘），
+        # 但每次比对**汇总成一行 warning**，避免像过去那样静默污染数据。
+        suspect_changes: List[tuple] = []
 
         # 个股变化与具体 block 无关（内层循环只用 symbol_weights），
         # 提到 block 循环外只算一次：原先每个 block 都全量重扫所有个股 → O(B×S)。
@@ -659,6 +698,9 @@ class MarketHotspotHistoryTracker:
                 change_pct = (new_weight - old_weight) / old_weight * 100
             else:
                 change_pct = float('inf') if new_weight > 0 else 0
+
+            if change_pct != float('inf') and abs(change_pct) > _CHANGE_PCT_SANE_MAX:
+                suspect_changes.append((block_name, change_pct))
 
             # 复用上面算好的个股变化（每块给一份浅拷贝，避免下游意外改动互相污染）
             top_symbols = list(top_symbols_shared)
@@ -693,7 +735,7 @@ class MarketHotspotHistoryTracker:
                 change_percent=change_pct if change_pct != float('inf') else 999,
                 top_symbols=top_symbols,
                 description=description,
-                market=old.market  # 保存市场标识
+                market=new.market  # 保存市场标识（入口守卫已保证 == old.market）
             )
             
             # 根据变化幅度记录到不同阈值的事件队列
@@ -720,12 +762,12 @@ class MarketHotspotHistoryTracker:
                         'weight': abs(change_pct) / 100.0 if change_pct != float('inf') else 1.0,
                         'dragon_one': top_symbols[0] if top_symbols else None,
                     }
-                    if old.market == 'US':
+                    if new.market == 'US':
                         add_us_block_event(event_data)
                     else:
                         add_cn_block_event(event_data)
                 except Exception as store_err:
-                    log.warning(f"保存{old.market}事件到持久化存储失败: {store_err}")
+                    log.warning(f"保存{new.market}事件到持久化存储失败: {store_err}")
                 
                 score = min(1.0, abs(change_pct) / 100.0) if change_pct != float('inf') else 1.0
                 payload = {
@@ -762,7 +804,7 @@ class MarketHotspotHistoryTracker:
                     for s in top_symbols:
                         emoji = '📈' if s['change_pct'] > 0 else '📉'
                         log.debug(f"    {emoji} {s['symbol']} {s['name']}: {s['old']:.2f} → {s['new']:.2f} ({s['change_pct']:+.1f}%)")
-        
+
         # ========== 检测个股重大变化（优化版） ==========
         # 只关注高权重个股的重大变化，减少噪音
         all_symbols = set(old.symbol_weights.keys()) | set(new.symbol_weights.keys())
@@ -782,7 +824,10 @@ class MarketHotspotHistoryTracker:
                 change_pct = (new_weight - old_weight) / old_weight * 100
             else:
                 change_pct = float('inf') if new_weight > 0 else 0
-            
+
+            if change_pct != float('inf') and abs(change_pct) > _CHANGE_PCT_SANE_MAX:
+                suspect_changes.append((symbol_name, change_pct))
+
             # 只记录重大变化（变化超过30%或进入/退出高权重区间）
             is_new_hot = old_weight <= 2.0 and new_weight > 3.0
             is_cooled = old_weight > 3.0 and new_weight <= 2.0
@@ -864,6 +909,16 @@ class MarketHotspotHistoryTracker:
         # 注意：个股变化检测已合并到上面的逻辑中（第256-299行）
         # 避免重复检测导致记录过于频繁
         # 只保留权重大于1.0的个股的重大变化（更有参考意义）
+
+        # 量纲自检汇总：每次比对只报一行（避免刷屏），
+        # 让「分母趋零的脏变化率」重新可见，而不是继续静默污染数据。
+        if suspect_changes:
+            worst = max(suspect_changes, key=lambda x: abs(x[1]))
+            log.warning(
+                f"[HistoryTracker] {new.market} 快照比对出现 {len(suspect_changes)} 个"
+                f"超大权重变化率（>{_CHANGE_PCT_SANE_MAX:.0f}%），最大 {worst[0]} "
+                f"{worst[1]:+.0f}% —— 疑似分母趋零，请检查权重基数"
+            )
     
     def get_recent_changes(self, n: int = 20) -> List[HotspotChange]:
         """获取最近的变化记录"""
