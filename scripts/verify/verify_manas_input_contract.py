@@ -37,7 +37,17 @@ import importlib
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
+
+# ★ 守卫不许落真实库：本脚本会实例化 VirtualPortfolio。
+# 必须早于任何 deva 导入，否则 NB 已经指向 ~/.deva/nb.sqlite。
+VERIFY_DIR = os.path.join(ROOT, "scripts", "verify")
+if VERIFY_DIR not in sys.path:
+    sys.path.insert(0, VERIFY_DIR)
+from guard_sandbox import isolate_guard_db  # noqa: E402
+
+isolate_guard_db()
 
 from deva.naja.attention.kernel.manas_inputs import (  # noqa: E402
     INPUT_CONTRACTS,
