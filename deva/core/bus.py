@@ -190,6 +190,10 @@ class BusRuntime:
         self.clients_table = NB("deva_bus_clients")
         self.client_ttl_seconds = 30
         self.heartbeat_interval_seconds = 10  # 增加到10秒，减少数据库访问频率
+        # 心跳只写不删 → 客户端注册表会随进程反复启停无限膨胀（实测累积 8806 行，
+        # 清理逻辑曾是死代码：只在 get_clients() 里触发，而 naja 侧无调用方）。
+        # 这里让心跳线程每 N 次（≈N×10s）顺带清理一次过期客户端。
+        self.client_cleanup_every_ticks = _env_int("NAJA_BUS_CLEANUP_TICKS", 6)
         self.client_key = f"{socket.gethostname()}:{os.getpid()}"
         self.started_at = time.time()
         self._stop_event = threading.Event()
@@ -236,8 +240,15 @@ class BusRuntime:
             pass
 
     def _heartbeat_loop(self):
+        ticks = 0
         while not self._stop_event.is_set():
             self._heartbeat_once()
+            ticks += 1
+            if self.client_cleanup_every_ticks > 0 and ticks % self.client_cleanup_every_ticks == 0:
+                try:
+                    self._remove_stale_bus_clients()
+                except Exception as e:
+                    logging.getLogger(__name__).debug("bus 客户端清理失败: %s", e)
             if self._stop_event.wait(timeout=self.heartbeat_interval_seconds):
                 break
 
@@ -260,12 +271,11 @@ class BusRuntime:
                 to_delete.append(key)
         for key in to_delete:
             try:
-                self.clients_table.delete(key)
+                # DBStream 没有 delete()（旧代码在此吞 AttributeError 后回落）——
+                # 统一走 __delitem__，避免每次异常开销。
+                del self.clients_table[key]
             except Exception:
-                try:
-                    del self.clients_table[key]
-                except Exception:
-                    pass
+                pass
 
     def get_clients(self, ttl_seconds=None):
         self._remove_stale_bus_clients(ttl_seconds=ttl_seconds)
