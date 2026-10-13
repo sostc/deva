@@ -4,10 +4,12 @@
 守三件事：
 1. **不动手就不许动**：默认后端必须是虚拟仓；配置写错要回落虚拟仓，
    绝不能"因为装了新代码就开始报单"。
-2. **每道闸各拦各的**：非买入 / 判不出市场 / 市场不在白名单 /
+2. **每道闸各拦各的**：未知方向 / 卖出无底仓 / 判不出市场 / 市场不在白名单 /
    找不到模拟账户 / 取不到每手股数 / 金额买不起一手 / 槽位已占用 ——
    每条都要**独立**给出跳过与原因（不能合并成一句"失败"），
    且原因两两不同（一条保护掩盖另一条 = 假绿）。
+   卖腿额外守三条：可卖量为 0 必须跳过、不足一手必须跳过、
+   计划量大于可卖量按可卖量下调（不能按计划量硬报，富途会拒单）。
 3. **失败要归还槽位**：报单失败不归还 → 该标的当天再也下不出单。
 
 用法::
@@ -67,6 +69,13 @@ STATIC_RULES = [
      "AdaptiveCycle 未经由执行后端提交订单"),
     (ADAPTIVE_PY, r'if not outcome\.acted:',
      "AdaptiveCycle 未区分「跳过」与「失败」"),
+    # ❗卖出方向必须**按 side 选择**：写死成 BUY 的话，做 T 的卖腿
+    # 实际是在加仓 —— 份额守恒会被破坏，而且从日志上看不出来。
+    # 探针只能记录 _place 的入参，抓不到 TrdSide 的真实取值，故用静态守。
+    (EXEC_PY, r'TrdSide\.SELL if .* == "sell" else TrdSide\.BUY',
+     "卖单方向未按 side 选择（做T 的卖腿会变成加仓）"),
+    (EXEC_PY, r'can_sell_qty',
+     "卖出未用 can_sell_qty（A股 T+1 当日买入不可卖，用 qty 会被富途拒单）"),
 ]
 
 STATIC_FORBIDDEN = [
@@ -127,6 +136,24 @@ INJECTIONS = [
         "file": EXEC_PY,
         "old": "    return round(steps * tick, 6)",
         "new": "    return price",
+    },
+    {
+        "name": "卖单不再校验可卖持仓（空仓也能卖出 → 富途拒单）",
+        "file": EXEC_PY,
+        "old": '            if avail <= 0:\n',
+        "new": '            if False:\n',
+    },
+    {
+        "name": "卖出方向被写死成买入（做T 的卖腿实际在加仓）",
+        "file": EXEC_PY,
+        "old": '        trd_side = TrdSide.SELL if str(side).strip().lower() == "sell" else TrdSide.BUY',
+        "new": '        trd_side = TrdSide.BUY',
+    },
+    {
+        "name": "槽位键忽略 tag（做T 第二轮起被幂等挡掉）",
+        "file": EXEC_PY,
+        "old": '    if tag:\n        key = f"{key}_{tag}"\n',
+        "new": "",
     },
     {
         "name": "同步时不再剔除 DISABLED 账户",
@@ -407,6 +434,20 @@ def check_slots(mod) -> list:
     if len(keys) != 5:
         failures.append(f"槽位键维度不足，{5} 种情形只产生 {len(keys)} 个键")
 
+    # ❗tag 必须能开出**同标的同方向**的新槽位：做 T 一天要跑好几轮，
+    #  默认键（日期+市场+标的+方向）只有一个，第二轮会被幂等挡掉。
+    untagged = mod.order_slot_key("HK", "06666", "sell", day="20260101")
+    tagged = {
+        mod.order_slot_key("HK", "06666", "sell", day="20260101", tag="round_1"),
+        mod.order_slot_key("HK", "06666", "sell", day="20260101", tag="round_2"),
+        untagged,
+    }
+    if len(tagged) != 3:
+        failures.append(f"slot_tag 未区分出不同轮次，{3} 个情形只产生 {len(tagged)} 个键")
+    # 只比对**带 tag**的那两个：不带 tag 的那个本来就应该等于 keys 里的成员
+    if any(k in keys for k in tagged if k != untagged):
+        failures.append("带 tag 的键与不带 tag 的键撞车（会误拦或误放行）")
+
     # 并发认领：同一键 8 线程 × 40 次，必须**恰好** 1 次成功
     concur_key = mod.order_slot_key("HK", "00001", "buy", day="20260101")
     wins = []
@@ -546,16 +587,21 @@ def check_backends(mod, sandbox) -> list:
             self.place_calls = []
             self.slot_alive_at_place = None
             self.boom = False
+            #: 模拟仓里的可卖数量（卖腿闸门用）。默认 0 = 没有底仓
+            self.avail_qty = 0.0
 
         def _query_security(self, market, code):
             return {"last_price": 1.205, "lot_size": self.lot, "price_spread": self.tick}
 
-        def _place(self, market, code, quantity, price, target):
+        def _available_qty(self, market, code, target):
+            return self.avail_qty
+
+        def _place(self, market, code, quantity, price, target, side="buy"):
             if self.boom:
                 raise RuntimeError("连接断了")
-            self.place_calls.append((market, code, quantity, price, target["acc_id"]))
+            self.place_calls.append((market, code, quantity, price, target["acc_id"], side))
             # 记下"报单那一刻槽位是否已认领"，验证认领早于报单
-            self.slot_alive_at_place = mod.slot_taken(mod.order_slot_key(market, code, "buy"))
+            self.slot_alive_at_place = mod.slot_taken(mod.order_slot_key(market, code, side))
             return self.place_result
 
     def probe(**kw):
@@ -566,7 +612,8 @@ def check_backends(mod, sandbox) -> list:
     gate_reasons = []
 
     def gate(label, sig, *, side="buy", price=1.205, amount=10000.0, whitelist=None, targets=None,
-             lot=500, tick=0.001, place="OID-1", boom=False, **kw):
+             lot=500, tick=0.001, place="OID-1", boom=False, avail_qty=0.0,
+             expect_ok=False, **kw):
         p = probe(**({"markets": whitelist} if whitelist is not None else {}))
         if targets is not None:
             p._syncer = _FakeSyncer(targets)
@@ -574,14 +621,54 @@ def check_backends(mod, sandbox) -> list:
         p.tick = tick
         p.place_result = place
         p.boom = boom
-        out = p.submit(signal=sig, plan=None, side=side, price=price, amount=amount)
-        gate_reasons.append((label, out.skipped, out.reason))
+        p.avail_qty = avail_qty
+        out = p.submit(signal=sig, plan=None, side=side, price=price, amount=amount, **kw)
+        # ❗只有"应当被拦下"的用例才计入 gate_reasons（后面要校验
+        #   「每道闸都真的拦了」且原因两两不同）。成功路径的用例
+        #   混进去会让这条不变量永远不成立。
+        if not expect_ok:
+            gate_reasons.append((label, out.skipped, out.reason))
         return out, p
 
-    # ① 非买入
-    out, _ = gate("非买入", _FakeSignal("06666"), side="sell")
+    # ① 未知方向（买入/卖出之外）
+    out, _ = gate("未知方向", _FakeSignal("06666"), side="short")
     if not (out.skipped and not out.ok):
-        failures.append("非买入方向必须跳过")
+        failures.append("未知方向必须跳过")
+
+    # ①b 卖出：无底仓（can_sell_qty=0）必须跳过 —— 空仓卖不出东西
+    # ❗每个卖出用例都要带**独立的 slot_tag**：否则先成交的那一个会把
+    #   「日期+市场+标的+方向」这个槽位占掉，后面的用例全被幂等挡住 ——
+    #   表现为"守卫红了"，实际是用例自己撞车。
+    out, _ = gate("卖出无底仓", _FakeSignal("06666"), side="sell",
+                  quantity=1000.0, avail_qty=0.0, slot_tag="g_nobase")
+    if not (out.skipped and not out.ok):
+        failures.append("卖出但模拟仓无可卖持仓时必须跳过")
+    elif "can_sell_qty=0" not in out.reason:
+        # ❗必须是这条**专属**原因：下面「计划量>可卖量→下调」也会拒绝，
+        #   两条若共用"可卖"字样，去掉本闸时守卫会被另一条掩盖（假绿）。
+        failures.append(f"卖出无底仓必须给出 can_sell_qty=0 的专属原因: {out.reason}")
+
+    # ①c 卖出：可卖量不足一手必须跳过
+    out, _ = gate("卖出不足一手", _FakeSignal("06666"), side="sell",
+                  quantity=1000.0, avail_qty=100.0, lot=500, slot_tag="g_lot")
+    if not (out.skipped and not out.ok):
+        failures.append("可卖量不足一手时必须跳过")
+
+    # ①d 卖出：计划量大于可卖量 → 按可卖量下调，且仍成交
+    out, p = gate("卖出超可卖", _FakeSignal("06666"), side="sell", expect_ok=True,
+                  quantity=5000.0, avail_qty=1200.0, lot=500, slot_tag="g_cap")
+    if out.skipped or not out.ok:
+        failures.append(f"计划卖 5000 但可卖 1200 时应按 1200 下调成交: {out.reason}")
+    elif abs(out.quantity - 1000.0) > 1e-9:
+        failures.append(f"可卖 1200 / 每手 500 应下调到 1000，实得 {out.quantity}")
+
+    # ①e 卖出：真的走到 place_order 且方向是 sell
+    out, p = gate("卖出成交", _FakeSignal("06666"), side="sell", expect_ok=True,
+                  quantity=1000.0, avail_qty=5000.0, slot_tag="g_ok")
+    if not out.ok:
+        failures.append(f"有底仓时卖单应成交: {out.reason}")
+    elif not p.place_calls or p.place_calls[-1][5] != "sell":
+        failures.append("卖单没有以 sell 方向送到 place_order")
     # ② 判不出市场
     out, _ = gate("判不出市场", _FakeSignal("1234"))
     if not out.skipped:

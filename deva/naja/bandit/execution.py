@@ -382,10 +382,24 @@ def round_to_tick(price: float, tick: float) -> float:
 
 # ---------------------------------------------------------------- 幂等槽位
 
-def order_slot_key(market: str, code: str, side: str, *, day: Optional[str] = None) -> str:
-    """一个标的在一个交易日内的报单槽位键。"""
+def order_slot_key(
+    market: str, code: str, side: str, *, day: Optional[str] = None,
+    tag: Optional[str] = None,
+) -> str:
+    """一个标的在一个交易日内的报单槽位键。
+
+    Args:
+        tag: 额外的区分标签。**做 T 必须传**（传 round_id）：
+            默认键是「日期+市场+标的+方向」，一个标的一天只能各报一买一卖；
+            而做 T 一天要跑好几轮，不传 tag 的话第二轮就被幂等挡掉了。
+            传了 tag 之后，同一轮重复提交仍会被挡（幂等性不丢），
+            不同轮则各自成槽（多轮做 T 得以进行）。
+    """
     stamp = day or time.strftime("%Y%m%d")
-    return f"{stamp}_{market.upper()}_{str(code).strip().lower()}_{side.lower()}"
+    key = f"{stamp}_{market.upper()}_{str(code).strip().lower()}_{side.lower()}"
+    if tag:
+        key = f"{key}_{tag}"
+    return key
 
 
 def claim_order_slot(key: str) -> bool:
@@ -668,10 +682,22 @@ class FutuSimBackend(ExecutionBackend):
         amount: float,
         stop_loss_pct: float = -5.0,
         take_profit_pct: float = 10.0,
+        quantity: Optional[float] = None,
+        slot_tag: Optional[str] = None,
     ) -> ExecutionOutcome:
+        """下一笔模拟单。
+
+        Args:
+            quantity: **要卖/买的股数**。做 T 的卖腿必须传 —— 卖多少是由
+                「这一轮计划多少股」决定的，不是一个金额能反推出来的。
+                不传时按 ``amount`` 折算（买入路径的既有行为）。
+            slot_tag: 幂等槽位的额外标签（做 T 传 round_id，见
+                :func:`order_slot_key`）。
+        """
         code = str(signal.stock_code)
+        side_norm = str(side or "").strip().lower()
         outcome = ExecutionOutcome(
-            backend=self.name, symbol=code, side=side, price=price, amount=amount,
+            backend=self.name, symbol=code, side=side_norm, price=price, amount=amount,
         )
 
         def skip(reason: str) -> ExecutionOutcome:
@@ -688,12 +714,14 @@ class FutuSimBackend(ExecutionBackend):
             append_journal(outcome.to_dict())
             return outcome
 
-        if side != "buy":
-            return skip(f"模拟后端只支持买入（收到 {side}）")
+        if side_norm not in ("buy", "sell"):
+            return skip(f"模拟后端只支持买入/卖出（收到 {side!r}）")
         if price <= 0:
             return skip(f"价格无效（{price}）")
-        if amount <= 0:
+        if amount <= 0 and quantity is None:
             return skip(f"金额无效（{amount}）")
+        if quantity is not None and quantity <= 0:
+            return skip(f"股数无效（{quantity}）")
 
         market, why = infer_market(code, getattr(signal, "raw_data", None))
         if not market:
@@ -722,18 +750,55 @@ class FutuSimBackend(ExecutionBackend):
         if limit_price != price:
             log.info("[Execution] 限价对齐最小价差 %s: %s → %s", code, price, limit_price)
 
-        quantity = floor_to_lot(amount, limit_price, lot_size)
-        if quantity <= 0:
-            return skip(f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {limit_price:g}）")
-        outcome.quantity = float(quantity)
+        if side_norm == "buy":
+            qty = floor_to_lot(amount, limit_price, lot_size)
+            if qty <= 0:
+                return skip(
+                    f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {limit_price:g}）"
+                )
+        else:
+            # 卖出：股数由调用方给定（做 T 的一轮计划），没有就用金额折算
+            raw = float(quantity) if quantity is not None else (
+                amount / limit_price if limit_price > 0 else 0.0
+            )
+            qty = int(raw // lot_size) * int(lot_size)
+            if qty <= 0:
+                return skip(
+                    f"卖出股数 {raw:.0f} 不足一手（每手 {lot_size} 股）"
+                )
+            # ❗可卖数量必须实查：模拟仓里没有、或 A 股 T+1 当日买入不可卖时，
+            #   富途会直接拒单。用 ``can_sell_qty`` 而不是 ``qty`` ——
+            #   前者已经把 T+1 算进去了。
+            avail = self._available_qty(market, code, target)
+            if avail <= 0:
+                # ❗原因里必须带 ``can_sell_qty=0``：下面「按可卖量下调」那条
+                #   路径也会拒绝，两条的原因若都只写"可卖"，守卫就分不出
+                #   到底是哪道闸拦的（一条保护掩盖另一条 = 假绿）。
+                return skip(
+                    f"模拟账户 {code} 的 can_sell_qty=0（无可卖持仓）—— "
+                    f"做 T 的卖腿必须靠底仓，空仓卖不出东西"
+                )
+            if qty > avail:
+                capped = int(avail // lot_size) * int(lot_size)
+                log.warning(
+                    "[Execution] %s 计划卖 %d 股 > 可卖 %d 股，按可卖量下调到 %d",
+                    code, qty, avail, capped,
+                )
+                qty = capped
+                if qty <= 0:
+                    return skip(
+                        f"{code} 可卖 {avail:.0f} 股不足一手（每手 {lot_size}）"
+                    )
+
+        outcome.quantity = float(qty)
         outcome.price = limit_price
 
-        key = order_slot_key(market, code, side)
+        key = order_slot_key(market, code, side_norm, tag=slot_tag)
         if not claim_order_slot(key):
             return skip(f"该标的今日已报过单（幂等槽位 {key} 已占用）")
 
         try:
-            order_id = self._place(market, code, quantity, limit_price, target)
+            order_id = self._place(market, code, qty, limit_price, target, side_norm)
         except Exception as e:
             release_order_slot(key)
             return fail(f"下单异常: {e}")
@@ -746,14 +811,59 @@ class FutuSimBackend(ExecutionBackend):
         outcome.ok = True
         outcome.order_id = order_id
         outcome.position_id = order_id
-        outcome.amount = quantity * limit_price
+        # ❗是取整后的 qty，不是入参 quantity（后者卖出时可能为 None）
+        outcome.amount = qty * limit_price
         outcome.detail = f"模拟账户 {target['name']}（acc_id={target['acc_id']}）"
-        log.info("[Execution] ✅ 模拟报单成功 %s %s股 @ %s 单号=%s", code, quantity, limit_price, order_id)
+        log.info(
+            "[Execution] ✅ 模拟报单成功 %s %s %s股 @ %s 单号=%s",
+            code, side_norm, qty, limit_price, order_id,
+        )
         append_journal(outcome.to_dict())
         return outcome
 
+    # ---------------------------------------------------- 可卖数量
+
+    def _available_qty(
+        self, market: str, code: str, target: Dict[str, Any],
+    ) -> float:
+        """查模拟仓里这个标的**当前可卖**多少股。查不到一律返回 0。
+
+        用 ``can_sell_qty`` 而不是 ``qty``：前者已经把 T+1（当日买入不可卖）
+        算进去了 —— A 股当日买入的份额在富途眼里是卖不掉的，拿 ``qty`` 去报
+        卖单会被直接拒单。
+        """
+        full_code = futu_code(market, code)
+        if not full_code:
+            return 0.0
+        try:
+            from futu import OpenSecTradeContext, RET_OK, SecurityFirm, TrdEnv
+
+            firm = getattr(
+                SecurityFirm, target.get("firm") or "", SecurityFirm.FUTUSECURITIES
+            )
+            ctx = OpenSecTradeContext(
+                filter_trdmarket=trd_market(market), host=HOST, port=PORT,
+                security_firm=firm,
+            )
+            try:
+                ret, data = ctx.position_list_query(
+                    trd_env=TrdEnv.SIMULATE, acc_id=target["acc_id"], code=full_code,
+                )
+            finally:
+                ctx.close()
+            if ret != RET_OK or data is None or len(data) == 0:
+                return 0.0
+            total = 0.0
+            for _, row in data.iterrows():
+                total += float(row.get("can_sell_qty", 0) or 0)
+            return total
+        except Exception as e:
+            log.warning("[Execution] 查 %s 可卖数量失败: %s", full_code, e)
+            return 0.0
+
     def _place(
-        self, market: str, code: str, quantity: int, price: float, target: Dict[str, Any],
+        self, market: str, code: str, quantity: int, price: float,
+        target: Dict[str, Any], side: str = "buy",
     ) -> str:
         """真正调 ``place_order``。成功返回单号，失败返回空串。"""
         from futu import (
@@ -771,12 +881,13 @@ class FutuSimBackend(ExecutionBackend):
         ctx = OpenSecTradeContext(
             filter_trdmarket=trd_market(market), host=HOST, port=PORT, security_firm=firm,
         )
+        trd_side = TrdSide.SELL if str(side).strip().lower() == "sell" else TrdSide.BUY
         try:
             ret, data = ctx.place_order(
                 price=price,
                 qty=quantity,
                 code=full_code,
-                trd_side=TrdSide.BUY,
+                trd_side=trd_side,
                 order_type=OrderType.NORMAL,
                 trd_env=TrdEnv.SIMULATE,
                 acc_id=target["acc_id"],
