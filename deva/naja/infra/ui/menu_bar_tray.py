@@ -284,6 +284,8 @@ class MenuBarTray:
                 _get_us_events,
                 _get_high_score_news,
                 _get_jin10_important_news,
+                select_timeline_events,
+                TRAY_TIMELINE_LIMITS,
             )
             
             cn_events = _get_a_block_events()
@@ -298,7 +300,7 @@ class MenuBarTray:
             all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
             
             timeline_items = []
-            for event in all_events[:15]:
+            for event in select_timeline_events(all_events, TRAY_TIMELINE_LIMITS):
                 ts = event.get('timestamp', 0)
                 dt = datetime.fromtimestamp(ts)
                 event_type = event.get('type', '')
