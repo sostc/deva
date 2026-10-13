@@ -1452,74 +1452,61 @@ class MenuBarTray:
 
             self._app.menu.clear()
             
-            # 服务状态区域
-            self._app.menu["📊 Naja 管理平台"] = None
-            status_text = "🟢 运行中" if self._get_running_pid() else "🔴 已停止"
-            self._app.menu[status_text] = None
-            self._app.menu[f"📍 端口: {port}"] = None
+            # ① 状态行——原来 3 行（标题/状态/端口）合并为 1 行
+            running = bool(self._get_running_pid())
+            trading_label = "交易中" if trading_time else "休市"
+            self._app.menu[f"📊 Naja {'运行中' if running else '已停止'} · {trading_label} · 端口 {port}"] = None
             self._app.menu["sep0"] = rumps.separator
             
-            # 常用页面区域 - 使用 add 方法创建子菜单
+            # ② 常用页面——只留高频页；补「关注管理」；低频运维页移入「系统」子菜单
             common_pages = rumps.MenuItem("📈 常用页面")
             common_pages.add(rumps.MenuItem("🔥 市场热点", callback=self._on_open_page("/market")))
             common_pages.add(rumps.MenuItem("⚡ 交易中心", callback=self._on_open_page("/awakening")))
             common_pages.add(rumps.MenuItem("🧠 认知系统", callback=self._on_open_page("/cognition")))
-            common_pages.add(rumps.MenuItem("📜 系统日志", callback=self._on_open_page("/logstream")))
-            common_pages.add(rumps.MenuItem("⚙️ 系统状态", callback=self._on_open_page("/health")))
+            common_pages.add(rumps.MenuItem("🎯 关注管理", callback=self._on_open_page("/focusadmin")))
             self._app.menu.add(common_pages)
             
-            # 管理页面区域 - 使用 add 方法创建子菜单
-            admin_tools = rumps.MenuItem("🔧 管理工具")
-            admin_tools.add(rumps.MenuItem("📋 策略管理", callback=self._on_open_page("/strategyadmin")))
-            admin_tools.add(rumps.MenuItem("📊 信号管理", callback=self._on_open_page("/signaladmin")))
-            admin_tools.add(rumps.MenuItem("📁 数据源管理", callback=self._on_open_page("/dsadmin")))
-            admin_tools.add(rumps.MenuItem("📅 任务管理", callback=self._on_open_page("/taskadmin")))
-            self._app.menu.add(admin_tools)
+            # （原「管理工具」4 项已并入菜单底部的「系统」子菜单）
             
             self._app.menu["sep1"] = rumps.separator
             
-            # 登录启动项区域
-            try:
-                autostart_item = rumps.MenuItem("🚀 登录时自动启动")
-                autostart_item.state = 1 if is_login_item_enabled() else 0
-                autostart_item.set_callback(self._on_toggle_autostart)
-                self._app.menu.add(autostart_item)
-            except Exception as e:
-                logger.warning(f"添加登录启动项菜单失败: {e}")
+            # （「登录时自动启动」已移入「系统」子菜单）
             
             self._app.menu["sep1.5"] = rumps.separator
             
-            # 主功能区域
+            # ③ 快捷动作（「从服务器同步」已移入「系统」子菜单）
             self._app.menu.add(rumps.MenuItem("🌐 打开 Web", callback=self._on_open_web))
             self._app.menu.add(rumps.MenuItem("📄 打开日志", callback=self._on_open_logs))
             self._app.menu.add(rumps.MenuItem("🔄 刷新", callback=self._on_refresh))
-            self._app.menu.add(rumps.MenuItem("☁️ 从服务器同步", callback=self._on_sync_from_server))
             self._app.menu["sep2"] = rumps.separator
             
-            # --- 开始：24 小时时间线风格菜单 ---
+            # --- 新闻流（一级直接可见；新闻优先，板块异动在后）---
             try:
+                import time
                 if self._timeline_events and self._timeline_events.get("success", False):
-                    # 统计条
                     stats = self._timeline_events.get('stats', {})
-                    cn_count = stats.get('cn_events', 0)
-                    us_count = stats.get('us_events', 0)
-                    news_count = stats.get('high_score_news', 0)
-                    jin10_count = stats.get('jin10_news', 0)
-                    
-                    stats_menu = rumps.MenuItem(f"⏰ 全球市场时间线 | 🇨🇳 {cn_count} | 🇺🇸 {us_count} | 📰 {news_count} | 📌 {jin10_count}")
-                    stats_menu.set_callback(self._on_open_page("/market"))
-                    self._app.menu.add(stats_menu)
-                    
-                    # 添加一键总结按钮
+                    total_count = sum(int(stats.get(k, 0) or 0) for k in
+                                      ('cn_events', 'us_events', 'high_score_news', 'jin10_news'))
+
+                    # 新闻流标题——原来「时间线 | 中30 | 美8 | 闻8 | 十7」4 个裸数字合并成一句
+                    flow_head = rumps.MenuItem(f"📰 今日新闻流 · 共 {total_count} 条（新闻优先）")
+                    flow_head.set_callback(self._on_open_page("/market"))
+                    self._app.menu.add(flow_head)
+
+                    # 一键总结——保留在一级菜单、紧跟标题，点开就能用
                     self._app.menu.add(rumps.MenuItem("✨ 一键总结当前时间线", callback=self._on_one_click_summary))
-                    
-                    events = self._timeline_events.get('list', [])
-                    last_date = None
-                    
-                    # 最多显示 20 条，避免菜单太长
-                    display_events = events[:20]
-                    
-                    for event in display_events:
+
+                    # 新闻优先排序：高分新闻 / 金十快讯置顶，板块异动排最后；组内按时间倒序。
+                    # 条数配额由 select_timeline_events() 保证新闻必现，这里只管呈现顺序。
+                    news_first = {'high_score_news': 0, 'jin10_news': 0, 'cn_event': 1, 'us_event': 1}
+                    ordered = sorted(
+                        self._timeline_events.get('list', []),
+                        key=lambda e: (news_first.get(e.get('type', ''), 1),
+                                       -float(e.get('timestamp', 0) or 0)),
+                    )
+
+                    today = time.strftime('%m-%d')
+                    for event in ordered[:12]:
                         try:
                             event_date = event.get('date', '')
                             event_time = event.get('time', '')
@@ -1527,50 +1514,67 @@ class MenuBarTray:
                             title = event.get('title', '')
                             url = event.get('url', '')
                             change = event.get('change', '')
-                            
-                            # 日期分隔
-                            if event_date != last_date:
-                                self._app.menu.add(rumps.MenuItem(f"{'─'*30}"))
-                                self._app.menu.add(rumps.MenuItem(f"📅 {event_date}"))
-                                last_date = event_date
-                            
-                            # 事件菜单项
+                            # 24h 内跨天时用 MM-DD 代替 HH:MM——省掉原来的「日期分隔」两行
+                            stamp = event_time if event_date == today else event_date
+
                             if event_type == 'cn_event':
-                                menu_text = f"{event_time} 🇨🇳 {change} {title}"
+                                menu_text = f"{stamp} 🇨🇳 {change} {title}"
                                 callback = self._on_open_page("/market")
                             elif event_type == 'us_event':
-                                menu_text = f"{event_time} 🇺🇸 {change} {title}"
+                                menu_text = f"{stamp} 🇺🇸 {change} {title}"
                                 callback = self._on_open_page("/market")
                             elif event_type == 'high_score_news':
-                                menu_text = f"{event_time} 📰 {title}"
+                                menu_text = f"{stamp} 📰 {title}"
                                 callback = self._on_open_page("/cognition")
                             elif event_type == 'jin10_news':
-                                menu_text = f"{event_time} 📌 {title}"
-                                
+                                menu_text = f"{stamp} 📌 {title}"
+
                                 def make_callback(news_url):
                                     def callback(sender):
                                         if news_url:
                                             import webbrowser
                                             webbrowser.open(news_url)
                                     return callback
-                                
+
                                 callback = make_callback(url) if url else None
                             else:
-                                menu_text = f"{event_time} {title}"
+                                menu_text = f"{stamp} {title}"
                                 callback = None
-                            
-                            menu_item = rumps.MenuItem(menu_text, callback=callback)
-                            self._app.menu.add(menu_item)
+
+                            self._app.menu.add(rumps.MenuItem(menu_text, callback=callback))
                         except Exception as e:
-                            logger.error(f"添加时间线事件失败: {e}")
+                            logger.error(f"添加新闻流条目失败: {e}")
+
+                    more_item = rumps.MenuItem(f"⏰ 查看全部时间线（{total_count} 条）")
+                    more_item.set_callback(self._on_open_page("/market"))
+                    self._app.menu.add(more_item)
                 else:
                     self._app.menu.add(rumps.MenuItem("⏰ 暂无时间线数据"))
             except Exception as e:
-                logger.error(f"构建时间线菜单失败: {e}")
-                self._app.menu.add(rumps.MenuItem("⚠️ 时间线加载失败"))
-            
+                logger.error(f"构建新闻流菜单失败: {e}")
+                self._app.menu.add(rumps.MenuItem("⚠️ 新闻流加载失败"))
+
             self._app.menu["sep3"] = rumps.separator
-            self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
+
+            # --- 系统：低频运维页 + 自启 + 同步 + 重启 + 退出，统一收进一个子菜单 ---
+            system_menu = rumps.MenuItem("⚙️ 系统")
+            system_menu.add(rumps.MenuItem("📜 日志流", callback=self._on_open_page("/logstream")))
+            system_menu.add(rumps.MenuItem("⚙️ 系统状态", callback=self._on_open_page("/health")))
+            system_menu.add(rumps.MenuItem("📁 数据源管理", callback=self._on_open_page("/dsadmin")))
+            system_menu.add(rumps.MenuItem("📅 任务管理", callback=self._on_open_page("/taskadmin")))
+            system_menu.add(rumps.MenuItem("📋 策略管理", callback=self._on_open_page("/strategyadmin")))
+            system_menu.add(rumps.MenuItem("📊 信号管理", callback=self._on_open_page("/signaladmin")))
+            try:
+                autostart_item = rumps.MenuItem("🚀 登录时自动启动")
+                autostart_item.state = 1 if is_login_item_enabled() else 0
+                autostart_item.set_callback(self._on_toggle_autostart)
+                system_menu.add(autostart_item)
+            except Exception as e:
+                logger.warning(f"添加登录启动项菜单失败: {e}")
+            system_menu.add(rumps.MenuItem("☁️ 从服务器同步", callback=self._on_sync_from_server))
+            system_menu.add(rumps.MenuItem("🔄 重启服务", callback=self._on_reload))
+            system_menu.add(rumps.MenuItem("🚪 退出", callback=self._on_quit))
+            self._app.menu.add(system_menu)
             
             # 更新菜单构建时间戳
             import time
@@ -1582,8 +1586,7 @@ class MenuBarTray:
             # 尝试恢复菜单到最小状态
             try:
                 self._app.menu.clear()
-                self._app.menu["📊 Naja 管理平台"] = None
-                self._app.menu["⚠️ 菜单更新失败"] = None
+                self._app.menu["📊 Naja（菜单更新失败）"] = None
                 self._app.menu["sep0"] = rumps.separator
                 self._app.menu["重启服务"] = rumps.MenuItem("🔄 重启服务", callback=self._on_reload)
                 
