@@ -37,7 +37,8 @@ log = logging.getLogger(__name__)
 PORTFOLIO_MANAGER_TABLE = "naja_bandit_portfolio_manager"
 UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
 # 「手动」账户：用户手填的真实仓位（没接同步器、或只想记账的）。
-# 与「虚拟测试」（模拟盘）、券商同步账户（Spark/Cutie/FutuReal）并列，
+# 与「虚拟测试」（模拟盘）、券商同步账户（Spark/Cutie，以及 futu_portfolio_syncer
+# 按品牌注册的 FutuHK / MoomooUS …）并列，
 # 新闻筛选 / 决策 / 报告一视同仁——都是"我的钱"。
 MANUAL_ACCOUNT = "手动"
 
@@ -391,7 +392,7 @@ class PortfolioManager:
         ``except Exception`` → **整个循环中断**，排在它后面的 ``Spark`` / ``Cutie``
         **从未被创建**。而下游 ``Portfolio.get_holdings()`` 在账户不存在时静默返回
         ``[]``（"真的没有持仓"与"账户没建起来"不可区分）→ 持仓链路整条无声死亡。
-        实测后果：用户真实持仓（Spark 的 NVDA/CRWV、FutuReal 的 9 只）读出来恒为空，
+        实测后果：用户真实持仓（Spark 的 NVDA/CRWV、富途同步账户的持仓）读出来恒为空，
         新闻筛选的「持仓档」永远不命中，且不报任何错。
         """
         self._init_failures = []
@@ -473,7 +474,7 @@ class PortfolioManager:
         """已初始化的**券商**账户（不含"虚拟测试"模拟盘）。
 
         新闻焦点要的是"我到底持有什么"，而钱通常散在多个券商账户里
-        （实测：Spark 2 只 + FutuReal 9 只）。只读一个账户会漏掉大半持仓。
+        （Spark / Cutie / FutuHK / MoomooUS …）。只读一个账户会漏掉大半持仓。
         """
         return dict(self._us_portfolios)
 

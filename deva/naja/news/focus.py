@@ -29,7 +29,7 @@ manas 只负责提供它的注意力状态（关注主题 / 自选股 / 叙事�
   * 本模块 ``_note_account_health()`` 在持仓为空时**显式留痕**（``degraded``）。
 
 另外 ``get_all_holdings()`` 合并**所有已初始化券商账户**——钱通常散在多个账户里
-（实测 Spark 2 只 + FutuReal 9 只），只看默认账户会把"我真正持有的票"的新闻
+（Spark / Cutie / FutuHK / MoomooUS …），只看默认账户会把"我真正持有的票"的新闻
 错当成"外部机会"。
 """
 

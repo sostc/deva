@@ -29,8 +29,9 @@ FocusAdmin —— 「关注管理」的后端 API（**纯 dict 进出，供 UI �
 
 * ``虚拟测试``  —— 模拟盘；``_virtual_portfolio`` 未注入时**建不起来**
 * ``Spark`` / ``Cutie``  —— 券商账户（配置文件加载）
-* ``FutuReal``  —— 富途同步账户，**由 ``futu_portfolio_syncer`` 注册**；
-  同步器没跑时它就不存在（时序依赖，不是 bug）
+* ``FutuHK`` / ``MoomooUS`` …  —— 富途系同步账户（富途香港 / moomoo 美国 …），
+  **由 ``futu_portfolio_syncer`` 遍历各 ``security_firm`` 注册**；
+  同步器没跑时它们就不存在（时序依赖，不是 bug）
 * ``手动``  —— 用户手填的真实仓位（本模块的 CRUD 对象）
 """
 
