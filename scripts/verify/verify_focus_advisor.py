@@ -330,7 +330,11 @@ def main() -> int:
 
     pfo.WATCHLIST_TABLE = _TMP_WATCHLIST
     try:
-        NB(_TMP_WATCHLIST).clear()
+        # ``DBStream.clear()`` 自己不提交事务，且返回的是内部结果（不是 self），
+        # 所以必须分两步 + 显式 persist()，否则"清了"只留在内存里，下个进程照样读到。
+        _wl = NB(_TMP_WATCHLIST)
+        _wl.clear()
+        _wl.persist()
         pf = pfo.Portfolio()
         pf.invalidate_cache()          # 单例：必须显式失效，否则读到真实表的旧缓存
 
@@ -372,7 +376,9 @@ def main() -> int:
         check("删完确实为空", fa.list_watchlist()["count"] == 0, "")
     finally:
         try:
-            NB(_TMP_WATCHLIST).clear()
+            _wl = NB(_TMP_WATCHLIST)
+            _wl.clear()
+            _wl.persist()      # clear() 不提交且返回 None，见上
         except Exception:
             pass
         pfo.WATCHLIST_TABLE = _real_table
