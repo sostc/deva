@@ -895,24 +895,63 @@ class ConfidenceEngine:
             return 0.0
 
     def _get_bandit_confidence(self, tracker) -> float:
-        """获取 bandit 置信度"""
+        """获取 bandit 置信度。
+
+        ⚠️ 这里历史上固定查 ``get_strategy_summary("default")``，而真实策略 id
+        是运行期生成的（实测 ``88b104eca26c`` / ``Momentum Surge Tracker`` /
+        ``8aa39ecfe86d`` …）—— **没有任何策略叫 "default"**，于是
+        ``total_trades`` 恒 0、置信度恒 0.3。
+
+        实测（2026-10-14）：战绩库共 277 条记录，聚合全部策略是 **100 笔**，
+        而按 ``"default"`` 查是 **0 笔**。这把 manas 分数长期压在行动门槛
+        （0.5）之下 → 决策留痕 **50/50 全是 hold**、``size_hint`` 全 0，
+        即「链路接好了但从没放行过一次」。
+
+        现在改为**聚合全部策略**，并区分两种「笔数少」：
+        - **0 笔 = 无信息** → 中性 0.5（与 tracker 缺失时一致）
+        - **1~4 笔 = 小样本** → 0.3（不信任，保留原设计意图）
+
+        若把 0 笔也判成 0.3，系统会**永远开不了张**：没有交易 → 没有战绩 →
+        低置信 → 不放行 → 没有交易。这是死锁，不是保守。
+        """
         if tracker is None:
             return 0.5
 
-        try:
-            stats = tracker.get_strategy_summary("default")
-            total_trades = stats.get('total_trades', 0)
+        total_trades = self._count_closed_trades(tracker)
 
-            if total_trades < 5:
-                return 0.3
-            elif total_trades < 20:
-                return 0.5
-            elif total_trades < 50:
-                return 0.7
-            return 0.9
-        except Exception as e:
-            log.debug("manas: 抑制异常并回退默认值: %s", e)
+        if total_trades <= 0:
             return 0.5
+        if total_trades < 5:
+            return 0.3
+        if total_trades < 20:
+            return 0.5
+        if total_trades < 50:
+            return 0.7
+        return 0.9
+
+    @staticmethod
+    def _count_closed_trades(tracker) -> int:
+        """统计已平仓笔数。
+
+        优先聚合**全部策略**（``None``）；某些实现只认具名策略，故再退回
+        ``"default"`` 查一次，取两者较大值——避免「有战绩却读成 0」。
+        """
+        best = 0
+        for key in (None, "default"):
+            try:
+                stats = tracker.get_strategy_summary(key)
+            except Exception as e:  # pragma: no cover - 依赖实现
+                log.debug("manas: get_strategy_summary(%r) 失败: %s", key, e)
+                continue
+            if not isinstance(stats, dict):
+                continue
+            try:
+                best = max(best, int(stats.get("total_trades", 0) or 0))
+            except (TypeError, ValueError):
+                continue
+        if best <= 0:
+            log.debug("manas: 战绩库读不到已平仓笔数（聚合与 default 均为 0）")
+        return best
 
 
 class RiskEngine:
