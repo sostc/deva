@@ -945,9 +945,19 @@ class Jin10LiveNewsWakeSync:
                             from deva.naja.events import get_event_bus
                             from deva.naja.events.text_events import TextFetchedEvent
 
+                            # ❗title 必须承载真实新闻标题，不能写成 "金十重要事件 #N"
+                            #   这类序号占位符。托盘菜单（menu_bar_tray）、24h 时间线、
+                            #   cognition UI 展示时读的都是 event.title —— 写成序号会让
+                            #   这些地方显示出「金十重要事件 #1」这种零信息量的条目，
+                            #   而真正的内容被塞进了 text 字段、展示端根本不读。
+                            #   Jin10ImportantNews 没有正文字段，故 text 与 title 同源。
+                            #   仅当标题确为空时才回退占位符（保留 rank 以便追溯）。
+                            news_title = (getattr(news, 'title', '') or '').strip()
+                            if not news_title:
+                                news_title = f"金十重要事件 #{getattr(news, 'rank', 0)}"
                             event = TextFetchedEvent(
-                                text=news.title,
-                                title=f"金十重要事件 #{news.rank}",
+                                text=news_title,
+                                title=news_title,
                                 source="jin10_important",
                                 url=f"https://www.jin10.com/news/{flash_id}" if flash_id else "",
                                 timestamp=time.time(),
