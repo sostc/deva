@@ -267,7 +267,16 @@ class VirtualPortfolio:
                     f"{stock_code} qty={quantity:.2f}，已用 {used:.0f}/总额 {self._total_capital:.0f}"
                 )
             
-            position_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
+            base_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
+            # ★ 同一毫秒内对同一标的连开两笔时，毫秒时间戳会撞车：
+            #   第二笔直接 ``_positions[id] = ...`` 覆盖第一笔，份额凭空蒸发，
+            #   而调用方（包括份额守恒校验）完全看不到异常。
+            #   真实场景里分批建仓、强制回购恰恰会在同一个 poll 里连续下单。
+            position_id = base_id
+            suffix = 0
+            while position_id in self._positions:
+                suffix += 1
+                position_id = f"{base_id}_{suffix}"
 
             mts = self._mts
             entry_time = mts.get_market_time()
