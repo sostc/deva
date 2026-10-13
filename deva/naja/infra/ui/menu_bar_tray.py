@@ -179,7 +179,7 @@ class MenuBarTray:
             while self._preload_running:
                 try:
                     tray_data = _http_get("/api/tray/data", timeout=10.0)
-                    
+
                     if tray_data and tray_data.get('success'):
                         with self._menu_cache_lock:
                             self._menu_cache = {
@@ -190,19 +190,36 @@ class MenuBarTray:
                             }
                         logger.debug(f"[Tray] 菜单数据预加载完成")
                     else:
-                        logger.warning(f"[Tray] 预加载失败: {tray_data}")
-                        
+                        self._log_preload_failure(tray_data)
+
                 except Exception as e:
-                    logger.warning(f"[Tray] 预加载失败: {e}")
-                
-                time.sleep(10)
-            
+                    self._log_preload_failure(e)
+                finally:
+                    time.sleep(10)
+
             logger.info("[Tray] 后台预加载线程退出")
-        
+
         import threading
         self._preload_thread = threading.Thread(target=preloader, daemon=True)
         self._preload_thread.start()
         logger.info("[Tray] 后台预加载线程已启动")
+
+    def _log_preload_failure(self, detail):
+        """预加载失败的日志分级。
+
+        托盘通常比 Naja 先起来，启动期必然有若干轮拿不到数据；那不是故障，
+        按 warning 打会长期污染日志、掩盖真正的失败（服务已监听却仍取不到）。
+        只在「端口确实在监听」时才升级为 warning。
+        """
+        try:
+            service_up = self._check_naja_listening()
+        except Exception:
+            service_up = False
+
+        if service_up:
+            logger.warning(f"[Tray] 预加载失败（服务已就绪）: {detail}")
+        else:
+            logger.debug(f"[Tray] 预加载跳过：服务尚未监听，稍后重试")
 
     # ── 通知聚合限流参数 ─────────────────────────────────────────────
     # 修好时间线截断（见 select_timeline_events）后，单轮可能出现多条达标新闻，
