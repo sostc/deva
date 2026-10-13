@@ -405,6 +405,125 @@ def check_static_pending_prune():
     print("16) 静态：propagate 入口已挂过期清理 OK")
 
 
+def check_dry_run():
+    """dry-run：必须能关掉真实 outbound，同时保留去重/限流/历史语义"""
+    from deva.naja.cognition.liquidity.notifier import LiquidityNotifier
+    import deva.endpoints as E
+
+    opened = []
+    class FakeDtalk:
+        def __rrshift__(self, msg):
+            opened.append(msg)
+            return self
+    real = E.Dtalk
+    E.Dtalk = FakeDtalk
+    try:
+        n = LiquidityNotifier(min_interval=0.0, dedupe_window=0.0, burst_limit=100)
+        n.set_dry_run(True)
+        assert n.is_dry_run() is True
+        payload = dict(
+            from_market="us_equity", to_market="a_share",
+            direction="down", probability=0.8, actual_change=-2.5,
+        )
+        n.send_prediction_confirmed(**payload)
+        assert len(opened) == 0, f"dry-run 竟然真实发送了 {len(opened)} 条"
+        st = n.get_stats()
+        assert st["total_dry_run"] == 1, st
+        assert st["total_sent"] == 0, "dry-run 不该计入真实发送数"
+        # 历史里必须留痕，否则排障时看不到
+        hist = n.get_recent_notifications(1)
+        assert hist and hist[0]["data"].get("dry_run") is True, hist
+
+        # 关掉 dry-run 后必须恢复真实发送
+        n.set_dry_run(False)
+        n.send_prediction_confirmed(**payload)
+        assert len(opened) == 1, f"退出 dry-run 后没恢复发送，got {len(opened)}"
+    finally:
+        E.Dtalk = real
+    print("18) dry-run 能切断真实发送、保留历史 OK")
+
+
+def check_snapshot_age():
+    """验证通知必须带快照年龄，否则「同一个数被反复引用」不可观测"""
+    from deva.naja.cognition.liquidity.notifier import LiquidityNotifier
+    import deva.endpoints as E
+
+    sent = []
+    class FakeDtalk:
+        def __rrshift__(self, msg):
+            sent.append(msg)
+            return self
+    real = E.Dtalk
+    E.Dtalk = FakeDtalk
+    try:
+        n = LiquidityNotifier(min_interval=0.0, dedupe_window=0.0, burst_limit=100)
+        n.set_dry_run(True)
+        n.send_prediction_confirmed(
+            from_market="us_equity", to_market="a_share",
+            direction="down", probability=0.8, actual_change=-2.5,
+            observed_at=time.time() - 47 * 60,
+        )
+        hist = n.get_recent_notifications(1)[0]
+        assert hist["data"].get("snapshot_age") is not None, hist
+        assert "数据快照" in hist["message"], f"文案里没有数据年龄: {hist['message']}"
+        assert "47 分钟前" in hist["message"], hist["message"]
+        # 快照时间戳不得进指纹，否则去重会被秒级差异穿透
+        n2 = LiquidityNotifier(min_interval=0.0, dedupe_window=1800.0, burst_limit=100)
+        n2.set_dry_run(True)
+        for offset in (60, 120, 180):
+            n2.send_prediction_confirmed(
+                from_market="us_equity", to_market="a_share",
+                direction="down", probability=0.8, actual_change=-2.5,
+                observed_at=time.time() - offset,
+            )
+        assert n2.get_stats()["suppressed_duplicate"] == 2, n2.get_stats()
+    finally:
+        E.Dtalk = real
+    print("19) 快照年龄可见且不穿透去重 OK")
+
+
+def check_demo_scripts_dry_run():
+    """静态：演示脚本必须默认 dry-run，否则跑一次灌一群消息
+
+    只守 __main__ 是不够的——别人 import 之后直接调函数照样会真发。
+    所以要求守卫落在函数体内，并且默认行为必须是"不发"。
+    """
+    targets = {
+        "test_notifier.py": ["test_notifier", "test_liquidity_cognition_integration"],
+        "test_liquidity_propagation.py": ["run_all_tests"],
+    }
+    for name, funcs in targets.items():
+        path = os.path.join(LIQUIDITY_DIR, name)
+        with open(path, encoding="utf-8") as f:
+            src = f.read()
+        tree = ast.parse(src)
+
+        blocks = {}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                blocks[node.name] = ast.get_source_segment(src, node) or ""
+
+        guard_src = blocks.get("_guard_dry_run", "")
+        assert guard_src, f"{name} 缺少 _guard_dry_run 守卫 helper"
+        # 默认值必须是「不发」：只有显式 NAJA_DTALK_REAL_SEND=1 才打开
+        assert "NAJA_DTALK_REAL_SEND" in guard_src, (
+            f"{name}::_guard_dry_run 缺少 NAJA_DTALK_REAL_SEND opt-in 开关"
+        )
+        # 且 opt-in 关闭时必须真的调到 set_dry_run(True)
+        assert "set_dry_run(True)" in guard_src, (
+            f"{name}::_guard_dry_run 未实际设置 dry-run"
+        )
+
+        for fn in funcs:
+            body = blocks.get(fn, "")
+            assert body, f"{name}::{fn} 不存在"
+            assert "_guard_dry_run()" in body, (
+                f"{name}::{fn} 未调用 dry-run 守卫，"
+                f"被 import 调用时会往真实钉钉群发消息"
+            )
+    print("20) 静态：演示脚本默认 dry-run（含 import 调用路径）OK")
+
+
 def main():
     # 运行时
     check_layer1_same_content()
@@ -425,6 +544,9 @@ def main():
     check_static_no_ghost_field()
     check_static_pending_prune()
     check_source_tag()
+    check_dry_run()
+    check_snapshot_age()
+    check_demo_scripts_dry_run()
 
     print("\nALL PASS")
 
