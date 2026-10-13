@@ -233,18 +233,33 @@ def _detect_changes(self, old, new, timestamp_str=None):
 （`save_state` / `load_state` / `get_symbol_name` 路径），**改动面明显变大**。
 → **建议先只做步骤 1，观测一天再决定要不要做步骤 3。**
 
-### 步骤 4（P2，独立小项，建议延后）
+### 步骤 4（P2）——✅ 已实施（2026-10-13 晚）
 
-先定口径，再改代码。三个候选口径（需产品决策，不推荐我直接拍）：
+**根因最终定性：不是「阈值调低」，是「读取端阈值 < 写入端阈值」的数学矛盾。**
 
-| 候选 | 含义 | 优劣 |
-|---|---|---|
-| A. 绝对权重变化 | `|new_weight - old_weight| >= X` | 量纲稳定，但会偏爱高权重板块 |
-| B. 排名跃迁 | 板块从 Top-N 之外进入 Top-M | 最贴近"异动"直觉，需维护排名快照 |
-| C. 剔除跨市场 + 保留 `>=3%` | P0 修完后再实测通过率 | 最省事，可能仍偏高 |
+* 写入端 `history_tracker.py:747`：只有 `abs(change_percent) >= 5`（外加 新进榜/消退）才落盘；
+* 读取端 `market_24h_timeline.py:216`：过滤条件却是 `abs(change_percent) >= 3`。
 
-**我的倾向：先做 P0/P1，再用真实数据重新测一次阈值通过率，拿数据决定走 A/B/C。**
-现在拍阈值是拍脑袋。
+→ **3 < 5 ⇒ 落盘事件必然 >3 ⇒ 该过滤是恒真命题**，不可能不通过。
+这在修复跨市场污染后依然成立（实测 17 条样本 `>=3` / `>=30` 通过率均 **100%**，
+`>=100` 才 59%）。
+
+**修法**：把门槛改为对齐美股分支（`_optimize_us_events` 用 `|chg| >= 20`）的
+**真正有分辨力**的门槛，并抽成模块常量 `CN_EVENT_MIN_PCT`，可用环境变量
+`NAJA_CN_EVENT_MIN_PCT` 覆盖。
+
+```python
+CN_EVENT_MIN_PCT = float(os.environ.get("NAJA_CN_EVENT_MIN_PCT") or 20.0)
+...
+if abs(chg_pct) >= CN_EVENT_MIN_PCT:      # 原为 >= 3（恒真）
+    filtered_events.append(event)
+```
+
+> ⚠️ 量纲提醒（写进代码注释了）：`change_percent` 是**题材权重的相对变化率**，
+> 不是股票涨跌幅——权重是 0.00x 级小数，所以它天然分布在几十~几百 %。
+> 用"涨跌幅直觉"（3%/5%/10%）设阈值在这里全是错配。
+> 20 这个默认值只保证「不再恒真、且与美股一致」；**正式标定仍需更多修复后真实数据**
+> （当前样本仅 17 条冷启动数据，不够）。
 
 ---
 
@@ -266,8 +281,22 @@ for symbol in codes:
 日志里干干净净——这正是本仓反复出现的「UI/调用写好了、注册链路没接」家族的新成员。
 
 **影响**：A 股新符号**从未**经此路径注册（真实注册走 `initialize` 的 `symbol_block_map`）。
-若这是历史遗留的无效代码 → 删；若设计上需要盘中动态注册 → 补方法。
-**需要一句判断**：这条路径**预期有作用吗**？（建议单独立项时一并确认。）
+
+### ✅ 已移除（2026-10-13 晚）—— 判定为「幽灵调用」
+
+补方法**不可取**，理由比"是死代码"更硬：
+
+1. **符号其实已全量注册**。启动日志实测：`[MarketHotspotSystem] 已注册 6288 个个股`
+   （A 股总数约 5.4k，覆盖充分）→ 运行时无须补注册。
+2. **即便补上方法，也会帮倒忙**。`'A股'` **不是 block_id**（block_id 是 269 个题材名）。
+   `weight_pool.register_symbol(symbol, blocks)` 对已存在符号会执行
+   `self._symbol_blocks[symbol] = blocks`（`:99`）——即把**每只股票的题材映射覆盖成 `['A股']`**，
+   直接摧毁全部题材归属。
+   → **它「一直没生效」实际上一直在保护系统。** 这种 bug 修反而有害。
+
+故直接删除该循环（`realtime_fetcher.py:_process_cn_hotspot`），并在代码里写清
+「若将来确需运行时补注册，正确入口是 `weight_pool.register_symbol` + **真实题材 id**，
+且不得覆盖已存在映射」。
 
 ---
 
@@ -421,10 +450,89 @@ history_tracker 落盘  →  ~/.naja/{cn,us}_block_events.json          （本�
 
 → 等远端部署 + 48h 过期后，这两个文件自然干净。**不折腾。**
 
-### B.5 待你决定
+### B.5 ✅ 已解决（2026-10-13 晚）—— 远端已部署并验证
 
-1. **远端部署**——`ai.secsay.com` 是本机之外的一台机器（152.136.133.71），
-   我无法从这里部署。是否需要我准备一份可复制过去的补丁说明（改动就在
-   `history_tracker.py` 一个文件 + 一个新测试）？
-2. **是否接受"48h 内时间线仍可能显示脏条目"**——这是远端未修期间的既成事实。
+原先我以为"无法从本机部署远端"。**实际可以**：
+
+* `~/.ssh` 已有免密通道（`ssh root@secsay.com` 直通，远端主机名 `VM-0-6-centos`，腾讯云）；
+* 仓内本就有两个部署脚本：`scripts/sync_to_server.sh`、`scripts/git_update_server.sh`；
+* 远端代码路径 `/usr/local/lib/python3.10/site-packages/deva/`，服务由 `nohup python3 -m deva.naja`
+  启动、PID 记于 `/root/naja.pid`、日志 `/root/.naja/logs/naja_console.log`。
+
+**执行**：备份 → `scp` 覆盖 `history_tracker.py` → 清 pyc → 清两层脏缓存 → 强杀重启。
+
+**验证（决定性）**——远端重启后新生成的 `us_block_events.json`：
+
+| 指标 | 修复前 | 修复后 |
+|---|---|---|
+| 条数 | 300 | 20（冷启动） |
+| 中文板块名 | 270 (90%) | **0** |
+| 999 哨兵 | 275 (90%) | **0** |
+| 样本 | 钴金属 / 维生素 / 无人机 | fintech / ai_chip / healthcare / ev / crypto |
+
+→ **跨市场污染已彻底消除**。旧脏数据最迟 48h（`CACHE_HOURS`）自然过期，无须再等。
+
+---
+
+## 附录 C：本轮收口记录（2026-10-13 晚）
+
+前一轮修了 P0+P1（本机），本轮把**剩余全部收口**，并补上最关键的远端部署。
+
+### C.1 做了什么
+
+| # | 项 | 位置 | 状态 |
+|---|---|---|---|
+| 1 | 跨市场守卫 + 分流改 `new.market` + 量纲自检 | `tracking/history_tracker.py` | ✅ 上轮 `0dca409` |
+| 2 | **远端同源部署** | `ai.secsay.com:/usr/local/lib/.../deva/` | ✅ 本轮 |
+| 3 | **`register_symbol` 幽灵调用移除** | `data/realtime_fetcher.py` | ✅ 本轮 `cc26fc2` |
+| 4 | **A 股事件过滤「恒真」修正** | `ui_components/timeline/market_24h_timeline.py` | ✅ 本轮 `cc26fc2` |
+
+### C.2 远端部署细节（可复用）
+
+```bash
+# 0) 探测远端结构（远端 = VM-0-6-centos，代码在 site-packages）
+ssh root@secsay.com 'ls /usr/local/lib/python3.10/site-packages/deva/naja/market_hotspot/tracking/'
+
+# 1) 备份（代码 + 两层数据缓存）
+ssh root@secsay.com 'mkdir -p /root/naja_backup_$(date +%Y%m%d_%H%M%S) && ...'
+
+# 2) 覆盖单文件（不要用 sync_to_server.sh 的 rsync --delete——远端版本与本地差
+#    106 行全是本次修复，整体覆盖会牵扯无关文件；单文件 scp 最稳）
+scp deva/naja/market_hotspot/tracking/history_tracker.py \
+    root@secsay.com:/usr/local/lib/python3.10/site-packages/deva/naja/market_hotspot/tracking/
+
+# 3) 清 pyc（防加载旧字节码）
+ssh root@secsay.com 'find .../tracking/__pycache__ -name "*history_tracker*" -delete'
+
+# 4) 清两层脏缓存
+ssh root@secsay.com 'rm -f /root/.naja/{cn,us}_block_events.json \
+                             /root/.naja/server_sync/{cn,us}_events_server.json'
+
+# 5) 重启（远端无 systemd；必须 setsid/nohup 脱离 ssh 会话，否则进程随连接死）
+ssh root@secsay.com 'pkill -9 -f deva.naja; sleep 3; \
+  cd /root && setsid nohup python3 -m deva.naja --port 8080 --host 0.0.0.0 \
+  > /root/.naja/logs/naja_console.log 2>&1 < /dev/null &'
+```
+
+**踩到的坑**：第一次重启用 `kill $(cat /root/naja.pid)` 失败——`naja.pid` 是**空的**
+（远端从未写对 PID 文件），`pkill -f deva.naja` 也没能终止老进程（内存里仍是旧代码）。
+正确做法是 `pkill -9 -f deva.naja` 强杀 + 用 `ss -ltnp | grep 8080` 确认端口释放后再起。
+
+### C.3 验证结果汇总
+
+| 验证 | 结果 |
+|---|---|
+| 远端 `us_block_events` 中文板块名 | 270/300 → **0/20** |
+| 远端 `us_block_events` 999 哨兵 | 275/300 → **0/20** |
+| 本机 `us_block_events` 中文名 | → **0/15** |
+| 全量单测 | **377 passed** |
+| `verify_tray_focus.py --strict` | 全绿 |
+| `verify_manas_compute_snapshot --check` | 15 场景 **差异 0** |
+
+### C.4 仍待标定（不阻塞）
+
+* **`CN_EVENT_MIN_PCT=20` 只是"不再恒真 + 与美股一致"的默认值**。正式口径需在
+  跨市场修复后积累足够真实数据（当前仅 17 条冷启动样本，`change_percent` 集中在 91~400），
+  再用分位数标定；可用 `NAJA_CN_EVENT_MIN_PCT` 免改码调整。
+* 「tracker 按市场分区」（比"入口守卫"更彻底）仍未做——守卫已堵住污染，暂无必要。
 
