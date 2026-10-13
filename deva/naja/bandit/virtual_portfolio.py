@@ -105,6 +105,20 @@ class VirtualPortfolio:
 
         self._load_positions()
 
+    # ---- 仓位限额（只读）——给调用方做分批用 ------------------------
+    # 底仓一次性买到位时最容易撞的就是这两个限额。以前调用方只能自己猜
+    # 0.2 这个魔数，或者干脆 bypass_limits 绕过风控。这里显式暴露，
+    # 让调用方能**分批**补齐，既不猜也不绕。
+    @property
+    def single_position_budget(self) -> float:
+        """单笔开仓的金额上限（total_capital × max_position_pct）。"""
+        return self._total_capital * self._max_position_pct
+
+    @property
+    def category_position_budget(self) -> float:
+        """总持仓的金额上限（total_capital × max_total_pct）。"""
+        return self._total_capital * self._max_total_pct
+
     def set_market_time_service(self, service) -> None:
         """显式设置 MarketTimeService（依赖注入）"""
         self._market_time_service = service

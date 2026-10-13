@@ -171,6 +171,56 @@ def make_runner(capital=2_000_000.0, establish=False, flat_limit=999):
     }
 
 
+def make_alloc_env(price=1.0):
+    """自动建仓专用环境：**保留虚拟仓默认风控参数**。
+
+    make_runner 把 max_position_pct 放成 1.0，是为了让做 T 的用例不受打扰；
+    但 40% 的底仓必然超过 20% 的单笔限额 ——
+    在限额全开的环境里测，等于永远测不到「分批」那一段，
+    而那正是本次改动唯一的新行为。
+    """
+    from deva.naja.bandit.virtual_portfolio import VirtualPortfolio
+    from deva.naja.bandit.core_position import CorePositionLedger
+    from deva.naja.bandit.t_rotation import TRotationEngine, TRotationConfig
+    from deva.naja.bandit.core_holdings import load_core_holdings
+    from deva.naja.bandit.t_rotation_runner import TRotationRunner
+
+    clock = {"t": _dt(*D1, 9, 35).timestamp()}
+
+    class TickingMTS:
+        """跟着模拟时钟走的时间源。
+
+        FakeMTS 返回**固定**时间戳，同一分钟内的多笔建仓会拿到同一个
+        entry_time，两笔金额相同的分批记录会被误判成一笔 ——
+        分批到底做了几笔就看不出来了。
+        """
+
+        def get_market_time(self):
+            return clock["t"]
+
+    vp = VirtualPortfolio(account_name=TEST_ACCOUNT)
+    vp.set_market_time_service(TickingMTS())
+    vp.clear_history()
+    vp.set_capital(1_000_000.0)  # **不放宽任何限额**
+
+    specs = load_core_holdings()  # target_shares=0 → 走 alloc_pct
+    bus = FakeBus()
+    ledger = CorePositionLedger(persist=False)
+    eng = TRotationEngine(
+        portfolio=vp, ledger=ledger,
+        config=TRotationConfig(max_round_pct=0.30, max_round_amount=500_000.0),
+    )
+    runner = TRotationRunner(
+        portfolio=vp, bus=bus, engine=eng, ledger=ledger, specs=specs,
+        establish_missing=True, flat_poll_limit=99999,
+        clock=lambda: clock["t"],
+    )
+    return {
+        "vp": vp, "bus": bus, "eng": eng, "ledger": ledger,
+        "spec": specs[0], "runner": runner, "clock": clock, "price": price,
+    }
+
+
 def seed_core(env, price, qty, day=D1):
     """建一份「昨夜传承」的底仓：T+1 下它今日可卖，明日也一样。"""
     from deva.naja.bandit.t_rotation_runner import session_open_ts
@@ -216,17 +266,21 @@ def check_default_core_is_chip_etf():
     assert spec.bus_code == "sh588200", f"bus_code 缺市场前缀: {spec.bus_code}"
     assert spec.name and spec.name != spec.code, "ETF 中文名缺失，日志里只能看到代码"
     assert "588200" in CHIP_ETF_CATALOG, "备选清单缺 588200"
-    print(f"1) 默认底仓 OK —— {spec.name}({spec.bus_code}) 目标 {spec.target_shares:.0f} 份")
+    # target_shares 为 0 = 「按比例折算」，不是「目标为零」
+    print(f"1) 默认底仓 OK —— {spec.name}({spec.bus_code}) 目标 {spec.alloc_pct:g}% 总资产")
 
 
 def check_env_override():
-    """2) NAJA_T_ROTATION_TARGET_SHARES 能覆盖目标份额，坏值回退。"""
+    """2) TARGET_SHARES 显式覆盖优先；坏值回退；ALLOC_PCT 折算正确。"""
     from deva.naja.bandit import core_holdings as ch
 
     os.environ["NAJA_T_ROTATION_TARGET_SHARES"] = "588200:150000"
     try:
         specs = ch.load_core_holdings()
         assert specs[0].target_shares == 150000, specs[0].target_shares
+        # 显式指定 → 折算必须照给，不许偷偷再按比例算一遍
+        assert specs[0].resolve_target_shares(1_000_000.0, 1.0) == 150000, \
+            "显式份额被 alloc_pct 覆盖了"
     finally:
         os.environ.pop("NAJA_T_ROTATION_TARGET_SHARES")
 
@@ -241,10 +295,198 @@ def check_env_override():
     os.environ["NAJA_T_ROTATION_TARGET_SHARES"] = "不是数字"
     try:
         specs = ch.load_core_holdings()
-        assert specs[0].target_shares > 0, "坏值应回退到默认份额"
+        assert not specs[0].explicit, "坏值应被忽略，回到按比例折算"
+        # 关键：坏值绝不能污染 alloc 路径，否则底仓规模悄悄变成 0
+        assert specs[0].resolve_target_shares(1_000_000.0, 1.0) > 0, "坏值污染了折算"
     finally:
         os.environ.pop("NAJA_T_ROTATION_TARGET_SHARES")
     print("2) 环境变量覆盖/坏值回退 OK")
+
+
+def check_alloc_pct_resolution():
+    """2b) 仓位比例 → 份额的折算口径（用户拍板的 40%）。
+
+    这里守的是**语义**：同样 40% 的钱，价格翻倍时份数必须减半。
+    若哪天有人把 alloc 误改成写死的份额，价格漂移就会让仓位比例失守。
+    """
+    from deva.naja.bandit.core_holdings import (
+        CoreHoldingSpec, DEFAULT_ALLOC_PCT, load_core_holdings,
+    )
+
+    assert abs(DEFAULT_ALLOC_PCT - 40.0) < 1e-9, f"默认仓位被改成 {DEFAULT_ALLOC_PCT}%"
+
+    specs = load_core_holdings()
+    spec = specs[0]
+    assert spec.alloc_pct == 40.0, spec.alloc_pct
+    assert spec.round_lot == 100.0
+
+    TOTAL = 1_000_000.0
+    # 价格 1.0 → 40 万份；价格 2.0 → 20 万份（同一笔钱的两种形态）
+    assert spec.resolve_target_shares(TOTAL, 1.0) == 400_000.0, \
+        spec.resolve_target_shares(TOTAL, 1.0)
+    assert spec.resolve_target_shares(TOTAL, 2.0) == 200_000.0, \
+        spec.resolve_target_shares(TOTAL, 2.0)
+    # 向下取整到整手，绝不超预算
+    got = spec.resolve_target_shares(TOTAL, 0.7)
+    assert got * 0.7 <= TOTAL * 0.4 + 1e-6, f"折算超出预算: {got} 份 @{0.7}"
+    assert got % spec.round_lot == 0, f"没取整到整手: {got}"
+    # 分母异常不许给出安慰剂数字
+    assert spec.resolve_target_shares(0.0, 1.0) == 0.0, "总资产为 0 应折出 0 份"
+    assert spec.resolve_target_shares(TOTAL, 0.0) == 0.0, "价格为 0 应折出 0 份"
+
+    # alloc 边界：<=0 与 >100 都要回退到默认，不能出现「底仓 = 全部资金」
+    for bad in ("0", "-10", "150"):
+        os.environ["NAJA_T_ROTATION_ALLOC_PCT"] = bad
+        try:
+            s = load_core_holdings()[0]
+            assert s.alloc_pct == DEFAULT_ALLOC_PCT, f"{bad} 未被回退: {s.alloc_pct}"
+        finally:
+            os.environ.pop("NAJA_T_ROTATION_ALLOC_PCT")
+
+    # 可审计：to_dict 必须带上 alloc_pct（状态页要能回答"这 40 万份怎么来的"）
+    d = CoreHoldingSpec(
+        code="588200", bus_code="sh588200", name="x", target_shares=0.0
+    ).to_dict()
+    assert "alloc_pct" in d, "to_dict 缺 alloc_pct，线上无法核对仓位口径"
+    print(f"2b) 仓位口径 OK —— 总资产 100 万 × 40% ÷ 1.0 = "
+          f"{spec.resolve_target_shares(TOTAL, 1.0):.0f} 份（价 2.0 时 {spec.resolve_target_shares(TOTAL, 2.0):.0f} 份）")
+
+
+def check_establish_default_on():
+    """2c) 自动建立底仓默认开启 —— 用户已给出「40% 仓位」这个授权。
+
+    此前默认关的理由是「动用多少资金由人拍板」。
+    现在数字已经有了，若还是默认关，重启后只会告警不建仓，
+    用户以为"已经在跑"却什么都没发生 —— 又一次静默失效。
+    """
+    os.environ.pop("NAJA_T_ROTATION_ESTABLISH", None)
+    try:
+        from deva.naja.bandit.core_holdings import CoreHoldingSpec, env_flag
+        from deva.naja.bandit.t_rotation_runner import TRotationRunner
+
+        assert env_flag("NAJA_T_ROTATION_ESTABLISH", True) is True
+
+        # 行为层面再确认一次：不给 establish_missing 参数时，运行器默认就该建仓。
+        # 只看 env 默认值不够 —— 万一有人在 __init__ 里把 default 写死成 False
+        # 却忘了改这里，读 env 的那行会是绿的、行为却是关的。
+        class _Stub:
+            def get_summary(self):
+                return {"total_capital": 1_000_000.0, "available_capital": 1_000_000.0}
+
+        rnr = TRotationRunner(
+            portfolio=_Stub(), bus=object(), engine=object(), ledger=object(),
+            specs=[CoreHoldingSpec(
+                code="588200", bus_code="sh588200", name="x", target_shares=0.0,
+            )],
+        )
+        assert rnr._establish is True, \
+            "未显式传参时建仓开关默认为关 —— 用户给的 40% 授权不会被兑现"
+    finally:
+        pass
+    print("2c) 自动建立底仓默认开启 OK（可由 NAJA_T_ROTATION_ESTABLISH=0 关掉）")
+
+
+def check_auto_establish_40pct():
+    """3b) 端到端：重启后底仓会**自己**被建立到总资产的 40%，且分批进行。
+
+    这是本次改动的实测项，不是静态比对。守的是四件事：
+
+    1. **真的买到目标** —— 用户说"要有 40% 仓位"，不是"建议 40%"。
+    2. **没绕过风控** —— 单笔限额 20%，40% 就必须分批；
+       若有人图省事加了 bypass_limits，这里会变成 1 笔，立即被抓。
+    3. **目标锁定** —— 次日价格翻倍，份额不许跟着缩水（否则
+       长期持有会被行情悄悄削掉）。
+    4. **每一笔都记录缘由** —— 状态页能回答"这 40 万份是怎么来的"。
+    """
+    env = make_alloc_env()
+    vp, rnr, spec = env["vp"], env["runner"], env["spec"]
+
+    single_budget = vp.single_position_budget
+    assert abs(single_budget - 200_000.0) < 1e-6, \
+        f"环境失真：单笔限额应为 20 万，实为 {single_budget}"
+
+    # —— 第一天：从零建仓 ——
+    fill_log = []
+    for i in range(12):
+        step(env)
+        push_quote(env, 1.0, prev_close=1.0, cum_volume=1_000_000 * (i + 1))
+        rnr.poll()
+        for p in vp.get_all_positions(status="OPEN"):
+            if p.stock_code != spec.code:
+                continue
+            # 金额相同的两笔（19万 + 19万）要靠 entry_time 区分
+            pair = (round(p.entry_price * p.quantity, 2), p.entry_time)
+            if pair not in fill_log:
+                fill_log.append(pair)
+
+    held = sum(
+        p.quantity for p in vp.get_all_positions(status="OPEN")
+        if p.stock_code == spec.code
+    )
+    plan_target = rnr._plan_targets.get(spec.code, 0.0)
+    assert plan_target == 400_000.0, f"计划份额应为 40 万，实为 {plan_target}"
+    assert held == plan_target, f"底仓没建到位：持有 {held} / 目标 {plan_target}"
+    assert len(fill_log) >= 2, (
+        f"40% 底仓应分批建成，实际只有 {len(fill_log)} 笔 —— "
+        f"若只有 1 笔，说明有人用 bypass_limits 绕过了单笔限额"
+    )
+    for v, _t in fill_log:
+        assert v <= single_budget + 1e-6, f"单笔 {v:.0f} 元超出限额 {single_budget:.0f}"
+
+    # 同一天内价格变化不许改写今日目标（_ensure_plan 的每日锁定）。
+    #
+    # 刻意用**下跌**而不是上涨：涨时目标只会变小，
+    # 而下面那条「只增不减」兜得住，会把「锁定失效」掩盖过去 ——
+    # 上一轮负向注入就是这么漏掉一整条 parl rails 的。
+    # 跌才是真考验：目标会变大，系统将在更低的价格上继续加仓，
+    # 等于把「40% 仓位」歪成「跌得越多买得越多」。
+    step(env)
+    push_quote(env, 0.5, prev_close=1.0, cum_volume=50_000_000)
+    rnr.poll()
+    assert rnr._plan_targets.get(spec.code) == plan_target, (
+        f"当日下跌后目标从 {plan_target:.0f} 改成 "
+        f"{rnr._plan_targets.get(spec.code):.0f} 份 —— 计划必须按天锁定，"
+        f"否则会变成「跌得越狠买得越多」，守恒基准也跟着漂"
+    )
+    held_after_drop = sum(
+        p.quantity for p in vp.get_all_positions(status="OPEN")
+        if p.stock_code == spec.code
+    )
+    assert held_after_drop == plan_target, (
+        f"当日下跌后又加仓了：{plan_target:.0f} → {held_after_drop:.0f} 份"
+    )
+    # 幂等：目标已达成后再 poll 一百轮也不该再买
+    before = len(vp.get_all_positions(status="OPEN"))
+    for i in range(100):
+        step(env, minutes=0.1)
+        push_quote(env, 1.0, prev_close=1.0, cum_volume=80_000_000 + i)
+        rnr.poll()
+    after = len(vp.get_all_positions(status="OPEN"))
+    assert after == before, f"目标已达却仍在开仓：{before} → {after} 条持仓"
+    summary = vp.get_summary()
+    assert summary["available_capital"] >= 0, "买入后可用资金为负，穿仓了"
+
+    # —— 可审计性（第一天收摊时就查，第二天会把 plan_date 顶掉）——
+    st = rnr.get_status()["symbols"][0]
+    assert st["alloc_pct"] == 40.0, st["alloc_pct"]
+    assert st["target_shares"] == 400_000.0, st["target_shares"]
+    assert abs(st["target_budget"] - 400_000.0) < 1e-6, st["target_budget"]
+    assert st["target_resolved_date"] == "2026-10-13", st["target_resolved_date"]
+
+    # —— 第二天：价格翻倍，目标只增不减 ——
+    env["clock"]["t"] = _dt(*D2, 9, 35).timestamp()
+    step(env)
+    push_quote(env, 2.0, prev_close=1.0, cum_volume=9_000_000)
+    rnr.poll()
+    plan_d2 = rnr._plan_targets.get(spec.code, 0.0)
+    assert plan_d2 == plan_target, (
+        f"价格上涨后目标从 {plan_target:.0f} 缩水到 {plan_d2:.0f} 份 —— "
+        f"长期持有的份额被行情悄悄削掉了"
+    )
+
+    fill_txt = " → ".join(f"{v/10000:.0f}万" for v, _t in fill_log)
+    print(f"3b) 自动建仓 OK —— 目标 {plan_target:.0f} 份（总资产 100 万 × 40%），"
+          f"分 {len(fill_log)} 笔：{fill_txt}")
 
 
 def check_bus_drives_engine():
@@ -713,6 +955,9 @@ def check_static_conservation_reached():
 CHECKS = [
     check_default_core_is_chip_etf,
     check_env_override,
+    check_alloc_pct_resolution,
+    check_establish_default_on,
+    check_auto_establish_40pct,
     check_bus_drives_engine,
     check_real_day_makes_t_and_conserves,
     check_volume_delta_not_cumulative,
