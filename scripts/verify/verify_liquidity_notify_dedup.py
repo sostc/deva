@@ -161,6 +161,36 @@ def check_layer1_min_interval():
     print("5) 全局最小间隔内 -> 第二条被挡 OK")
 
 
+def check_source_tag():
+    """消息必须带来源标记，否则多实例共用同一机器人时无法定位谁在发"""
+    from deva.naja.cognition.liquidity.notifier import source_id, source_tag
+
+    install_fake_dtalk()
+    n = fresh_notifier()
+    confirm(n)
+    payload = FakeDtalk.sent[0]
+    sid = source_id()
+    assert sid, "source_id 不应为空"
+    assert sid in payload, f"钉钉消息未带来源标记: {payload[-80:]}"
+    # 同一进程内的多次发送，来源标识必须稳定
+    assert source_id() == sid
+    assert source_tag().startswith("\n> `"), source_tag()
+
+    # 历史记录里也要能查到来源
+    recent = n.get_recent_notifications(1)[0]
+    assert recent["data"].get("source") == sid, recent["data"]
+
+    # 开关能关掉，避免在某些正式群里嫌它啰嗦
+    import os
+
+    os.environ["NAJA_DTALK_SOURCE_TAG"] = "0"
+    try:
+        assert source_id() == "" and source_tag() == ""
+    finally:
+        os.environ["NAJA_DTALK_SOURCE_TAG"] = "1"
+    print(f"17) 钉钉消息自带来源标记 OK（{sid}）")
+
+
 def check_layer1_disabled():
     """禁用开关仍然生效（不能因为加了去重就绕过）"""
     install_fake_dtalk()
@@ -394,6 +424,7 @@ def main():
     check_static_notify_paths()
     check_static_no_ghost_field()
     check_static_pending_prune()
+    check_source_tag()
 
     print("\nALL PASS")
 
