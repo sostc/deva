@@ -1,0 +1,173 @@
+# 托盘信息聚焦（Tray Focus）设计
+
+> 起因：用户问「托盘菜单里现在有哪些信息会过载」。
+> 排查后的结论是——**问题不只是"太多"，而是"该多的多、该少的少"**：
+> 15 条板块异动霸屏，真正的新闻类一条都进不来，连带通知功能实际处于失效状态。
+
+交付：`select_timeline_events`（唯一截断口径）+ 托盘一级菜单重构 + 通知聚合限流
++ `scripts/verify/verify_tray_focus.py`（5 组）+ `test_tray_focus.py`（15 条）。
+
+---
+
+## 1. 问题现场
+
+### 1.1 菜单全貌（重构前，展开约 40 项、需滚动）
+
+```
+服务状态 3 行（标题 / 状态 / 端口）
+📈 常用页面（市场热点 / 交易中心 / 认知系统 / 系统日志 / 系统状态）
+🔧 管理工具（策略 / 信号 / 数据源 / 任务）
+🚀 登录时自动启动
+🌐 打开 Web / 📄 打开日志 / 🔄 刷新 / ☁️ 从服务器同步
+⏰ 全球市场时间线 | 🇨🇳 30 | 🇺🇸 8 | 📰 8 | 📌 7      ← 4 个裸数字
+✨ 一键总结当前时间线
+事件流 15~20 条（含「─ ×30」日期分隔行）
+🔄 重启服务
+```
+
+### 1.2 五个过载点
+
+| # | 过载点 | 证据 |
+|---|---|---|
+| 1 | 事件流平铺一级菜单 | `events[:20]`，菜单被撑到 ~40 项 |
+| 2 | 统计条 4 个裸数字 | `时间线 \| 中30 \| 美8 \| 闻8 \| 十7`——无单位无语境 |
+| 3 | 噪声数据 | 实测 `风电 +999.0%`、`乡村振兴 -100.0%`（哨兵值）；同一词以 中+999 / 美-100 重复且矛盾 |
+| 4 | 分层不当 | 低频运维页（`/logstream`、`/health`）混进"常用页面"；"管理工具"4 项占顶层 |
+| 5 | 重复项 + 缺项 | 顶层「📄 打开日志」与常用页面内「📜 系统日志」重复；新上线的 **`/focusadmin` 没有入口** |
+
+### 1.3 最严重的不是过载，是"该显示的没显示"
+
+`market_24h_timeline.py` 的 `all_events[:15]` —— **只按 timestamp 降序硬截断，没有分类配额**。
+
+- 板块异动（cn_event/us_event）是**秒级持续更新**的，时间戳永远最新 → 永远霸占全部 15 个名额；
+- 高分新闻（8 条）与金十快讯（7 条）更新频率低 → **几乎永远被挤出 `list`**。
+
+实测 `/api/tray/data` 印证：
+
+```
+stats: cn_events=30, us_events=8, high_score_news=8, jin10_news=7   ← 共 53 条
+list : 15 条，type 分布 = {us_event: 7, cn_event: 8}                ← 新闻类 0 条
+```
+
+更糟的是连带的**通知也死了**：`_check_and_send_notifications` 只对
+`high_score_news`/`jin10_news` 且 `score≥0.7` 弹通知，而它遍历的正是同一个 `list`
+→ **托盘通知实际永不触发**。菜单里看不到新闻、通知也不响，托盘的"信息入口"价值归零。
+
+> 这是本项目反复出现的同一类病因：**「链路写了、数据不在同一条路上」的静默失效**。
+
+---
+
+## 2. 设计要点
+
+用户明确要求：**新闻流仍留一级菜单直接可见 + 可点击总结**。
+所以手法**不是**"把事件流折叠进子菜单"，而是 **配额 + 排序 + 限长**：
+一级菜单依然是一屏看得完的新闻流，但内容**先给新闻**。
+
+### 2.1 `select_timeline_events` —— 全仓唯一的截断口径
+
+```python
+TRAY_TIMELINE_LIMITS = {
+    "high_score_news": 4,
+    "jin10_news": 4,
+    "cn_event": 2,
+    "us_event": 2,
+}
+
+def select_timeline_events(all_events, per_type_limits=None):
+    if not per_type_limits:
+        return list(all_events[:15])          # 旧行为，调用方零影响
+    picked = []
+    for etype, limit in per_type_limits.items():
+        if limit <= 0:
+            continue
+        picked.extend([e for e in all_events if e.get("type") == etype][:limit])
+    picked.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+    return picked
+```
+
+两条设计约束：
+
+1. **`per_type_limits=None` → 旧 `[:15]`**：`/market` 等既有调用方行为完全不变，
+   只有显式传配额的托盘侧才改变。**改口径不改默认值**，把影响面收窄到目标调用方。
+2. **口径只有一份**：托盘侧 `_get_timeline_events` 与页面/数据接口
+   `get_timeline_data_for_api` 都调这一个函数。原先两处各写一遍 `[:15]`，
+   改一处漏一处就会分叉——这次收口成一个函数。
+
+### 2.2 托盘一级菜单重构
+
+| 区域 | 改动 |
+|---|---|
+| 状态行 | 3 行（标题 / 状态 / 端口）→ **1 行**：`📊 Naja 运行中 · 交易中 · 端口 8080` |
+| 常用页面 | 补 `/focusadmin`；`/logstream`、`/health` 移出 |
+| 顶层快捷 | 「📄 打开日志」去重（常用页面内的「系统日志」已删） |
+| 新闻流 | 标题 `📰 今日新闻流 · 共 N 条（新闻优先）`；**新闻优先排序**，`ordered[:12]` 限长；保留「✨ 一键总结」；补「⏰ 查看全部时间线（N 条）」 |
+| 系统子菜单 | `⚙️ 系统 ▸` 收拢：日志流 / 系统状态 / 数据源 / 任务 / 策略 / 信号 / 自启 / 同步 / 重启 / 退出 |
+
+新闻优先排序（**呈现顺序**，与配额的"入选"是两件事）：
+
+```python
+news_first = {'high_score_news': 0, 'jin10_news': 0, 'cn_event': 1, 'us_event': 1}
+ordered = sorted(events, key=lambda e: (news_first.get(e.get('type'), 1),
+                                        -float(e.get('timestamp') or 0)))
+```
+
+> 注意：`news_first` 在 Python 里取值时，`0` 是"假值"——若写成
+> `news_first.get(...) or 1` 会把新闻误判为板块异动。这里直接取默认值 `1`，不用 `or`。
+
+### 2.3 通知聚合限流
+
+修好截断后，单轮可能出现多条达标新闻；若仍逐条弹，会从"从不响"直接变成"轰炸"。
+
+```python
+NOTIFY_MIN_INTERVAL = 300.0    # 时间窗：每 5 分钟最多一条通知
+NOTIFY_MIN_SCORE    = 0.7      # 分数线（沿用原逻辑）
+```
+
+流程：**收集候选 → 时间窗限流 → 相关性优先排序 → 聚合成一条**。
+
+- 候选留在池中（未标已通知），窗口到期后一次性聚合发出——既不"攒着不发"，也不"逐条轰炸"；
+- 相关性排前面：复用 `news.focus.build_focus_state()` 的持仓/自选/关注主题关键词，
+  **命中的优先**；关键词读不到就返回空集 → 降级为纯分数排序，**绝不阻断通知本身**；
+- 多候选聚合文案：`📰 N 条重要新闻` / 副标题=最重要那条 / 正文=`另有 N-1 条 · 点开菜单查看`；
+- **板块异动（cn/us event）永不进通知**（哪怕分数很高）。
+
+---
+
+## 3. 改动清单
+
+| 文件 | 改动 |
+|---|---|
+| `market_hotspot/ui_components/timeline/market_24h_timeline.py` | 新增 `TRAY_TIMELINE_LIMITS` + `select_timeline_events`；`get_timeline_data_for_api` 增 `per_type_limits` 参数 |
+| `infra/ui/menu_bar_tray.py` | `_get_timeline_events` 传配额；`_build_menu` 结构重构；`_check_and_send_notifications` 聚合限流 + `_relevance_keywords` |
+| `web_ui/routes.py` | `TrayDataHandler._fetch_timeline` 传 `per_type_limits=TRAY_TIMELINE_LIMITS` |
+| `tests/test_tray_focus.py`（新） | 15 条：配额 7 + 通知 8 |
+| `scripts/verify/verify_tray_focus.py`（新） | 5 组：配额行为 / 托盘取数口径 / 菜单结构静态守卫 / 通知聚合 / 冷启动 |
+
+---
+
+## 4. 验证
+
+`scripts/verify/verify_tray_focus.py --strict`（5 组）：
+
+1. **配额行为**：不传配额=旧 `[:15]`；配额后新闻必现；板块异动限流；输出仍时间降序；空输入返回空
+2. **托盘取数口径**：托盘侧与数据接口都传了配额；无残留 `all_events[:15]`
+3. **菜单结构静态守卫**：`/focusadmin` 有入口；「打开日志」不重复；低频页在「系统」子菜单；
+   **新闻流仍在一级菜单**（用户硬要求）；旧裸数字行/日期分隔行已删
+4. **通知聚合**：限流常量存在 + 多候选只发一条 + 板块异动不弹 + 窗口内不重复
+5. **冷启动**：托盘与时间线模块可独立导入
+
+单测：`deva/naja/tests/test_tray_focus.py` 15 条。
+
+> 静态守卫必须**限定在 `_build_menu` 内**：`_build_simple_menu()`（启动中的简化菜单）
+> 是另一个方法，它有自己的 3 行状态（含 `📍 端口`），不该被菜单守卫误伤——
+> 否则会报**假警报**（本项目铁律：假警报比不报警更伤）。
+
+---
+
+## 5. 边界与遗留
+
+- 配额是**固定值**，不随"当前有几条新闻"自适应；后续若某类新闻常年为 0，可考虑动态配额。
+- `us_event` 的标题是中文 A 股板块名、涨跌幅 ±999%/-100%（源端哨兵值），
+  本次**未深挖**——它只影响观感，不影响"新闻能否进列表"这条主线。
+- 托盘菜单是原生 macOS 菜单，无法像网页那样截图验收；本轮以
+  **静态守卫 + `/api/tray/data` 实测**替代。
