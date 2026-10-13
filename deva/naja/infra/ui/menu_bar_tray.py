@@ -138,6 +138,10 @@ class MenuBarTray:
         self._relevance_kw_cache = None
         self._relevance_kw_ts = 0.0
 
+        # 操作状态位：长任务在菜单栏文字（app.title）上呈现进度。
+        # 结构 {"key", "label", "started", "busy"} 或 None；busy=True 的长任务互斥。
+        self._op_status = None
+
         import threading
         self._menu_cache = {}
         self._menu_cache_lock = threading.Lock()
@@ -489,17 +493,137 @@ class MenuBarTray:
         import rumps
         self._call_on_main_thread(rumps.quit_application)
 
+    # ── 操作状态位：让长任务"看得见" ──────────────────────────────────
+    # 背景（2026-10-13 用户反馈）：点「系统 → 重启服务」后菜单立刻关闭，而重启
+    # 最长要 45s（等旧进程退出 ≤15s + 等新服务就绪 ≤30s），期间菜单栏图标、
+    # 菜单内容、通知**全无变化**；成功时更是完全静默（代码里只有
+    # _notify_restart_failed 一条通知路径）。用户只能靠猜。
+    #
+    # 这里用菜单栏文字（app.title）承载状态——它是唯一「始终可见、不受勿扰
+    # 模式影响、且与图标可共存」的通道（setStatusBarTitle→setTitle_ 与
+    # setImage_ 互不冲突）。系统通知保留作为完成态提醒，但不再作为唯一反馈。
+
+    def _set_app_title(self, text):
+        """写菜单栏文字（传 None 清除）。仅主线程调用。"""
+        if self._app is None:
+            return
+        try:
+            self._app.title = text
+        except Exception as e:
+            logger.debug(f"设置菜单栏标题失败: {e}")
+
+    def _apply_op_status(self):
+        """把状态位渲染到菜单栏文字 + 菜单。**只能在主线程调用**。"""
+        self._set_app_title(self._op_status["label"] if self._op_status else None)
+        if self._app is None:
+            return
+        try:
+            # 重建菜单，让状态行不再谎报「运行中」——重启期间旧服务确实已停。
+            if self._naja_ready:
+                self._build_menu()
+            else:
+                self._build_simple_menu()
+        except Exception as e:
+            logger.debug(f"状态位渲染菜单失败: {e}")
+
+    def _begin_op(self, key: str, label: str) -> bool:
+        """申请一个长任务状态位。返回 False = 已有长任务在进行（互斥拒绝）。
+
+        互斥是必需的：重启期间再点一次重启会起第二个线程，两个线程同时 kill
+        同一个 PID、同时 Popen 新进程 → 服务状态彻底错乱。
+        """
+        if self._op_status is not None and self._op_status.get("busy"):
+            logger.info(f"拒绝操作 {key}：{self._op_status.get('key')} 正在进行中")
+            return False
+        import time
+        self._op_status = {"key": key, "label": label,
+                           "started": time.time(), "busy": True}
+        self._call_on_main_thread(self._apply_op_status)
+        return True
+
+    def _update_op(self, label: str):
+        """更新进行中长任务的文案（如「停止旧服务…」→「启动新服务…」）。"""
+        if self._op_status is None:
+            return
+        self._op_status["label"] = label
+        self._call_on_main_thread(self._apply_op_status)
+
+    def _clear_op(self, key: str = None):
+        """释放状态位，恢复菜单栏文字与菜单。
+
+        传 key 时只清「确实是自己的」状态位——避免一个慢任务把另一个任务的
+        状态误清掉（两者的完成时序本就无法保证）。
+        """
+        cur = self._op_status
+        if cur is None:
+            return
+        if key is not None and cur.get("key") != key:
+            return
+        self._op_status = None
+        self._call_on_main_thread(self._apply_op_status)
+
+    def _flash_status(self, label: str, seconds: float = 2.0, key: str = "flash"):
+        """短暂提示一个状态（如「已刷新」），到点自动清除。
+
+        与长任务的区别：flash 不置 busy，可被后续 flash 覆盖，但**不会抢占**
+        正在进行的长任务（否则会把「重启中…」冲掉，用户又失去进度）。
+        """
+        if self._op_status is not None and self._op_status.get("busy"):
+            return
+        import time
+        import threading
+        self._op_status = {"key": key, "label": label,
+                           "started": time.time(), "busy": False}
+        self._call_on_main_thread(self._apply_op_status)
+
+        def _expire():
+            # 只清「还是自己这个 flash」且「没被长任务顶掉」的
+            cur = self._op_status
+            if cur is not None and cur.get("key") == key and not cur.get("busy"):
+                self._clear_op()
+
+        threading.Timer(seconds, _expire).start()
+
+    def _op_line(self, port) -> str:
+        """状态行文案：有长任务进行时改为显示任务进度，空串表示走常态。
+
+        为什么不能在有操作时继续写「运行中」：重启期间托盘自身**故意不重启**
+        （避免图标空窗），菜单不会重建，那行会一直挂着旧状态——而此刻旧服务
+        其实已经停了。用户点开菜单想确认，看到的反而是错的状态。
+        """
+        op = self._op_status
+        if op is not None and op.get("busy"):
+            return f"{op['label']} · 端口 {port}"
+        return ""
+
     def _restart_tray(self):
-        """重启 Naja 服务器和托盘程序
+        """重启 Naja 服务器（菜单栏文字实时显示进度；同一时刻只允许一个）
 
         整个流程在后台线程执行，避免阻塞菜单栏事件循环。
         """
+        if not self._begin_op("restart", "🔄 正在重启…"):
+            self._send_notification("⏳ 已有任务在进行", "请等待当前任务完成",
+                                    "同一时刻只允许一个长任务")
+            return
         import threading
         thread = threading.Thread(target=self._do_restart_tray, daemon=True)
         thread.start()
 
     def _do_restart_tray(self):
+        """重启主流程 + 状态位兜底释放。
+
+        finally 是必需的：若中途抛出未捕获异常（如写日志文件失败），状态位
+        会永远停在「重启中…」，**后续所有长任务都会被互斥拒绝**——那比不显示
+        状态更糟。所以无论成功、失败还是异常，都保证释放。
+        """
+        try:
+            self._do_restart()
+        finally:
+            self._clear_op("restart")
+
+    def _do_restart(self):
         logger.info("正在重启 Naja 服务...")
+        self._update_op("🔄 停止旧服务…")
 
         env = os.environ.copy()
         env["LSUIElement"] = "1"
@@ -545,6 +669,7 @@ class MenuBarTray:
         clear_pid()
 
         # 2) 启动新的 Naja 服务器
+        self._update_op("🔄 启动新服务…")
         naja_cmd = [sys.executable, "-m", "deva.naja", "-s", "start"]
         naja_log_file = NAJA_DIR / "logs" / "naja_restart.log"
         try:
@@ -570,6 +695,7 @@ class MenuBarTray:
 
         # 3) 确认新服务真的起来了。未就绪时保留当前托盘，避免出现
         #    “旧服务已停、新服务未起、托盘又自杀”的全停局面。
+        self._update_op("🔄 等待服务就绪…")
         if not self._wait_for_naja_ready(timeout=30.0):
             logger.error("新 Naja 服务器启动后 30s 内未就绪，保留当前托盘")
             self._notify_restart_failed(
@@ -581,6 +707,11 @@ class MenuBarTray:
         #    菜单栏图标因此不会消失（旧方案「先杀旧托盘、再起新托盘」有约 3s 空窗）。
         #    只在主线程刷新一次菜单，让新服务的数据立刻生效。
         logger.info("新 Naja 服务器已就绪，托盘保持存活")
+        # 成功态：原来这里**一句提示都没有**（只有失败才通知），用户根本
+        # 不知道重启好没好。菜单栏文字也会由 _clear_op 恢复为常态。
+        self._clear_op("restart")
+        self._send_notification("✅ 重启完成", "Naja 服务已就绪",
+                                f"端口 {_get_naja_port()}")
         self._call_on_main_thread(self._refresh_after_restart)
 
     def _refresh_after_restart(self):
@@ -636,8 +767,26 @@ class MenuBarTray:
         超时再 SIGKILL。之所以不挪到后台线程——托盘进程一退，daemon 线程随之消失，
         就没人做"超时升级到 SIGKILL"这一步了，服务可能永远不退出。
         代价仅在用户主动点「退出」时发生（菜单本就即将消失），可接受。
+
+        2026-10-13 补：先亮出「🚪 正在退出…」并**让 runloop 转一圈把标题画出来**，
+        再执行阻塞等待——否则阻塞期间 AppKit 不重绘，用户在整个退出过程里看到的
+        仍是「运行中」，又是一次无感知。
         """
         logger.info("托盘菜单触发退出")
+        import threading
+        import time
+        self._op_status = {"key": "quit", "label": "🚪 正在退出…",
+                           "started": time.time(), "busy": True}
+        self._apply_op_status()
+        # 用短延时定时器把真正的停止逻辑推后 0.4s：这 0.4s 内主线程空闲、runloop
+        # 正常跑，菜单栏文字才真的画得出来；之后才进入阻塞等待。
+        threading.Timer(0.4, self._call_on_main_thread_quit).start()
+
+    def _call_on_main_thread_quit(self):
+        """0.4s 后切回主线程执行真正的停止 + 退出（见 _on_quit 说明）。"""
+        self._call_on_main_thread(self._stop_service_and_quit)
+
+    def _stop_service_and_quit(self):
         import rumps
         import time
         pid = self._get_running_pid()
@@ -668,16 +817,48 @@ class MenuBarTray:
         rumps.quit_application()
 
     def _on_refresh(self, sender):
+        """刷新托盘数据：后台拉一次最新数据，完成后重建菜单并给出可见反馈。
+
+        原来只是同步调一次 _build_menu()（读内存缓存）——既没有可见反馈，
+        也没真的去取新数据，用户点完完全无法判断"有没有用"。
+        """
         logger.info("刷新托盘数据")
-        self._build_menu()
+        import threading
+        import time
+        self._flash_status("🔄 刷新中…", 3.0, key="refresh")
+
+        def work():
+            data = _http_get("/api/tray/data", timeout=10.0)
+            if data and data.get("success"):
+                with self._menu_cache_lock:
+                    self._menu_cache = {
+                        'timeline': data.get('timeline', {}),
+                        'status': data.get('health', {}),
+                        'trading': data.get('trading', {}).get('is_trading', False),
+                        'timestamp': time.time(),
+                    }
+
+            def apply():
+                self._build_menu()
+                self._flash_status(f"✅ 已刷新 {time.strftime('%H:%M:%S')}",
+                                   2.0, key="refresh")
+
+            self._call_on_main_thread(apply)
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _on_sync_from_server(self, sender):
-        """从服务器同步数据"""
+        """从服务器同步数据（菜单栏文字显示进度；同一时刻只允许一个长任务）"""
         import threading
         import rumps
-        
+
         logger.info("开始从服务器同步数据...")
-        
+
+        if not self._begin_op("sync", "☁️ 同步中…"):
+            self._send_notification("⏳ 已有任务在进行", "请等待当前任务完成",
+                                    "同一时刻只允许一个长任务")
+            return
+
         # 显示开始同步通知（在主线程）
         rumps.notification(
             title="☁️ 正在同步",
@@ -731,17 +912,29 @@ class MenuBarTray:
                     'subtitle': "发生错误",
                     'message': str(e)
                 }
-        
+            finally:
+                # 无论成功/失败/异常都释放状态位——卡住会让后续长任务全被互斥拒绝
+                self._clear_op("sync")
+
         thread = threading.Thread(target=sync_task, daemon=True)
         thread.start()
 
     def _on_one_click_summary(self, sender):
-        """一键总结：调用大模型总结时间线数据（带缓存）"""
+        """一键总结：调用大模型总结时间线数据（带缓存）
+
+        大模型调用可能十几秒（还含代理兜底重试），同样接入状态位——
+        菜单栏会显示「🧠 总结中…」，用户不必盯着毫无变化的菜单栏猜。
+        """
         import threading
         import rumps
-        
+
         logger.info("开始一键总结...")
-        
+
+        if not self._begin_op("summary", "🧠 总结中…"):
+            self._send_notification("⏳ 已有任务在进行", "请等待当前任务完成",
+                                    "同一时刻只允许一个长任务")
+            return
+
         # 显示开始总结通知（在主线程）
         rumps.notification(
             title="🧠 正在总结",
@@ -1567,9 +1760,15 @@ class MenuBarTray:
             self._app.menu.clear()
             
             # ① 状态行——原来 3 行（标题/状态/端口）合并为 1 行
-            running = bool(self._get_running_pid())
-            trading_label = "交易中" if trading_time else "休市"
-            self._app.menu[f"📊 Naja {'运行中' if running else '已停止'} · {trading_label} · 端口 {port}"] = None
+            # 有长任务进行时改显任务进度：重启期间旧服务确实已停、新服务未必
+            # 就绪，此时再写「运行中」就是谎报状态，用户点开菜单确认反被误导。
+            op_line = self._op_line(port)
+            if op_line:
+                self._app.menu[op_line] = None
+            else:
+                running = bool(self._get_running_pid())
+                trading_label = "交易中" if trading_time else "休市"
+                self._app.menu[f"📊 Naja {'运行中' if running else '已停止'} · {trading_label} · 端口 {port}"] = None
             self._app.menu["sep0"] = rumps.separator
             
             # ② 常用页面——只留高频页；补「关注管理」；低频运维页移入「系统」子菜单
@@ -1788,6 +1987,8 @@ class MenuBarTray:
         if hasattr(self, '_summary_pending_result') and self._summary_pending_result:
             result = self._summary_pending_result
             self._summary_pending_result = None
+            # 结果已就绪 → 立刻释放「🧠 总结中…」状态位（收尾仍在后台继续跑）
+            self._clear_op("summary")
             
             if result['type'] == 'error':
                 # 显示错误通知
@@ -1866,6 +2067,11 @@ class MenuBarTray:
         new_state = 1 - sender.state
         action = "启用" if new_state == 1 else "禁用"
 
+        if not self._begin_op("autostart", "🚀 设置自启…"):
+            self._send_notification("⏳ 已有任务在进行", "请等待当前任务完成",
+                                    "同一时刻只允许一个长任务")
+            return
+
         def work():
             try:
                 success = toggle_login_item()
@@ -1887,6 +2093,17 @@ class MenuBarTray:
                         subtitle=f"已{action}登录时自动启动",
                         message="重启电脑后生效" if new_state == 1 else "已取消自动启动",
                     )
+                else:
+                    # 原来失败**完全静默**（只写 logger.error）→ 用户以为勾上了，
+                    # 下次开机才发现没生效。失败必须自证。
+                    rumps.notification(
+                        title="⚠️ 登录启动项设置失败",
+                        subtitle=f"未能{action}登录时自动启动",
+                        message="请检查系统设置，或查看托盘日志",
+                    )
+                # 释放状态位（会重建菜单，勾选状态由 is_login_item_enabled() 重读，
+                # 不依赖已失效的旧 sender）
+                self._clear_op("autostart")
 
             self._call_on_main_thread(apply)
 
