@@ -63,6 +63,8 @@ STATIC_RULES = [
      "取不到每手股数时未跳过（凭猜报单必被拒）"),
     (ADAPTIVE_PY, r'resolve_backend\(portfolio=self\._portfolio\)',
      "AdaptiveCycle 未走执行后端（回到直连虚拟仓的老路）"),
+    (ADAPTIVE_PY, r'outcome\s*=\s*self\._execution_backend\(\)\.submit\(',
+     "AdaptiveCycle 未经由执行后端提交订单"),
     (ADAPTIVE_PY, r'if not outcome\.acted:',
      "AdaptiveCycle 未区分「跳过」与「失败」"),
 ]
@@ -103,9 +105,34 @@ INJECTIONS = [
     {
         "name": "AdaptiveCycle 绕过后端直调虚拟仓",
         "file": ADAPTIVE_PY,
-        "old": "        outcome = resolve_backend(portfolio=self._portfolio).submit(",
+        "old": "        outcome = self._execution_backend().submit(\n",
         "new": "        from .execution import VirtualPortfolioBackend as _VPB\n"
-               "        outcome = _VPB(self._portfolio).submit(",
+               "        outcome = _VPB(self._portfolio).submit(\n",
+    },
+    {
+        "name": "报单上下文不再显式指定市场过滤（回落 SDK 默认 TrdMarket.HK）",
+        "file": EXEC_PY,
+        "old": "            filter_trdmarket=trd_market(market), host=HOST, port=PORT, "
+               "security_firm=firm,\n",
+        "new": "            host=HOST, port=PORT, security_firm=firm,\n",
+    },
+    {
+        "name": "同步器枚举账户时不再指定市场过滤（美股/A股模拟账户会静默消失）",
+        "file": SYNCER_PY,
+        "old": "                filter_trdmarket=TrdMarket.NONE, host=HOST, port=PORT,\n",
+        "new": "                host=HOST, port=PORT,\n",
+    },
+    {
+        "name": "限价不再对齐最小价差",
+        "file": EXEC_PY,
+        "old": "    return round(steps * tick, 6)",
+        "new": "    return price",
+    },
+    {
+        "name": "同步时不再剔除 DISABLED 账户",
+        "file": SYNCER_PY,
+        "old": '            and r.get("acc_status", "ACTIVE").upper() == "ACTIVE"\n',
+        "new": "",
     },
 ]
 
@@ -146,11 +173,25 @@ class Sandbox:
     def close(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _stub_deva(self):
+        """用桩件顶掉 deva 包 —— 守卫绝不碰生产库。"""
+        def _no_db(*_a, **_k):
+            raise RuntimeError("守卫不访问数据库")
+
+        deva = _stub_package("deva")
+        deva.NB = _no_db
+        _stub_package("deva.naja")
+        _stub_package("deva.naja.bandit", BANDIT)
+
     def load(self):
         if self.exec_mod is not None:
             return self.exec_mod
-        # execution.py 模块级只依赖 stdlib，直接按路径加载
-        self.exec_mod = _load_by_path("_execution_under_test", EXEC_PY)
+        # ❗必须按**带包名**的模块名加载：execution.py 里会
+        # ``from .stock_block_map import US_STOCK_BLOCKS``（懒加载美股注册表）。
+        # 若用顶层名字加载，这个相对导入必然 ImportError → 被 except 吞掉 →
+        # 注册表静默变成空集合 → 裸字母代码全部判不出市场，而守卫一无所知。
+        self._stub_deva()
+        self.exec_mod = _load_by_path("deva.naja.bandit.execution", EXEC_PY)
         # 报单目录改到沙箱，避免污染 ~/.naja
         self.exec_mod.order_dir = lambda: self.tmp
         return self.exec_mod
@@ -160,16 +201,63 @@ class Sandbox:
         if self.syncer_mod is not None:
             return self.syncer_mod
 
-        def _no_db(*_a, **_k):
-            raise RuntimeError("守卫不访问数据库")
-
-        deva = _stub_package("deva")
-        deva.NB = _no_db
-        _stub_package("deva.naja")
-        _stub_package("deva.naja.bandit", BANDIT)
+        self._stub_deva()
         _load_by_path("deva.naja.bandit.data_freshness", FRESHNESS_PY)
-        self.syncer_mod = _load_by_path("_futu_syncer_under_test", SYNCER_PY)
+        self.syncer_mod = _load_by_path("deva.naja.bandit.futu_portfolio_syncer", SYNCER_PY)
         return self.syncer_mod
+
+
+# ---------------------------------------------------------------- ①b 上下文市场过滤
+
+# 会构造富途交易上下文的地方。每个构造点都必须显式传 ``filter_trdmarket``。
+CONTEXT_CALLEES = ("OpenSecTradeContext(", "OpenFutureTradeContext(")
+
+
+def _call_snippets(src: str, callee: str) -> list:
+    """把源码里 ``callee(...)`` 的**完整调用片段**抠出来（配平括号）。"""
+    out, idx = [], 0
+    while True:
+        i = src.find(callee, idx)
+        if i < 0:
+            return out
+        j = src.find("(", i + len(callee) - 1)
+        depth, k = 0, j
+        while k < len(src):
+            if src[k] == "(":
+                depth += 1
+            elif src[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        out.append(src[i:k + 1])
+        idx = k + 1
+
+
+def check_context_filter() -> list:
+    """❗每个富途交易上下文构造点都必须显式传 ``filter_trdmarket``。
+
+    ``futu.OpenSecTradeContext`` 的默认值是 ``TrdMarket.HK``。不传这个参数
+    就**只看得见港股账户** —— 美股 / A 股模拟账户被服务端静默过滤掉，
+    既不报错也不告警（实测：默认 2 个港股模拟账户 vs ``NONE`` 10 个账户）。
+
+    这是本模块最隐蔽的坑，所以用静态扫描钉死：漏传一处就报出来。
+    """
+    failures = []
+    total = 0
+    for path in (EXEC_PY, SYNCER_PY):
+        src = path.read_text(encoding="utf-8")
+        for callee in CONTEXT_CALLEES:
+            for snip in _call_snippets(src, callee):
+                total += 1
+                if "filter_trdmarket" not in snip:
+                    flat = " ".join(snip.split())[:110]
+                    failures.append(
+                        f"{path.name}：构造 {callee.rstrip('(')} 时未传 filter_trdmarket"
+                        f"（SDK 默认 TrdMarket.HK，会漏掉美股/A股账户）: {flat}")
+    if total == 0:
+        failures.append("一个富途交易上下文构造点都没扫到 —— 这条守卫的扫描规则已失效")
+    return failures
 
 
 # ---------------------------------------------------------------- ② 纯函数
@@ -183,15 +271,35 @@ def check_pure(mod) -> list:
 
     # 市场判定
     eq(mod.infer_market("HK.06666")[0], "HK", "带前缀港股")
-    eq(mod.infer_market("US.NVDA")[0], "US", "带前缀美股")
+    eq(mod.infer_market("US.NVDA")[0], "US", "带前缀美股（富途前缀式）")
+    eq(mod.infer_market("NVDA.US")[0], "US", "后缀式 NVDA.US 必须认出来（事件里就是这个写法）")
+    eq(mod.infer_market("600519.SH")[0], "CN", "后缀式 600519.SH → A 股")
+    eq(mod.infer_market("SH.600519")[0], "CN", "SH 前缀归 CN（模拟账户按 CN 授权）")
+    eq(mod.infer_market("SZ.000001")[0], "CN", "SZ 前缀归 CN")
     eq(mod.infer_market("06666")[0], "HK", "5 位数字 → 港股")
     eq(mod.infer_market("000001")[0], "CN", "6 位数字 → A 股（与港股同形，靠位数区分）")
     eq(mod.infer_market("1234")[0], "", "4 位数字判不出市场")
     eq(mod.infer_market("")[0], "", "空代码判不出市场")
-    eq(mod.infer_market("nvda")[0], "", "裸字母代码不许猜市场（可能是港股也可能是美股）")
-    eq(mod.infer_market("nvda", {"market": "US"})[0], "US", "信号字段兜底")
+    eq(mod.infer_market("zzzznotreal")[0], "", "不在美股注册表内的裸字母不许猜市场")
+    eq(mod.infer_market("AA.BB")[0], "", "前后缀都不是市场标记 → 不许猜")
+
+    # ❗裸字母凭什么算美股：必须命中系统自有注册表（而不是"字母一律美股"）
+    eq(mod.infer_market("nvda")[0], "US", "注册表内的裸字母 → 美股")
+    eq(mod.infer_market("NVDA")[0], "US", "注册表匹配大小写不敏感")
+    eq(mod.infer_market("zzzznotreal", {"market": "US"})[0], "US", "注册表没命中但信号明确声称 US")
+    eq(mod.infer_market("zzzznotreal", {"market": "CN"})[0], "", "注册表没命中且声称 CN → 跳过")
+    # ❗主生产者（market_hotspot）从不填 market → 恒为默认值 CN。
+    # 注册表命中时必须以注册表为准，否则美股信号会被判成 A 股下到 A 股账户。
+    eq(mod.infer_market("nvda", {"market": "CN"})[0], "US", "信号声称 CN 不得把 nvda 判成 A 股")
+    eq(mod.infer_market("nvda", {"signal_event": {"market": "CN"}})[0], "US",
+       "嵌套 signal_event.market 同样不得翻案")
     if not mod.infer_market("1234")[1]:
         failures.append("判不出市场时必须给出原因（不能返回空理由）")
+
+    # 注册表必须真能加载 —— 加载失败会让裸字母代码**静默全部跳过**
+    usyms = mod.us_symbols()
+    if not usyms or "nvda" not in usyms:
+        failures.append(f"美股注册表没加载出来（裸字母代码会静默全部失效）: {len(usyms)} 条")
 
     # 代码规范化
     eq(mod.futu_code("HK", "06666"), "HK.06666", "港股代码补零")
@@ -199,6 +307,40 @@ def check_pure(mod) -> list:
     eq(mod.futu_code("HK", "100"), "HK.00100", "港股代码补零（00100）")
     eq(mod.futu_code("HK", "HK.06666"), "HK.06666", "已带前缀不重复拼接")
     eq(mod.futu_code("US", "nvda"), "US.NVDA", "美股代码大写")
+    eq(mod.futu_code("CN", "600519"), "SH.600519", "A 股沪市 → SH 前缀（富途没有 CN. 前缀）")
+    eq(mod.futu_code("CN", "000001"), "SZ.000001", "A 股深市 → SZ 前缀")
+    eq(mod.futu_code("CN", "300750"), "SZ.300750", "A 股创业板 → SZ 前缀")
+    eq(mod.futu_code("CN", "88888"), "", "认不出交易所的 6 位码 → 空串（拒绝报单）")
+
+    # ❗Market 枚举里**没有 CN** —— 必须落到 SH/SZ，且不许静默回落港股
+    try:
+        import futu as _futu
+    except Exception:
+        _futu = None
+        print("⏭️  未安装 futu，跳过行情/交易市场枚举断言")
+    if _futu is not None:
+        eq(mod.quote_market("CN", "600519"), _futu.Market.SH, "A 股行情市场必须是 SH")
+        eq(mod.quote_market("CN", "000001"), _futu.Market.SZ, "A 股行情市场必须是 SZ")
+        eq(mod.quote_market("US", "nvda"), _futu.Market.US, "美股行情市场")
+        eq(mod.quote_market("HK", "06666"), _futu.Market.HK, "港股行情市场")
+        if mod.quote_market("XX", "y") is not None:
+            failures.append("未知市场必须返回 None —— 回落港股会静默拿错市场查行情")
+        if mod.quote_market("CN", "88888") is not None:
+            failures.append("A 股认不出交易所时不得回落任何市场")
+        # ❗交易账户过滤必须显式：默认值 TrdMarket.HK 会漏掉美股/A股模拟账户
+        eq(mod.trd_market("CN"), _futu.TrdMarket.CN, "A 股账户过滤市场")
+        eq(mod.trd_market("SH"), _futu.TrdMarket.CN, "SH 归 CN 账户")
+        eq(mod.trd_market("US"), _futu.TrdMarket.US, "美股账户过滤市场")
+        if mod.trd_market("XX") is not None:
+            failures.append("未知市场必须返回 None（默认 TrdMarket.HK 会静默锁死港股）")
+
+    # 限价对齐最小价差 —— 不对齐会被富途直接拒单
+    eq(mod.round_to_tick(227.325, 0.01), 227.32, "美股限价对齐 0.01")
+    eq(mod.round_to_tick(1.205, 0.001), 1.205, "港股限价对齐 0.001")
+    eq(mod.round_to_tick(619.7, 0.2), 619.6, "港股大价差档 0.2")
+    eq(mod.round_to_tick(0.5678, 0.0001), 0.5678, "美股低价档 0.0001")
+    eq(mod.round_to_tick(100.0, 0), 0.0, "取不到最小价差 → 0（拒绝凭猜报单）")
+    eq(mod.round_to_tick(0.0, 0.01), 0.0, "价格为 0 → 0")
 
     # 整手折算
     eq(mod.floor_to_lot(10000.0, 1.205, 500), 8000, "向下取整到手（16 手 × 500）")
@@ -207,6 +349,7 @@ def check_pure(mod) -> list:
     eq(mod.floor_to_lot(10000.0, 10.0, 0), 0, "每手为 0 → 0")
     eq(mod.floor_to_lot(0.0, 10.0, 100), 0, "金额为 0 → 0")
     eq(mod.floor_to_lot(602500.0, 1.205, 500), 500000, "正好整手（1000 手）")
+    eq(mod.floor_to_lot(37358.0, 373.58, 1), 100, "美股每手 1 股（可任意股数）")
 
     # 后端选择语义
     saved = {k: os.environ.get(k) for k in (mod.ENV_BACKEND, mod.ENV_SIM_MARKETS)}
@@ -224,7 +367,8 @@ def check_pure(mod) -> list:
         os.environ[mod.ENV_SIM_MARKETS] = "hk, us"
         eq(sorted(mod.sim_markets()), ["HK", "US"], "白名单解析 + 大写归一")
         os.environ.pop(mod.ENV_SIM_MARKETS, None)
-        eq(sorted(mod.sim_markets()), ["HK"], "白名单默认只有 HK（美股模拟账户尚未开通）")
+        eq(sorted(mod.sim_markets()), ["CN", "HK", "US"],
+           "白名单默认应含三个已开通市场（港股/A股/美股模拟账户都在 OpenD 上）")
     finally:
         for k, v in saved.items():
             if v is None:
@@ -397,13 +541,14 @@ def check_backends(mod, sandbox) -> list:
         def __init__(self, **kw):
             super().__init__(**kw)
             self.lot = 500
+            self.tick = 0.001
             self.place_result = "OID-1"
             self.place_calls = []
             self.slot_alive_at_place = None
             self.boom = False
 
-        def _query_lot_size(self, market, code):
-            return self.lot
+        def _query_security(self, market, code):
+            return {"last_price": 1.205, "lot_size": self.lot, "price_spread": self.tick}
 
         def _place(self, market, code, quantity, price, target):
             if self.boom:
@@ -421,11 +566,12 @@ def check_backends(mod, sandbox) -> list:
     gate_reasons = []
 
     def gate(label, sig, *, side="buy", price=1.205, amount=10000.0, whitelist=None, targets=None,
-             lot=500, place="OID-1", boom=False, **kw):
+             lot=500, tick=0.001, place="OID-1", boom=False, **kw):
         p = probe(**({"markets": whitelist} if whitelist is not None else {}))
         if targets is not None:
             p._syncer = _FakeSyncer(targets)
         p.lot = lot
+        p.tick = tick
         p.place_result = place
         p.boom = boom
         out = p.submit(signal=sig, plan=None, side=side, price=price, amount=amount)
@@ -440,8 +586,8 @@ def check_backends(mod, sandbox) -> list:
     out, _ = gate("判不出市场", _FakeSignal("1234"))
     if not out.skipped:
         failures.append("判不出市场必须跳过")
-    # ③ 市场不在白名单
-    out, _ = gate("白名单外", _FakeSignal("000001"))
+    # ③ 市场不在白名单（把白名单收窄到 HK，A 股信号必须被挡）
+    out, _ = gate("白名单外", _FakeSignal("000001"), whitelist=["HK"])
     if not out.skipped:
         failures.append("白名单外市场必须跳过")
     # ④ 找不到模拟账户
@@ -452,15 +598,19 @@ def check_backends(mod, sandbox) -> list:
     out, _ = gate("无每手股数", _FakeSignal("06666"), lot=0)
     if not out.skipped:
         failures.append("取不到每手股数必须跳过（不许凭猜报单）")
-    # ⑥ 金额买不起一手
+    # ⑥ 取不到最小价差 —— 限价精度不合规会被富途直接拒单
+    out, _ = gate("无最小价差", _FakeSignal("06666"), tick=0.0)
+    if not out.skipped:
+        failures.append("取不到最小价差必须跳过（不许回落到某个默认精度）")
+    # ⑦ 金额买不起一手
     out, _ = gate("买不起一手", _FakeSignal("06666", price=1.205), amount=500.0)
     if not out.skipped:
         failures.append("买不起一手必须跳过")
-    # ⑦ 价格无效
+    # ⑧ 价格无效
     out, _ = gate("价格无效", _FakeSignal("06666", price=0.0), price=0.0)
     if not out.skipped:
         failures.append("价格无效必须跳过")
-    # ⑧ 金额无效
+    # ⑨ 金额无效
     out, _ = gate("金额无效", _FakeSignal("06666"), amount=0.0)
     if not out.skipped:
         failures.append("金额无效必须跳过")
@@ -542,7 +692,8 @@ def check_env_isolation(sandbox) -> list:
     except Exception as e:
         return [f"无法加载同步器: {e}"]
 
-    existing = {"FutuHK", "MoomooUS", "Spark", "FutuSimHK", "FutuSimHKOption"}
+    existing = {"FutuHK", "MoomooUS", "Spark", "FutuSimHK", "FutuSimHKOption",
+                "FutuSimUS", "FutuSimCN"}
 
     # 模拟：7 个品牌全部探测成功，也只许清 FutuSim 前缀
     sim = syncer_mod.FutuPortfolioSyncer(trd_env="SIMULATE")
@@ -566,20 +717,35 @@ def check_env_isolation(sandbox) -> list:
     if stale & {"FutuSimHK", "FutuSimHKOption"}:
         failures.append(f"真实同步会清掉模拟账户: {sorted(stale)}")
 
-    # 模拟目标命名：全局去重 + 无品牌 + 同市场多账户不撞名
-    rows = [
-        {"acc_id": 1973930, "card_num": "", "acc_type": "CASH",
-         "trd_env": "SIMULATE", "market_auth": ["HK"], "acc_role": "",
-         "sim_acc_type": "STOCK", "security_firm": "FUTUSECURITIES"},
-        {"acc_id": 10836386, "card_num": "", "acc_type": "MARGIN",
-         "trd_env": "SIMULATE", "market_auth": ["HK"], "acc_role": "",
-         "sim_acc_type": "OPTION", "security_firm": "FUTUSECURITIES"},
+    # 模拟目标命名：三市场 + 同市场多品类都必须唯一
+    sim_rows = [
+        {"acc_id": 1973930, "market_auth": ["HK"], "sim_acc_type": "STOCK"},
+        {"acc_id": 10836386, "market_auth": ["HK"], "sim_acc_type": "OPTION"},
+        {"acc_id": 1973932, "market_auth": ["CN"], "sim_acc_type": "STOCK"},
+        {"acc_id": 10819487, "market_auth": ["US"], "sim_acc_type": "STOCK_AND_OPTION"},
     ]
-    names = [sim._sim_target_name(r) for r in rows]
-    if len(set(names)) != 2:
-        failures.append(f"同市场股票/期权模拟账户撞名: {names}")
+    names = [sim._sim_target_name(r) for r in sim_rows]
+    if len(set(names)) != len(sim_rows):
+        failures.append(f"模拟账户命名撞车: {names}")
+    want = ["FutuSimCN", "FutuSimHK", "FutuSimHKOption", "FutuSimUS"]
+    if sorted(names) != want:
+        failures.append(f"模拟账户命名不符合预期: {sorted(names)}，应为 {want}")
     if any(syncer_mod.SIM_ACCOUNT_PREFIX not in n for n in names):
         failures.append(f"模拟账户名未带统一前缀: {names}")
+
+    # ❗显式传 filter_trdmarket=NONE 后枚举结果里会多出 DISABLED 的真实子账户，
+    # 必须剔除 —— 对着停用账户反复取数只会把页面徽章刷红
+    mixed_rows = [
+        {"acc_id": 1, "card_num": "1001367909756791", "acc_type": "MARGIN",
+         "acc_status": "ACTIVE", "trd_env": "REAL", "market_auth": ["HK", "US"]},
+        {"acc_id": 2, "card_num": "1001100101085018", "acc_type": "MARGIN",
+         "acc_status": "DISABLED", "trd_env": "REAL", "market_auth": ["HK"]},
+    ]
+    picked = real._select_main_accounts(mixed_rows)
+    if any(r["acc_id"] == 2 for r in picked):
+        failures.append("停用（DISABLED）的账户仍被选中 —— 会一直刷同步失败")
+    if not any(r["acc_id"] == 1 for r in picked):
+        failures.append("正常（ACTIVE）的主账户没被选中 —— 过滤把该留的也滤掉了")
 
     return failures
 
@@ -608,9 +774,10 @@ def check() -> int:
 
     sections = [
         ("静态（后端开关/原子认领/整数手/失败归还）", static_fail),
-        ("契约 · 市场判定与整手折算", check_pure(mod)),
+        ("静态 · 交易上下文必须显式指定市场过滤", check_context_filter()),
+        ("契约 · 市场判定、代码换算与限价对齐", check_pure(mod)),
         ("契约 · 幂等槽位（含并发）", check_slots(mod)),
-        ("契约 · 后端装配与七道闸", check_backends(mod, sandbox)),
+        ("契约 · 后端装配与九道闸", check_backends(mod, sandbox)),
         ("契约 · 模拟/真实环境隔离", check_env_isolation(sandbox)),
     ]
 
@@ -668,6 +835,38 @@ def self_test() -> int:
             failures.append("把默认后端换成 futu_sim，check_pure 竟然全绿（无区分度）")
     finally:
         mod.selected_backend_name = good_name
+
+    good_us = mod.us_symbols
+    mod.us_symbols = lambda: frozenset()
+    try:
+        if not check_pure(mod):
+            failures.append("把美股注册表清空，check_pure 竟然全绿"
+                            "（注册表加载失败会让裸字母静默全部跳过）")
+    finally:
+        mod.us_symbols = good_us
+
+    good_tick = mod.round_to_tick
+    mod.round_to_tick = lambda price, tick: price
+    try:
+        if not check_pure(mod):
+            failures.append("把限价对齐换成不做对齐，check_pure 竟然全绿（无区分度）")
+    finally:
+        mod.round_to_tick = good_tick
+
+    good_quote = mod.quote_market
+    mod.quote_market = lambda market, code="": None
+    try:
+        if not check_pure(mod):
+            failures.append("把行情市场换成一律认不出，check_pure 竟然全绿（无区分度）")
+    finally:
+        mod.quote_market = good_quote
+
+    # 交易上下文过滤扫描必须真的扫到构造点（规则写错会静默变成空检查）
+    ctx_fail = check_context_filter()
+    if any("一个富途交易上下文构造点都没扫到" in f for f in ctx_fail):
+        failures.append("交易上下文扫描规则失效（一个构造点都没扫到）")
+    if ctx_fail:
+        failures.append(f"真实源码里存在未传 filter_trdmarket 的构造点: {ctx_fail}")
 
     sandbox.close()
     if failures:
