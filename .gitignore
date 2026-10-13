@@ -54,6 +54,8 @@ deva/naja/knowledge/narratives.json
 deva/naja/knowledge/learned_articles.json
 deva/naja/knowledge/daily_reports.json
 deva/naja/knowledge/injected_knowledge.json
+# 人工迁移日志（在 learning 页点「强制通过」就会写，属运行期状态而非配置）
+deva/naja/knowledge/state_transitions.json
 
 # 认知系统状态（含个人关注焦点）
 deva/naja/state/**/cognition*
