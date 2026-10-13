@@ -825,13 +825,34 @@ class MenuBarTray:
                     'type': 'error',
                     'notification': {
                         'title': "❌ 总结失败",
-                        'subtitle': "发生错误",
+                        'subtitle': self._summarize_error_hint(e),
                         'message': str(e)[:100] if len(str(e)) > 100 else str(e)
                     }
                 }
         
         thread = threading.Thread(target=summary_task, daemon=True)
         thread.start()
+
+    @staticmethod
+    def _summarize_error_hint(exc):
+        """把大模型调用异常翻译成一句**可操作**的中文提示。
+
+        原来失败时只显示裸的 ``Connection error.``——用户完全不知道
+        该去看哪里。而连接类错误绝大多数是代理/网络不可达（2026-10-13
+        的「一键总结失效」正是被一个已失效的本地代理劫持），所以这里
+        直接点明排查方向，让错误自证。
+        """
+        text = str(exc)
+        if any(k in text for k in (
+            "Connection error", "ConnectError", "APIConnectionError",
+            "All connection attempts failed", "timed out", "Timeout",
+        )):
+            return "网络/代理不可达，请检查代理是否运行"
+        if "401" in text or "Unauthorized" in text or "AuthenticationError" in text:
+            return "API Key 无效或过期"
+        if "402" in text or "Insufficient" in text or "quota" in text.lower():
+            return "余额或额度不足"
+        return "发生错误"
 
     def _build_summary_prompt(self, events):
         """构建大模型总结提示词（小红书爆款风格）"""
