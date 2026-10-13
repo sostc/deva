@@ -476,17 +476,6 @@ async def render_bandit_admin(ctx: dict):
         put_text("")
         put_html(f"<h3>🇺🇸 美股/港股持仓{_freshness_badges(SOURCE_US_PRICE, SOURCE_FUTU_SYNC)}</h3>")
 
-        us_account_names = []
-        pm = None
-        try:
-            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
-            pm = get_portfolio_manager()
-            if pm:
-                us_account_names = pm.get_all_account_names()
-                put_text(f"PM账户: {us_account_names}")
-        except Exception as e:
-            put_text(f"PM初始化失败: {e}")
-
         futu_nb_accounts = []
         try:
             nb = NB("naja_bandit_positions")
@@ -498,24 +487,33 @@ async def render_bandit_admin(ctx: dict):
         except Exception as e:
             put_text(f"NB读取失败: {e}")
 
-        all_account_names = us_account_names + futu_nb_accounts
+        us_account_names = []
+        pm = None
+        try:
+            from deva.naja.bandit.portfolio_manager import get_portfolio_manager
+            pm = get_portfolio_manager()
+            if pm:
+                us_account_names = pm.get_all_account_names()
+                put_text(f"PM账户: {us_account_names}")
+        except Exception as e:
+            put_text(f"PM初始化失败: {e}")
+
+        # 富途账户既在落盘表里、又会出现在 PM 名册里 —— 不去重就会渲染两遍。
+        # 落盘表优先，且下方分支里富途账户一律走落盘表渲染（多市场/多币种处理更全）。
+        all_account_names = list(futu_nb_accounts)
+        all_account_names += [n for n in us_account_names if n not in futu_nb_accounts]
 
         for account_name in all_account_names:
             portfolio = None
             futu_positions = None
-            if pm and account_name in us_account_names:
-                portfolio = pm.get_us_portfolio(account_name)
-                if portfolio:
-                    positions = portfolio.get_all_positions()
-                    summary = portfolio.get_summary()
-                else:
-                    continue
-            elif account_name in futu_nb_accounts:
+            futu_record = {}
+            if account_name in futu_nb_accounts:
                 nb = NB("naja_bandit_positions")
                 accounts_data = nb.get("accounts", {})
                 acc_data = accounts_data.get(account_name, {})
+                futu_record = acc_data
                 futu_positions = acc_data.get("positions", {})
-                
+
                 total_value = 0.0
                 total_cost = 0.0
                 total_profit_loss = 0.0
@@ -531,6 +529,13 @@ async def render_bandit_admin(ctx: dict):
                 if total_cost > 0:
                     total_return_pct = (total_profit_loss / total_cost) * 100
                 
+                # 富途账户自报币种（HKD / USD / ...）—— 港币账户不能标成美元。
+                # 旧记录没有 currency 字段 → 按持仓推；推不出才退回 USD，
+                # 不能凭空安一个币种（那等于把「不知道」渲染成一个具体数字）。
+                account_currency = str(acc_data.get("currency") or "").upper()
+                if not account_currency:
+                    first_pos = next(iter((futu_positions or {}).values()), {})
+                    account_currency = str(first_pos.get("currency") or "USD").upper()
                 summary = {
                     "equity": acc_data.get("equity", 0),
                     "total_value": total_value,
@@ -539,13 +544,37 @@ async def render_bandit_admin(ctx: dict):
                     "total_profit_loss": total_profit_loss,
                     "total_return_pct": total_return_pct,
                     "today_profit_loss": 0,
+                    "margin_debt": max(0.0, total_value - float(acc_data.get("equity", 0) or 0)),
+                    "currency": account_currency,
                 }
                 positions = None
+            elif pm and account_name in us_account_names:
+                portfolio = pm.get_us_portfolio(account_name)
+                if portfolio:
+                    positions = portfolio.get_all_positions()
+                    summary = portfolio.get_summary()
+                    summary["currency"] = "USD"
+                else:
+                    continue
             else:
                 continue
 
-            account_label = f"【{account_name}】" + (" (Futu)" if account_name in futu_nb_accounts else "")
+            tag = " (Futu)" if account_name in futu_nb_accounts else ""
+            card_num = str(futu_record.get("card_num") or "").strip()
+            if card_num:
+                tag = f" (Futu · {card_num})"
+            account_label = f"【{account_name}】{tag}"
             put_html(f"<h4>{account_label}</h4>")
+
+            # 币种符号跟随账户本币：富途香港是 HKD，moomoo 美国是 USD。
+            # 不加区分地一律标 "$" 会让港币净资产看起来只有实际的 1/7.8。
+            account_currency = str(summary.get("currency", "") or "USD").upper()
+            if account_currency == "HKD":
+                cur_symbol = "HK$"
+            elif account_currency == "USD":
+                cur_symbol = "$"
+            else:
+                cur_symbol = f"{account_currency} "
 
             equity = summary.get('equity', 0)
             margin_debt = summary.get('margin_debt', 0)
@@ -554,13 +583,13 @@ async def render_bandit_admin(ctx: dict):
             put_row([
                 put_column([
                     put_html("<b>账户资产</b>"),
-                    put_text(f"净资产: ${equity:,.2f}" if equity > 0 else "净资产: -"),
-                    put_text(f"融资负债: ${margin_debt:,.2f}" if margin_debt > 0 else "融资负债: -"),
+                    put_text(f"净资产: {cur_symbol}{equity:,.2f}" if equity > 0 else "净资产: -"),
+                    put_text(f"融资负债: {cur_symbol}{margin_debt:,.2f}" if margin_debt > 0 else "融资负债: -"),
                 ]),
                 put_column([
                     put_html("<b>持仓市值</b>"),
-                    put_text(f"总市值: ${summary['total_value']:,.2f}"),
-                    put_text(f"持仓成本: ${summary['total_cost']:,.2f}" if summary['total_cost'] > 0 else "持仓成本: -"),
+                    put_text(f"总市值: {cur_symbol}{summary['total_value']:,.2f}"),
+                    put_text(f"持仓成本: {cur_symbol}{summary['total_cost']:,.2f}" if summary['total_cost'] > 0 else "持仓成本: -"),
                 ]),
             ], size="1fr 1fr")
 
@@ -571,8 +600,8 @@ async def render_bandit_admin(ctx: dict):
                 ]),
                 put_column([
                     put_html("<b>盈亏情况</b>"),
-                    put_text(f"持仓盈亏: ${summary['total_profit_loss']:,.2f} ({summary['total_return_pct']:+.2f}%)"),
-                    put_text(f"今日盈亏: ${today_pl:,.2f}" if today_pl != 0 else "今日盈亏: -"),
+                    put_text(f"持仓盈亏: {cur_symbol}{summary['total_profit_loss']:,.2f} ({summary['total_return_pct']:+.2f}%)"),
+                    put_text(f"今日盈亏: {cur_symbol}{today_pl:,.2f}" if today_pl != 0 else "今日盈亏: -"),
                 ]),
             ], size="1fr 1fr")
 
@@ -601,12 +630,12 @@ async def render_bandit_admin(ctx: dict):
                     if entry_price > 0 and quantity > 0:
                         profit_loss_pct = (current_price - entry_price) / entry_price * 100
                     
-                    # 根据市场选择货币符号
+                    # 货币符号优先用富途返回的持仓币种，市场只作兜底
                     market = pos.get("market", "US")
-                    if market == "HK":
-                        currency_prefix = "HK$"
-                    else:
-                        currency_prefix = "$"
+                    pos_currency = str(pos.get("currency") or "").upper()
+                    if not pos_currency:
+                        pos_currency = "HKD" if market == "HK" else "USD"
+                    currency_prefix = "HK$" if pos_currency == "HKD" else "$"
                     
                     profit_color = "green" if profit_loss >= 0 else "red"
                     profit_sign = "+" if profit_loss >= 0 else ""
@@ -767,14 +796,29 @@ def _do_sync_futu():
     try:
         from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
         from pywebio.session import run_js
-        
-        syncer = get_futu_syncer()
-        if syncer.sync():
+
+        result = get_futu_syncer().sync()
+
+        # 逐个账户如实交代 —— 富途香港成功、moomoo 失败这种「半成功」必须能看出来
+        for acc in result.accounts:
+            if acc.ok:
+                put_text(f"  ✅ {acc.name}（{acc.firm}）{acc.positions} 只持仓")
+            else:
+                put_text(f"  ❌ {acc.name}（{acc.firm}）失败: {acc.error}")
+        for err in result.probe_errors:
+            put_text(f"  ❌ {err}")
+        if result.stale_removed:
+            put_text(f"  🧹 已清理过期账户: {'、'.join(result.stale_removed)}")
+
+        if not result.accounts:
+            put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行/已登录")
+            return
+
+        if result.ok:
             put_text("✅ 富途持仓同步成功，正在刷新页面...")
-            # 直接刷新浏览器页面
-            run_js("setTimeout(function(){location.reload();}, 500);")
         else:
-            put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行")
+            put_text("⚠️ 部分账户同步失败（见上方），已更新的数据仍会刷新")
+        run_js("setTimeout(function(){location.reload();}, 1200);")
     except Exception as e:
         put_text(f"❌ 同步失败: {e}")
 
@@ -784,11 +828,22 @@ def _do_show_futu_accounts():
         from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
         syncer = get_futu_syncer()
         accounts = syncer.get_accounts()
-        if accounts:
-            put_text("📊 富途账户列表:")
-            for acc in accounts:
-                put_text(f"  • {acc['security_firm']} - ID: {acc['acc_id']} ({acc['trd_env']})")
-        else:
+        if not accounts:
             put_text("⚠️ 未发现富途账户，请确认 OpenD 已登录")
+            return
+
+        targets, probe_errors, _ = syncer.get_sync_targets()
+        synced_ids = {t["acc_id"] for t in targets}
+        put_text(f"📊 富途账户列表（{len(accounts)} 个；✔ = 本次同步目标）:")
+        for acc in accounts:
+            mark = "✔" if acc["acc_id"] in synced_ids else " "
+            card = acc["card_num"] or "-"
+            auth = ",".join(acc["market_auth"]) or "-"
+            put_text(
+                f"  {mark} {acc['security_firm']:16s} {acc['trd_env']:9s} "
+                f"账号 {card:18s} acc_id={acc['acc_id']} 市场={auth}"
+            )
+        for err in probe_errors:
+            put_text(f"  ❌ {err}")
     except Exception as e:
         put_text(f"❌ 获取账户失败: {e}")
