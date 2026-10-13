@@ -111,6 +111,101 @@ def test_timeline_api_applies_quota_only_when_passed():
     assert isinstance(d.get("list"), list)
 
 
+def test_quota_dedups_same_block():
+    """同类事件按标的去重：2 个 cn_event 名额 = 2 个不同板块。
+
+    板块异动是同一板块每几秒刷一条，若不去重，配额会被同一板块的重复刷新吃光。
+    """
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        select_timeline_events,
+    )
+
+    ev = [{"type": "cn_event", "timestamp": 2000 - i, "block_name": "同板块"}
+          for i in range(5)]
+    ev.append({"type": "cn_event", "timestamp": 1000, "block_name": "另一个板块"})
+    ev.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    picked = select_timeline_events(ev, {"cn_event": 2})
+    assert [e["block_name"] for e in picked] == ["同板块", "另一个板块"]
+
+
+def test_quota_dedup_not_applied_in_legacy_mode():
+    """不传配额 → 旧行为逐字保持（含不做去重），/market 不受影响。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        select_timeline_events,
+    )
+
+    ev = [{"type": "cn_event", "timestamp": 100 - i, "block_name": "同板块"}
+          for i in range(5)]
+    assert len(select_timeline_events(ev, None)) == 5
+
+
+def test_quota_input_order_independent():
+    """内部自行排序，不依赖调用方先排好。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        select_timeline_events,
+    )
+
+    ev = [{"type": "cn_event", "timestamp": t, "block_name": f"X{t}"}
+          for t in (100, 300, 200)]
+    picked = select_timeline_events(ev, {"cn_event": 1})
+    assert picked[0]["timestamp"] == 300
+
+
+def test_menu_cap_equals_quota_sum():
+    """上屏上限只有一个来源：配额之和。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        TRAY_MENU_MAX_EVENTS,
+        TRAY_TIMELINE_LIMITS,
+    )
+
+    assert TRAY_MENU_MAX_EVENTS == sum(TRAY_TIMELINE_LIMITS.values())
+
+
+def test_event_quota_below_news_quota():
+    """速率最高的类型反而给得最少——按信息密度分配，不按产生速率。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        TRAY_TIMELINE_LIMITS,
+    )
+
+    events = TRAY_TIMELINE_LIMITS["cn_event"] + TRAY_TIMELINE_LIMITS["us_event"]
+    news = TRAY_TIMELINE_LIMITS["high_score_news"] + TRAY_TIMELINE_LIMITS["jin10_news"]
+    assert events < news
+
+
+# ── ①b 源端哨兵值渲染（999 = inf 编码）────────────────────────────────────
+
+
+def test_format_change_percent_sentinel():
+    """源端把 inf 写成 999，不能原样渲染成「+999.0%」。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        format_change_percent,
+    )
+
+    assert format_change_percent(999) == "新进榜"
+    assert format_change_percent(-999) == "新进榜"
+
+
+def test_format_change_percent_normal():
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        format_change_percent,
+    )
+
+    assert format_change_percent(12.34) == "+12.3%"
+    assert format_change_percent(-5) == "-5.0%"
+    assert format_change_percent(0) == "+0.0%"
+
+
+def test_format_change_percent_bad_input():
+    """脏输入不炸——渲染层不该因为一个字段丢掉整条事件。"""
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        format_change_percent,
+    )
+
+    assert format_change_percent(None) == ""
+    assert format_change_percent("x") == ""
+
+
 # ── ② 托盘通知聚合限流 ──────────────────────────────────────────────────
 
 

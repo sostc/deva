@@ -30,12 +30,15 @@
 五段检查
 ================================================================================
 
-  ① **配额行为**（离线纯函数）：新闻必现；上限生效；不传配额 = 旧行为
+  ① **配额行为**（离线纯函数）：新闻必现；上限生效；同类按标的去重；不传配额 = 旧行为
   ② **托盘取数口径**：托盘侧确实传了 ``TRAY_TIMELINE_LIMITS``
   ③ **菜单结构静态守卫**：``/focusadmin`` 有入口；无重复日志项；低频页在「系统」子菜单；
-     新闻流仍在**一级菜单**（用户硬要求）；旧的裸数字行已删
-  ④ **通知聚合**：聚合 + 限流常量存在；**多候选只发一条**；窗口内不重复
-  ⑤ **冷启动**：``menu_bar_tray`` / ``market_24h_timeline`` 可独立导入
+     新闻流仍在**一级菜单**（用户硬要求）；列表**按时间倒序**（不再按类型分组）；
+     标题如实区分「24h 总量」与「上屏条数」；旧的裸数字行已删
+  ④ **产生频率与配额的匹配**：模块内记录实测速率；板块异动配额显著少于新闻配额
+  ⑤ **哨兵值渲染**：``change_percent`` 的 999 哨兵不再打成「+999.0%」
+  ⑥ **通知聚合**：聚合 + 限流常量存在；**多候选只发一条**；窗口内不重复
+  ⑦ **冷启动**：``menu_bar_tray`` / ``market_24h_timeline`` 可独立导入
 
 ================================================================================
 用法
@@ -140,6 +143,22 @@ def main() -> int:
           == sorted((e["timestamp"] for e in picked), reverse=True), "")
     check("空输入返回空", select_timeline_events([], TRAY_TIMELINE_LIMITS) == [], "")
 
+    # 同类去重：2 个 cn_event 名额应代表 2 个**不同板块**，而不是同一板块的两次刷新
+    dup = [{"type": "cn_event", "timestamp": 2000 - i, "block_name": "同板块"}
+           for i in range(5)]
+    dup += [{"type": "cn_event", "timestamp": 1000, "block_name": "另一个板块"}]
+    deduped = select_timeline_events(dup, {"cn_event": 2})
+    check("同类事件按标的去重（同板块刷 5 次只占 1 个名额）",
+          [e["block_name"] for e in deduped] == ["同板块", "另一个板块"],
+          f"got={[e['block_name'] for e in deduped]}")
+    check("不传配额时不做去重（旧行为逐字保持）",
+          len(select_timeline_events(dup, None)) == len(dup[:15]), "")
+
+    # 输入顺序无关：内置排序，不依赖调用方先排好
+    shuffled = list(reversed(ev))
+    check("输入乱序也能取到最新的（内置排序）",
+          select_timeline_events(shuffled, {"cn_event": 1})[0]["timestamp"] == 1029, "")
+
     # ── ② 托盘取数口径 ────────────────────────────────────────────────
     print()
     print("=" * 68)
@@ -179,12 +198,17 @@ def main() -> int:
     # 用户硬要求：新闻流仍留一级菜单、可点总结
     check("新闻流仍在**一级菜单**（用户要求：不折叠进子菜单）",
           "self._app.menu.add(flow_head)" in menu_src, "")
-    check("新闻流限长呈现（ordered[:12]，原为 events[:20]）",
-          "ordered[:12]" in menu_src and "events[:20]" not in menu_src, "")
+    check("一级菜单限长 = 配额之和（单一来源，不再硬写 12）",
+          "ordered[:TRAY_MENU_MAX_EVENTS]" in menu_src and "events[:20]" not in menu_src, "")
     check("一级菜单保留「一键总结」", "一键总结当前时间线" in menu_src, "")
     check("有「查看全部时间线」出口", "查看全部时间线" in menu_src, "")
-    check("新闻优先排序（新闻在板块异动之前）",
-          "news_first" in menu_src and "'high_score_news': 0" in menu_src, "")
+
+    # 用户要求：事件与新闻**按时间排序**（原先按 news_first 分组，时间线被切成两截）
+    check("列表按**时间倒序**呈现，不再按类型分组",
+          "news_first" not in menu_src
+          and "key=lambda e: -float(e.get('timestamp', 0) or 0)" in menu_src, "")
+    check("标题如实区分「24h 总量」与「上屏条数」",
+          "24h {total_count} 条 · 显示 {shown}" in menu_src, "")
 
     check("状态行已合并为一行（不再 3 行 标题/状态/端口）",
           "📊 Naja " in menu_src and "📍 端口:" not in menu_src, "")
@@ -193,10 +217,50 @@ def main() -> int:
     check("旧的「日期分隔」两行（─ ×30 + 📅 日期）已删",
           '📅 {event_date}' not in menu_src and "'─'*30" not in menu_src, "")
 
-    # ── ④ 通知聚合 ────────────────────────────────────────────────────
+    # ── ④ 产生频率与配额的匹配 ────────────────────────────────────────
     print()
     print("=" * 68)
-    print("④ 通知：聚合 + 限流（避免修完截断后从「不响」跳到「轰炸」）")
+    print("④ 产生频率 → 配额：速率越高给得越少（依据可追溯）")
+    print("=" * 68)
+    check("模块内记录了实测速率与依据出处",
+          "docs/naja/event_frequency_analysis.md" in timeline_src
+          and "条/分钟" in timeline_src, "")
+    check("板块异动配额(2+1) < 新闻配额(5+4) —— 按信息密度而非产生速率分配",
+          (TRAY_TIMELINE_LIMITS["cn_event"] + TRAY_TIMELINE_LIMITS["us_event"])
+          < (TRAY_TIMELINE_LIMITS["high_score_news"] + TRAY_TIMELINE_LIMITS["jin10_news"]),
+          f"事件={TRAY_TIMELINE_LIMITS['cn_event'] + TRAY_TIMELINE_LIMITS['us_event']} "
+          f"新闻={TRAY_TIMELINE_LIMITS['high_score_news'] + TRAY_TIMELINE_LIMITS['jin10_news']}")
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        TRAY_MENU_MAX_EVENTS,
+    )
+    check("TRAY_MENU_MAX_EVENTS == 配额之和（两处不再各写一个 12）",
+          TRAY_MENU_MAX_EVENTS == sum(TRAY_TIMELINE_LIMITS.values()),
+          f"max={TRAY_MENU_MAX_EVENTS} sum={sum(TRAY_TIMELINE_LIMITS.values())}")
+
+    # ── ⑤ 哨兵值渲染 ──────────────────────────────────────────────────
+    print()
+    print("=" * 68)
+    print("⑤ 源端哨兵值：999（inf 编码）不再渲染成「+999.0%」")
+    print("=" * 68)
+    from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+        format_change_percent,
+    )
+
+    check("999 哨兵 → 「新进榜」", format_change_percent(999) == "新进榜",
+          repr(format_change_percent(999)))
+    check("正常涨跌幅照常渲染",
+          format_change_percent(12.34) == "+12.3%" and format_change_percent(-5) == "-5.0%",
+          f"{format_change_percent(12.34)} / {format_change_percent(-5)}")
+    check("脏输入不炸（None / 字符串）",
+          format_change_percent(None) == "" and format_change_percent("x") == "", "")
+    check("托盘与页面共用同一渲染函数",
+          "format_change_percent(" in tray_src
+          and tray_src.count("f\"{sign}{change_percent:.1f}%\"") == 0, "")
+
+    # ── ⑥ 通知聚合 ────────────────────────────────────────────────────
+    print()
+    print("=" * 68)
+    print("⑥ 通知：聚合 + 限流（避免修完截断后从「不响」跳到「轰炸」）")
     print("=" * 68)
     check("存在限流常量 NOTIFY_MIN_INTERVAL", "NOTIFY_MIN_INTERVAL" in tray_src, "")
     check("有限流状态 _last_notify_ts 且被写入（而非只读）",
@@ -227,10 +291,10 @@ def main() -> int:
     t._check_and_send_notifications()
     check("时间窗内不重复通知", len(sent) == 1, f"sent 条数={len(sent)}")
 
-    # ── ⑤ 冷启动 ──────────────────────────────────────────────────────
+    # ── ⑦ 冷启动 ──────────────────────────────────────────────────────
     print()
     print("=" * 68)
-    print("⑤ 冷启动：托盘与时间线模块可独立导入")
+    print("⑦ 冷启动：托盘与时间线模块可独立导入")
     print("=" * 68)
     cold = subprocess.run(
         [sys.executable, "-c",
