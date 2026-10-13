@@ -147,6 +147,8 @@ class TRotationRunner:
         # 守恒校验会变成「拿一把会伸缩的尺子量自己」。
         self._plan_targets: Dict[str, float] = {}
         self._plan_date: Dict[str, str] = {}
+        # 额度不足属于配置冲突，按天去重告警，别把日志刷满
+        self._budget_warned: Dict[str, str] = {}
         self._last_price: Dict[str, float] = {}
         self._last_cum_vol: Dict[str, float] = {}
         self._flat_runs: Dict[str, int] = {}
@@ -588,6 +590,7 @@ class TRotationRunner:
 
         summary = self._portfolio.get_summary() or {}
         available = float(summary.get("available_capital", 0.0) or 0.0)
+        used = float(summary.get("used_capital", 0.0) or 0.0)
         price = float(quote.current)
         lot = spec.round_lot
         affordable = available * 0.8 / price if price > 0 else 0.0
@@ -595,13 +598,47 @@ class TRotationRunner:
         # 分批：单笔金额上限是虚拟仓的风控参数（默认 20% 总资金）。
         # 40% 的底仓必然超过它，一次性下单会被拒。
         # 这里**分批**凑齐，而不是用 bypass_limits 绕过风控。
+        #
+        # 双上限都要看（实测踩到过）：
+        #   单笔上限 max_position_pct —— 一次买太多会被拒
+        #   总额度上限 max_total_pct  —— 其它策略已占用的部分要从这份额度里扣。
+        #      真实账户上就撞了：已有持仓占 41 万，总上限 80 万，
+        #      留给 40 万底仓只剩 39 万 —— 只看单笔的话，最后一笔会被拒，
+        #      表现为「建仓失败」的 error 每 30 秒刷一条。
         single_budget = float(
             getattr(self._portfolio, "single_position_budget", 0.0) or 0.0
         )
-        cap_by_limit = (single_budget * 0.95 / price) if single_budget > 0 else missing
+        cap_by_single = (single_budget * 0.95 / price) if single_budget > 0 else missing
 
-        qty = min(missing, affordable, cap_by_limit)
+        total_budget = float(
+            getattr(self._portfolio, "category_position_budget", 0.0) or 0.0
+        )
+        headroom = max(0.0, total_budget - used) if total_budget > 0 else missing
+        cap_by_total = headroom / price if price > 0 else 0.0
+
+        qty = min(missing, affordable, cap_by_single, cap_by_total)
         qty = (int(qty / lot)) * lot
+
+        # 额度不够把目标买满，是**配置冲突**，不是行情问题 ——
+        # 每天只在首次识别时说一次，否则每 30 秒一条 error 会把真故障淹掉。
+        if qty + lot <= missing and self._budget_warned.get(spec.code) != date:
+            self._budget_warned[spec.code] = date
+            if headroom < (missing - carried * 0) * price * 0.999 and headroom <= missing * price:
+                why = (
+                    f"总持仓额度只剩 {headroom:,.0f} 元"
+                    f"（上限 {total_budget:,.0f}，其它策略已占用 {used:,.0f}）"
+                )
+            else:
+                why = (
+                    f"可用资金不足：{available:,.0f} 元"
+                    if affordable < missing else "单笔/总额度限制"
+                )
+            log.error(
+                f"[TRotationRunner] 🚨 {spec.name}({spec.code}) 底仓受额度限制，"
+                f"本轮只能补 {qty:.0f} 份、仍缺 {missing - qty:.0f} 份 —— {why}。"
+                f"需要人工介入：清理无用持仓，或调整虚拟仓的总持仓上限。"
+            )
+
         if qty < lot:
             log.warning(
                 f"[TRotationRunner] 资金/限额不足以补足 {spec.name} 底仓"
@@ -628,7 +665,8 @@ class TRotationRunner:
             return
 
         batch_note = (
-            f"（分批改：单笔限额 {single_budget:.0f}，下一轮继续补）"
+            f"（分批：受单笔限额 {single_budget:,.0f} / 可用额度 {headroom:,.0f} 限制，"
+            f"下一轮继续补）"
             if qty < missing else ""
         )
         log.info(
@@ -666,6 +704,12 @@ class TRotationRunner:
                 "alloc_pct": spec.alloc_pct,
                 "target_budget": spec.target_budget(self.total_assets()),
                 "target_resolved_date": self._plan_date.get(spec.code),
+                # 额度不够买满目标时，这里要能回答「为什么差这么多」
+                "budget_warned": self._budget_warned.get(spec.code),
+                "held_shares": (
+                    None if self._ledger is None else
+                    self._ledger.effective_shares(spec.code, self._portfolio)
+                ),
                 "session_date": self._session_date.get(spec.code),
                 "settled_today": (spec.code, dt.strftime("%Y-%m-%d")) in self._settled,
                 "last_price": self._last_price.get(spec.code, 0.0),
