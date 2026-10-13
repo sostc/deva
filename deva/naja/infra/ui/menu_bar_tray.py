@@ -803,9 +803,20 @@ class MenuBarTray:
                     # 构建提示词
                     prompt = self._build_summary_prompt(events)
                     
-                    # 调用大模型
+                    # 调用大模型（带代理兜底：启动后才失效的本地代理在此自愈）
                     from deva.llm.client import sync_gpt
-                    summary = sync_gpt(prompt)
+                    try:
+                        summary = sync_gpt(prompt)
+                    except Exception:
+                        # 启动时端口还活着、之后才死掉的本地代理会落到这里
+                        # （启动期清洗当时判定它是"活代理"因而保留了它）。
+                        # sanitize_proxy_env() 返回非空 = 确实剔掉了死代理，
+                        # 环境已变 → 值得重试一次（AsyncOpenAI 每次新建都重读 env）。
+                        from deva.naja.infra.runtime.daemon import sanitize_proxy_env
+                        if not sanitize_proxy_env():
+                            raise
+                        logger.info("检测到已失效的本地代理，清除后重试一次")
+                        summary = sync_gpt(prompt)
                     
                     # 保存缓存
                     self._save_summary_cache(events, summary)
