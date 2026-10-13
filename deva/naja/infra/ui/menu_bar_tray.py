@@ -134,6 +134,12 @@ class MenuBarTray:
         self._last_menu_build_ts = 0
         self._notified_news_ids = set()
         self._notification_enabled = True
+        # 通知聚合限流：修好时间线截断后，单轮可能出现多条达标新闻，
+        # 逐条弹会从"从不响"直接变成"轰炸"。改为时间窗内最多一条聚合通知。
+        self._last_notify_ts = 0.0
+        # 相关性关键词缓存（持仓/关注主题），用于给通知排序——5 分钟 TTL
+        self._relevance_kw_cache = None
+        self._relevance_kw_ts = 0.0
 
         import threading
         self._menu_cache = {}
@@ -212,6 +218,48 @@ class MenuBarTray:
         self._last_system_status_ts = now
         return result
 
+    # ── 通知聚合限流参数 ─────────────────────────────────────────────
+    # 修好时间线截断（见 select_timeline_events）后，单轮可能出现多条达标新闻，
+    # 若仍逐条弹，会从"从不响"直接变成"轰炸"。改为时间窗内最多一条**聚合**通知。
+    NOTIFY_MIN_INTERVAL = 300.0    # 时间窗：每 5 分钟最多一条通知
+    NOTIFY_MIN_SCORE = 0.7         # 分数线（沿用原逻辑）
+    NOTIFY_RELEVANCE_TTL = 300.0   # 相关性关键词缓存时长
+
+    def _relevance_keywords(self) -> set:
+        """持仓 / 自选 / 关注主题的关键词，供通知排序用；缓存 5 分钟。
+
+        读不到就返回空集 → 排序降级为纯分数排序，**绝不阻断通知本身**。
+        与 ``news.focus`` 共用同一份焦点快照（60s TTL），不重复造数据。
+        """
+        import time
+        now = time.time()
+        if (self._relevance_kw_cache is not None
+                and (now - self._relevance_kw_ts) < self.NOTIFY_RELEVANCE_TTL):
+            return self._relevance_kw_cache
+
+        kws = set()
+        try:
+            from deva.naja.news.focus import build_focus_state
+            state = build_focus_state()
+            for ident in state.own_identifiers():
+                if ident and len(str(ident).strip()) >= 2:
+                    kws.add(str(ident))
+            for name, keywords in state.themes:
+                if name and len(str(name).strip()) >= 2:
+                    kws.add(str(name))
+                for k in keywords:
+                    if k and len(str(k).strip()) >= 2:
+                        kws.add(str(k))
+            for n in (*state.narratives, *state.blocks):
+                if n and len(str(n).strip()) >= 2:
+                    kws.add(str(n))
+        except Exception as e:
+            logger.debug(f"[Tray] 相关性关键词读取失败（降级为纯分数排序）: {e}")
+
+        self._relevance_kw_cache = kws
+        self._relevance_kw_ts = now
+        return kws
+
     def _check_and_send_notifications(self):
         if not self._naja_ready:
             return
@@ -231,13 +279,15 @@ class MenuBarTray:
             if not timeline or not timeline.get('success'):
                 return
 
+            # ① 收集候选（未通知过、分数达标）
+            candidates = []
             for news in timeline.get('list', []):
                 news_type = news.get('type', '')
                 if news_type not in ('high_score_news', 'jin10_news'):
                     continue
 
                 score = news.get('score', 0) or 0
-                if score < 0.7:
+                if score < self.NOTIFY_MIN_SCORE:
                     continue
 
                 title = news.get('title', '') or news.get('block_name', '')
@@ -248,11 +298,46 @@ class MenuBarTray:
                 if news_id in self._notified_news_ids:
                     continue
 
-                self._send_notification(title, f"重要新闻 · 评分: {score:.2f}")
-                self._notified_news_ids.add(news_id)
+                candidates.append({'id': news_id, 'score': score, 'title': title})
 
-                if len(self._notified_news_ids) > 100:
-                    self._notified_news_ids = set(list(self._notified_news_ids)[-50:])
+            if not candidates:
+                return
+
+            # ② 限流：距上次通知不足时间窗则本轮不发。候选留在池中（未标已通知），
+            #    到点后一次性聚合发出——既不"攒着不发"，也不"逐条轰炸"。
+            import time
+            now = time.time()
+            if now - self._last_notify_ts < self.NOTIFY_MIN_INTERVAL:
+                return
+
+            # ③ 相关性优先：持仓/自选/关注主题命中的排前面，同组按分数降序
+            keywords = self._relevance_keywords()
+
+            def _sort_key(item):
+                lowered = item['title'].lower()
+                hit = 1 if any(
+                    k.lower() in lowered for k in keywords if k) else 0
+                return (-hit, -item['score'])
+
+            candidates.sort(key=_sort_key)
+
+            # ④ 聚合发出：只弹一条；本轮**所有**候选都标记已通知，避免下轮重复
+            for item in candidates:
+                self._notified_news_ids.add(item['id'])
+            if len(self._notified_news_ids) > 100:
+                self._notified_news_ids = set(list(self._notified_news_ids)[-50:])
+
+            top = candidates[0]
+            if len(candidates) == 1:
+                self._send_notification(
+                    top['title'], f"重要新闻 · 评分: {top['score']:.2f}")
+            else:
+                self._send_notification(
+                    f"📰 {len(candidates)} 条重要新闻",
+                    top['title'][:60],
+                    f"另有 {len(candidates) - 1} 条 · 点开菜单查看",
+                )
+            self._last_notify_ts = now
 
         except Exception as e:
             logger.error(f"[Tray] 检查通知失败: {e}")
