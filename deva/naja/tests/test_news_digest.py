@@ -941,3 +941,236 @@ def test_focus_admin_update_topic_keeps_derived_source(monkeypatch):
     res = fadmin.update_topic("GPU", priority=0.55)
     assert res["ok"] is True
     assert fm.source_of("GPU") == SOURCE_DERIVED
+
+
+# ── 自选管理：naja_watchlist 的增删改查 ──────────────────────────────────
+#
+# 自选写的是 ``naja_watchlist`` 的 ``stocks`` 键。这一段守两件事：
+#   1. 写自选**绝不能碰** ``ai_stocks``（预设 AI 股票池，manas 在用）
+#   2. 写后用 ``get_watchlist()`` 必须立刻读到（缓存要失效，否则是"改了没生效"）
+
+
+class _FakeNB:
+    """内存版 NB（只实现 Portfolio 用到的那几个方法）。
+
+    真表是全局 sqlite，单测往里写会污染真实自选数据，故整体替换掉。
+    """
+
+    _tables: dict = {}
+
+    def __init__(self, name="default"):
+        self._name = name
+        _FakeNB._tables.setdefault(name, {})
+
+    @classmethod
+    def reset(cls):
+        cls._tables = {}
+
+    def __len__(self):
+        return len(_FakeNB._tables[self._name])
+
+    def keys(self):
+        return list(_FakeNB._tables[self._name].keys())
+
+    def __getitem__(self, key):
+        return _FakeNB._tables[self._name][key]
+
+    def get(self, key, default=None):
+        return _FakeNB._tables[self._name].get(key, default)
+
+    def update(self, mapping):
+        _FakeNB._tables[self._name].update(dict(mapping))
+
+
+def _make_watchlist_portfolio(monkeypatch, *, stocks=None, others=None, ai_stocks=None):
+    """造一个只碰内存 NB 的 ``Portfolio``，与真实自选表完全隔离。
+
+    注意 ``Portfolio`` 是 ``__new__`` 单例（``cls._instance``）——``Portfolio()``
+    每次都返回**同一个**实例，所以必须显式 ``invalidate_cache()``，
+    否则上一个用例留下的 5 分钟缓存会串到这一个（本项目"缓存静默陈旧"的老形状）。
+    """
+    from deva.naja.attention import portfolio as pfo
+
+    _FakeNB.reset()
+    seed = {}
+    if stocks is not None:
+        seed["stocks"] = list(stocks)
+    if others is not None:
+        seed["others"] = list(others)
+    if ai_stocks is not None:
+        seed["ai_stocks"] = ai_stocks
+    if seed:
+        _FakeNB("__test_watchlist__").update(seed)
+
+    monkeypatch.setattr(pfo, "NB", _FakeNB)
+    monkeypatch.setattr(pfo, "WATCHLIST_TABLE", "__test_watchlist__")
+    pf = pfo.Portfolio()
+    pf.invalidate_cache()
+    return pf
+
+
+def test_watchlist_crud_roundtrip(monkeypatch):
+    pf = _make_watchlist_portfolio(
+        monkeypatch, stocks=[{"code": "TSLA", "name": "特斯拉", "add_time": 100.0}])
+
+    items = pf.list_watchlist_items()
+    assert [i["code"] for i in items] == ["TSLA"]
+    assert items[0]["name"] == "特斯拉"
+
+    # 增：name 缺省时用 code 兜底
+    added = pf.add_watchlist_item("nvda")
+    assert added["ok"] is True and added["item"]["name"] == "nvda"
+    assert {i["code"] for i in pf.list_watchlist_items()} == {"TSLA", "nvda"}
+
+    assert pf.add_watchlist_item("NVDA")["ok"] is False, "重复应拒绝（大小写不敏感）"
+    assert pf.add_watchlist_item("")["ok"] is False, "空代码应拒绝"
+
+    # 改
+    assert pf.update_watchlist_item("nvda", "英伟达")["ok"] is True
+    assert any(i["code"] == "nvda" and i["name"] == "英伟达"
+               for i in pf.list_watchlist_items())
+    assert pf.update_watchlist_item("不存在", "x")["ok"] is False
+    assert pf.update_watchlist_item("nvda", "")["ok"] is False, "空名称应拒绝"
+
+    # 删
+    assert pf.remove_watchlist_item("NVDA")["ok"] is True
+    assert pf.remove_watchlist_item("NVDA")["ok"] is False
+    assert [i["code"] for i in pf.list_watchlist_items()] == ["TSLA"]
+
+
+def test_watchlist_write_never_touches_ai_stocks_pool(monkeypatch):
+    """写自选绝不能碰 ``ai_stocks`` —— 那是预设 AI 股票池，manus/market_observer 在用。"""
+    from deva.naja.attention import portfolio as pfo
+
+    pf = _make_watchlist_portfolio(
+        monkeypatch, stocks=[],
+        ai_stocks={"stocks": [{"code": "AMD"}], "updated_at": 1})
+
+    pf.add_watchlist_item("nvda", "英伟达")
+    pf.update_watchlist_item("nvda", "NVIDIA")
+    data = dict(pfo.NB("__test_watchlist__"))
+
+    assert data["ai_stocks"]["stocks"][0]["code"] == "AMD", "预设池被动了"
+    assert [s["code"] for s in data["stocks"]] == ["nvda"]
+
+
+def test_watchlist_manages_legacy_others_bucket_too(monkeypatch):
+    """历史 ``others`` 键里的自选也会被 ``get_watchlist()`` 读到，故也必须能删。"""
+    pf = _make_watchlist_portfolio(
+        monkeypatch, stocks=[], others=[{"code": "旧票", "name": "旧票", "add_time": 1.0}])
+
+    assert "旧票" in {i["code"] for i in pf.list_watchlist_items()}
+    assert pf.remove_watchlist_item("旧票")["ok"] is True
+    assert pf.list_watchlist_items() == []
+
+
+def test_watchlist_write_is_visible_to_get_watchlist(monkeypatch):
+    """写后缓存必须失效 —— 否则新闻筛选要等 5 分钟才看到，会被当成 bug。"""
+    pf = _make_watchlist_portfolio(monkeypatch, stocks=[])
+    pf.add_watchlist_item("nvda", "英伟达")
+    assert {s.code for s in pf.get_watchlist()} == {"nvda"}
+    pf.remove_watchlist_item("nvda")
+    assert pf.get_watchlist() == []
+
+
+class _FakeWatchPortfolio:
+    """focus_admin 只调这四个方法，替换掉真实 Portfolio（不碰 DB）。"""
+
+    def __init__(self, items=None):
+        self._items = {i["code"]: dict(i) for i in (items or [])}
+
+    def list_watchlist_items(self):
+        return list(self._items.values())
+
+    def add_watchlist_item(self, code, name=""):
+        if not str(code or "").strip():
+            return {"ok": False, "reason": "空"}
+        code = str(code).strip()
+        if code.lower() in {k.lower() for k in self._items}:
+            return {"ok": False, "reason": "已存在"}
+        row = {"code": code, "name": name or code, "add_time": 1.0, "bucket": "stocks"}
+        self._items[code] = row
+        return {"ok": True, "reason": "", "item": row}
+
+    def update_watchlist_item(self, code, name=None):
+        hit = next((k for k in self._items if k.lower() == str(code).lower()), None)
+        if hit is None or not name:
+            return {"ok": False, "reason": "不存在"}
+        self._items[hit]["name"] = name
+        return {"ok": True, "reason": "", "item": self._items[hit]}
+
+    def remove_watchlist_item(self, code):
+        hit = next((k for k in self._items if k.lower() == str(code).lower()), None)
+        if hit is None:
+            return {"ok": False, "reason": "不存在"}
+        del self._items[hit]
+        return {"ok": True, "reason": "", "removed": code}
+
+
+def test_focus_admin_watchlist_crud_via_pure_dict(monkeypatch):
+    """后端 API 纯 dict 进出：增 / 改 / 删 + 冲突与非法输入 + 缓存失效。"""
+    from deva.naja.news import focus_admin as fadmin
+
+    fake = _FakeWatchPortfolio()
+    invalidated = []
+    monkeypatch.setattr(fadmin, "_pf", lambda: fake)
+    monkeypatch.setattr(fadmin, "_invalidate_focus_cache", lambda: invalidated.append(1))
+
+    listed = fadmin.list_watchlist()
+    assert listed["ok"] is True and listed["count"] == 0
+
+    assert fadmin.add_watchlist("")["ok"] is False          # 空拒绝
+    added = fadmin.add_watchlist("nvda", "英伟达")
+    assert added["ok"] is True
+    assert fadmin.add_watchlist("NVDA")["ok"] is False       # 重复拒绝
+    assert fadmin.list_watchlist()["count"] == 1
+
+    assert fadmin.update_watchlist("nvda", "NVIDIA")["ok"] is True
+    assert fadmin.update_watchlist("不在自选", "x")["ok"] is False
+
+    assert fadmin.remove_watchlist("nvda")["ok"] is True
+    assert fadmin.remove_watchlist("nvda")["ok"] is False     # 已删再删拒绝
+    assert invalidated, "写操作必须失效焦点缓存"
+
+
+def test_focus_admin_watchlist_degrades_honestly(monkeypatch):
+    """读不到要如实报错（ok=False + reason），不兜底造空列表糊弄。"""
+    from deva.naja.news import focus_admin as fadmin
+
+    class _Boom:
+        def list_watchlist_items(self):
+            raise RuntimeError("模拟失败")
+
+    monkeypatch.setattr(fadmin, "_pf", lambda: _Boom())
+    res = fadmin.list_watchlist()
+    assert res["ok"] is False and "模拟失败" in res["reason"]
+
+
+def test_focus_overview_includes_watchlist_block(monkeypatch):
+    """首屏总览必须带上自选块，否则 UI 里那一块没有数据源。"""
+    from deva.naja.news import focus_admin as fadmin
+
+    monkeypatch.setattr(fadmin, "list_topics", lambda: {"ok": True, "topics": []})
+    monkeypatch.setattr(fadmin, "list_positions", lambda: {"ok": True, "accounts": []})
+    monkeypatch.setattr(fadmin, "list_watchlist",
+                        lambda: {"ok": True, "items": [], "count": 0})
+    monkeypatch.setattr(fadmin, "derive_preview",
+                        lambda max_topics=8: {"available": False})
+
+    ov = fadmin.get_focus_overview()
+    assert "watchlist" in ov and ov["watchlist"]["ok"] is True
+
+
+def test_ui_watchlist_block_escapes_and_self_closes():
+    """自选块：外部文本要转义；HTML 片段必须自闭合（PyWebIO 的老坑）。"""
+    from deva.naja.news.ui import _watchlist_html
+
+    html = _watchlist_html({"ok": True, "items": [
+        {"code": "<b>x</b>", "name": "Tesla", "bucket": "stocks"}]})
+    assert "<b>x</b>" not in html
+    assert "&lt;b&gt;" in html
+    assert html.count("<div") == html.count("</div>"), "片段未闭合会被浏览器补成空壳"
+
+    assert "（空）" in _watchlist_html({"ok": True, "items": []})
+    assert "读取失败" in _watchlist_html({"ok": False, "reason": "挂了"})
+

@@ -13,9 +13,11 @@
    重复采纳幂等
 ⑤ **撤销**：只删 ``derived``；记入 revoked 名单；之后的**自动采纳不再加回**
 ⑥ **手动账户 CRUD**：增 / 改 / 软删，且**真的落盘**（子进程读回验证）
-⑦ **反静默**：空持仓、图谱外的票、缺板块映射——全部要留痕，不许静默返回空
-⑧ **静态守卫**：容器确实接了自动采纳；``/focusadmin`` 路由确实注册；UI 有渲染出口
-⑨ **冷启动**：``news.focus_advisor`` 可独立导入，不拉起交易域重依赖
+⑦ **自选 CRUD**：增 / 改 / 删（写 ``naja_watchlist``）；跨进程读回证真落盘；
+   全程只在**临时表**上做，真实自选表分毫不动
+⑧ **反静默**：空持仓、图谱外的票、缺板块映射——全部要留痕，不许静默返回空
+⑨ **静态守卫**：容器确实接了自动采纳；``/focusadmin`` 路由确实注册；UI 有渲染出口
+⑩ **冷启动**：``news.focus_advisor`` 可独立导入，不拉起交易域重依赖
 
 跑法
 ----
@@ -27,6 +29,8 @@
 
 **只读约定**：本脚本不改生产关注配置。第 ⑥ 项用一个 **临时账户名**
 （``__verify_tmp_acct__``）测 CRUD，并在结束时把落盘表里的痕迹清掉；
+第 ⑦ 项把 ``WATCHLIST_TABLE`` 指到临时表（``__verify_watchlist__``）后测自选 CRUD，
+结束时清掉临时表并还原——**真实自选表前后逐字节一致**（脚本里会断言）。
 不碰「手动」账户，也不碰 ``naja_focus_config``。
 """
 
@@ -310,10 +314,82 @@ def main() -> int:
         check("验证结束后清理了临时账户痕迹（持仓表 + 名册表）",
               False, f"{type(e).__name__}: {e}")
 
-    # ── ⑦ 反静默 ──────────────────────────────────────────────────────
+    # ── ⑦ 自选 CRUD（临时表，测完清理；真实自选表分毫不动）────────────
     print()
     print("=" * 68)
-    print("⑦ 反静默：空持仓 / 图谱外的票 / 缺映射，都必须留痕")
+    print("⑦ 自选 CRUD：增 / 改 / 删 + 跨进程读回 —— 只在临时表上做")
+    print("=" * 68)
+    from deva.naja.attention import portfolio as pfo
+    from deva.naja.news import focus_admin as fa
+
+    _TMP_WATCHLIST = "__verify_watchlist__"
+    _real_table = pfo.WATCHLIST_TABLE
+    # 先给真实自选表拍个照，最后逐字节比对，证明本组没碰它。
+    real_before = json.dumps(dict(NB(_real_table)).get("stocks"),
+                             ensure_ascii=False, sort_keys=True, default=str)
+
+    pfo.WATCHLIST_TABLE = _TMP_WATCHLIST
+    try:
+        NB(_TMP_WATCHLIST).clear()
+        pf = pfo.Portfolio()
+        pf.invalidate_cache()          # 单例：必须显式失效，否则读到真实表的旧缓存
+
+        check("起始自选为空（用的是干净临时表）",
+              fa.list_watchlist()["count"] == 0, f"{fa.list_watchlist()['items']}")
+
+        check("空代码被拒绝", fa.add_watchlist("")["ok"] is False, "")
+        added = fa.add_watchlist("nvda", "英伟达")
+        check("新增自选成功（带展示名）", added["ok"] is True, f"{added.get('item')}")
+        check("重复新增被拒绝（不覆盖）", fa.add_watchlist("NVDA")["ok"] is False, "")
+
+        upd = fa.update_watchlist("nvda", "NVIDIA")
+        check("改展示名成功", upd["ok"] is True, f"{upd.get('item')}")
+        check("未填新名字 → 拒绝",
+              fa.update_watchlist("nvda", "")["ok"] is False, "")
+
+        # 跨进程读回：另起一个进程（同样的临时表名）把数据读出来，
+        # 证明写的是**落盘**而不是进程内内存。
+        child_src = textwrap.dedent(f"""
+            import sys, json
+            sys.path.insert(0, {str(PROJECT_ROOT)!r})
+            from deva.naja.attention import portfolio as pfo
+            pfo.WATCHLIST_TABLE = {_TMP_WATCHLIST!r}
+            from deva.naja.news import focus_admin as fa
+            print("RESULT:" + json.dumps(fa.list_watchlist(), ensure_ascii=False))
+        """)
+        child = subprocess.run([sys.executable, "-c", child_src], capture_output=True,
+                               text=True, env=_CHILD_ENV, timeout=180)
+        persisted = ""
+        for line in (child.stdout or "").splitlines():
+            if line.startswith("RESULT:"):
+                persisted = line[len("RESULT:"):].strip()
+        check("落盘生效（**新进程**读回同一条自选）",
+              '"nvda"' in persisted and "NVIDIA" in persisted,
+              f"子进程读到={persisted or '(无 RESULT 行)'}")
+
+        check("删除自选成功", fa.remove_watchlist("NVDA")["ok"] is True, "")
+        check("已删再删被拒绝", fa.remove_watchlist("nvda")["ok"] is False, "")
+        check("删完确实为空", fa.list_watchlist()["count"] == 0, "")
+    finally:
+        try:
+            NB(_TMP_WATCHLIST).clear()
+        except Exception:
+            pass
+        pfo.WATCHLIST_TABLE = _real_table
+        try:
+            pfo.Portfolio().invalidate_cache()
+        except Exception:
+            pass
+
+    real_after = json.dumps(dict(NB(_real_table)).get("stocks"),
+                            ensure_ascii=False, sort_keys=True, default=str)
+    check("真实自选表分毫未动（前后逐字节一致）", real_before == real_after,
+          f"before={real_before[:80]}")
+
+    # ── ⑧ 反静默 ──────────────────────────────────────────────────────
+    print()
+    print("=" * 68)
+    print("⑧ 反静默：空持仓 / 图谱外的票 / 缺映射，都必须留痕")
     print("=" * 68)
     empty = derive_topics([])
     check("空持仓 → available=False 且给出 reason",
@@ -338,10 +414,10 @@ def main() -> int:
           any("供应链图谱" in d for d in degraded_result.get("degraded") or []),
           f"{degraded_result.get('degraded')}")
 
-    # ── ⑧ 静态守卫 ────────────────────────────────────────────────────
+    # ── ⑨ 静态守卫 ────────────────────────────────────────────────────
     print()
     print("=" * 68)
-    print("⑧ 静态守卫：容器接线 / 路由注册 / UI 出口（防回退成死线）")
+    print("⑨ 静态守卫：容器接线 / 路由注册 / UI 出口（防回退成死线）")
     print("=" * 68)
     container_src = (PROJECT_ROOT / "deva/naja/application/container.py").read_text("utf-8")
     check("容器确实调用 auto_apply_derived（自动采纳接线存在）",
@@ -362,15 +438,20 @@ def main() -> int:
     from deva.naja.news import focus_admin as fa
     for fn in ("list_topics", "add_topic", "update_topic", "remove_topic",
                "list_positions", "add_position", "update_position", "remove_position",
+               "list_watchlist", "add_watchlist", "update_watchlist", "remove_watchlist",
                "apply_derived", "revoke_derived"):
         check(f"focus_admin.{fn} 存在", callable(getattr(fa, fn, None)), "")
 
     # UI 的 HTML 片段必须自闭合（PyWebIO 每次 put_html 都是独立片段）
     overview = fa.get_focus_overview()
+    check("首屏总览包含自选块（UI 那一段有数据源）",
+          "watchlist" in overview and isinstance(overview["watchlist"], dict), "")
     from deva.naja.news import ui as news_ui
     for fname, frag in (
-        ("统计卡", news_ui._stats_html(overview["positions"], overview["topics"], overview["derived"])),
+        ("统计卡", news_ui._stats_html(overview["positions"], overview["topics"],
+                                      overview["watchlist"], overview["derived"])),
         ("持仓块", news_ui._positions_html(overview["positions"])),
+        ("自选块", news_ui._watchlist_html(overview["watchlist"])),
         ("主题块", news_ui._topics_html(overview["topics"])),
         ("推导块", news_ui._derived_html(overview["derived"])),
     ):
@@ -383,10 +464,10 @@ def main() -> int:
           isinstance(overview, dict) and json.dumps(overview, ensure_ascii=False) is not None,
           "")
 
-    # ── ⑨ 冷启动 ──────────────────────────────────────────────────────
+    # ── ⑩ 冷启动 ──────────────────────────────────────────────────────
     print()
     print("=" * 68)
-    print("⑨ 冷启动：focus_advisor 可独立导入")
+    print("⑩ 冷启动：focus_advisor 可独立导入")
     print("=" * 68)
     cold = subprocess.run(
         [sys.executable, "-c",
@@ -405,7 +486,8 @@ def main() -> int:
     if violations:
         print(f"❌ 违约 {len(violations)} 项: {violations}")
         return 1 if args.strict else 0
-    print("✅ 全部通过：关注管理可用——持仓可手填、主题可增删改、从持仓推导供应链主题")
+    print("✅ 全部通过：关注管理可用——持仓可手填、自选可增删改、主题可增删改、"
+          "从持仓推导供应链主题")
     return 0
 
 
