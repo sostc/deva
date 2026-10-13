@@ -241,12 +241,63 @@ class TRotationEngine:
         self._rounds: Dict[str, RotationRound] = {}
         self._lock = threading.RLock()
 
+        #: 逐标的的参数档（市场不同，尺度也不同 —— 见 core_holdings.MarketProfile）
+        self._thr_by_code: Dict[str, RotationThresholds] = {}
+        self._cfg_by_code: Dict[str, TRotationConfig] = {}
+        self._lot_by_code: Dict[str, float] = {}
+
         self._on_round_event: List[Callable[[str, RotationRound], None]] = []
 
         errs = self._thresholds.validate()
         if errs:
             # 参数错要当场炸，不要等到实盘才发现一直在给券商打工
             raise ValueError(f"RotationThresholds 参数非法: {'; '.join(errs)}")
+
+    # ------------------------------------------------------------------
+    # 逐标的参数档
+    # ------------------------------------------------------------------
+    def set_symbol_profile(
+        self,
+        code: str,
+        *,
+        thresholds: Optional[RotationThresholds] = None,
+        config: Optional[TRotationConfig] = None,
+        round_lot: Optional[float] = None,
+    ):
+        """给单个标的挂上它自己那套参数。
+
+        为什么必须有这个
+        ----------------
+        判据是按「日内波动尺度」标出来的，而三个市场的尺度差一个数量级
+        （实测当日振幅：A 股 588200 6.02% ｜ 港股 00700 1.36% ｜ 美股 QQQ 0.72%）。
+        全引擎共用一套参数的话，QQQ 连"死水"闸门（``min_amplitude``）都过不去
+        —— **永不触发**，且不报错不告警，看上去就是"今天没机会"。
+
+        每手股数同理：美股 1 股起，按 A 股 100 股一手去买 QQQ，
+        一手就是七万多美元，`max_round_amount` 再怎么用人民币衡量都是错的。
+        """
+        if thresholds is not None:
+            errs = thresholds.validate()
+            if errs:
+                raise ValueError(f"{code} 的 RotationThresholds 参数非法: {'; '.join(errs)}")
+            self._thr_by_code[code] = thresholds
+        if config is not None:
+            self._cfg_by_code[code] = config
+        if round_lot is not None and round_lot > 0:
+            self._lot_by_code[code] = float(round_lot)
+            ctx = self._ctx.get(code)
+            if ctx is not None:
+                ctx.round_lot = float(round_lot)
+
+    def _thresholds_for(self, code: str) -> RotationThresholds:
+        return self._thr_by_code.get(code, self._thresholds)
+
+    def _config_for(self, code: str) -> TRotationConfig:
+        return self._cfg_by_code.get(code, self._config)
+
+    def config_for(self, code: str) -> TRotationConfig:
+        """公开访问器：运行器要读 ``force_close_minutes`` 判断何时收盘结算。"""
+        return self._config_for(code)
 
     # ------------------------------------------------------------------
     # 登记与上下文
@@ -267,7 +318,7 @@ class TRotationEngine:
             ctx = SymbolContext(
                 stock_code=stock_code,
                 name=name,
-                round_lot=self._config.round_lot,
+                round_lot=self._lot_by_code.get(stock_code, self._config.round_lot),
             )
             self._ctx[stock_code] = ctx
             self._trackers[stock_code] = IntradayDeviationTracker(stock_code)
@@ -361,7 +412,7 @@ class TRotationEngine:
         bars_since = ctx.bar_seq - ctx.last_action_bar
         signal = evaluate_deviation(
             snapshot,
-            self._thresholds,
+            self._thresholds_for(stock_code),
             now=now,
             minutes_to_close=minutes_to_close,
             bars_since_last_action=bars_since,
@@ -395,14 +446,15 @@ class TRotationEngine:
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
+        cfg = self._config_for(code)
 
         if signal.action == ACTION_BUY_T:
-            if not self._config.enable_forward_t:
+            if not cfg.enable_forward_t:
                 return False, "正 T 已停用", None
             return self._open_forward_t(signal, snapshot, now, session_open)
 
         if signal.action == ACTION_SELL_T:
-            if not self._config.enable_reverse_t:
+            if not cfg.enable_reverse_t:
                 return False, "倒 T 已停用", None
             return self._open_reverse_t(
                 signal, snapshot, now, session_open, minutes_to_close
@@ -425,6 +477,7 @@ class TRotationEngine:
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
+        cfg = self._config_for(code)
 
         # 正 T 需要底仓：买入后要靠卖出「更早持有」的等量份额来了结，
         # 当日买入当日不可卖 → 必须手里先有昨天的票。
@@ -440,19 +493,21 @@ class TRotationEngine:
         summary = self._portfolio.get_summary()
         usable_cash = max(
             0.0, summary.get("available_capital", 0.0)
-        ) * (1 - self._config.cash_reserve_pct)
+        ) * (1 - cfg.cash_reserve_pct)
         if usable_cash <= 0:
-            return False, f"可用资金不足（已扣 {self._config.cash_reserve_pct:.0%} 备用金）", None
+            return False, f"可用资金不足（已扣 {cfg.cash_reserve_pct:.0%} 备用金）", None
 
         cap_by_cash = usable_cash / snapshot.last if snapshot.last > 0 else 0
-        cap_by_amount = self._config.max_round_amount / snapshot.last if snapshot.last > 0 else 0
-        cap_by_pos = sellable * self._config.max_round_pct
+        # ❗max_round_amount 的单位是**该市场的本币**（用户拍板各市场独立本币
+        # 记账），价格也是本币 —— 两边同源才除得动。
+        cap_by_amount = cfg.max_round_amount / snapshot.last if snapshot.last > 0 else 0
+        cap_by_pos = sellable * cfg.max_round_pct
 
         raw_qty = min(cap_by_cash, cap_by_amount, cap_by_pos)
         qty = self._lot_size(code, raw_qty)
-        if qty < max(ctx.round_lot, self._config.min_round_shares):
+        if qty < max(ctx.round_lot, cfg.min_round_shares):
             return False, (
-                f"可买份额 {qty:.0f} < 最小 {self._config.min_round_shares:.0f} 份"
+                f"可买份额 {qty:.0f} < 最小 {cfg.min_round_shares:.0f} 份"
                 f"（资金上限 {cap_by_cash:.0f} / 持仓上限 {cap_by_pos:.0f}）"
             ), None
 
@@ -460,8 +515,8 @@ class TRotationEngine:
             code, self._portfolio, now=now, session_open_ts=session_open
         )
         pos = self._portfolio.open_position(
-            strategy_id=self._config.strategy_id,
-            strategy_name=self._config.strategy_name,
+            strategy_id=cfg.strategy_id,
+            strategy_name=cfg.strategy_name,
             stock_code=code,
             stock_name=ctx.name or code,
             price=snapshot.last,
@@ -506,6 +561,7 @@ class TRotationEngine:
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
+        cfg = self._config_for(code)
 
         quota = self._ledger.session_quota(
             code, self._portfolio, now=now, session_open_ts=session_open
@@ -521,13 +577,13 @@ class TRotationEngine:
                 f"需长期持有 {target:.0f} 份"
             ), None
 
-        cap_by_amount = self._config.max_round_amount / snapshot.last if snapshot.last > 0 else 0
-        raw_qty = min(quota * self._config.max_round_pct, cap_by_amount)
+        cap_by_amount = cfg.max_round_amount / snapshot.last if snapshot.last > 0 else 0
+        raw_qty = min(quota * cfg.max_round_pct, cap_by_amount)
         qty = self._lot_size(code, raw_qty)
-        if qty < max(ctx.round_lot, self._config.min_round_shares):
+        if qty < max(ctx.round_lot, cfg.min_round_shares):
             return False, (
-                f"可做T份额 {qty:.0f} < 最小 {self._config.min_round_shares:.0f} 份"
-                f"（今日额度 {quota:.0f}，单次上限 {self._config.max_round_pct:.0%}）"
+                f"可做T份额 {qty:.0f} < 最小 {cfg.min_round_shares:.0f} 份"
+                f"（今日额度 {quota:.0f}，单次上限 {cfg.max_round_pct:.0%}）"
             ), None
 
         allowed, why = self._ledger.can_sell(
@@ -543,7 +599,7 @@ class TRotationEngine:
         deadline = None
         if minutes_to_close is not None:
             deadline = now + max(
-                1.0, minutes_to_close - self._config.force_close_minutes
+                1.0, minutes_to_close - cfg.force_close_minutes
             ) * 60.0
 
         before = self._ledger.effective_shares(
@@ -597,7 +653,7 @@ class TRotationEngine:
         一直涨就一直拿，只有从最高点回撤够了才走。
         这样单边拉升时能把 6% 的空间吃到，而不是刚翻红就落袋。
         """
-        cfg = self._config
+        cfg = self._config_for(rnd.stock_code)
         price = snapshot.last
 
         if rnd.kind == KIND_FORWARD:
@@ -701,11 +757,12 @@ class TRotationEngine:
         """倒 T 买回。这是「保证长期持有」的兑现点 —— 再贵也要买回来。"""
         code = rnd.stock_code
         ctx = self._ctx.get(code)
+        cfg = self._config_for(code)
         qty = ob.quantity
 
         pos = self._portfolio.open_position(
-            strategy_id=self._config.strategy_id,
-            strategy_name=self._config.strategy_name,
+            strategy_id=cfg.strategy_id,
+            strategy_name=cfg.strategy_name,
             stock_code=code,
             stock_name=(ctx.name if ctx else code) or code,
             price=snapshot.last,
@@ -837,11 +894,12 @@ class TRotationEngine:
         if tracker is not None:
             snapshot = tracker.update(price, timestamp=now)
 
+        cfg = self._config_for(stock_code)
         for ob in list(self._ledger.outstanding(stock_code)):
             rnd = self._round_for_obligation(ob.obligation_id)
             pos = self._portfolio.open_position(
-                strategy_id=self._config.strategy_id,
-                strategy_name=self._config.strategy_name,
+                strategy_id=cfg.strategy_id,
+                strategy_name=cfg.strategy_name,
                 stock_code=stock_code,
                 stock_name=(ctx.name if ctx else stock_code) or stock_code,
                 price=price,
