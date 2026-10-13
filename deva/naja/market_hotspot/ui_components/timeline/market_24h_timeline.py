@@ -774,7 +774,7 @@ def _export_text_timeline() -> str:
             elif event_type == 'cn_event':
                 chg = event.get('change_percent', 0)
                 emoji = '📈' if chg >= 0 else '📉'
-                lines.append(f"  {event_time} 🇨🇳 {emoji} {block_name} ({chg:+.1f}%)")
+                lines.append(f"  {event_time} 🇨🇳 {emoji} {block_name} ({format_change_percent(chg)})")
                 dragon_one = event.get('dragon_one')
                 if dragon_one:
                     sym = dragon_one.get('symbol', '')
@@ -785,7 +785,7 @@ def _export_text_timeline() -> str:
             elif event_type == 'us_event':
                 chg = event.get('change_percent', 0)
                 emoji = '📈' if chg >= 0 else '📉'
-                lines.append(f"  {event_time} 🇺🇸 {emoji} {block_name} ({chg:+.1f}%)")
+                lines.append(f"  {event_time} 🇺🇸 {emoji} {block_name} ({format_change_percent(chg)})")
     
     lines.append(f"\n{'=' * 40}")
     lines.append(f"导出时间: {timestamp}")
@@ -931,8 +931,7 @@ def render_market_24h_timeline(view_mode: str = 'past_24h') -> str:
                 change_display = f'<span style="color: {base_color};">{stars}</span> <span style="color: #64748b;">({score:.2f})</span>'
             else:
                 chg = event.get('change_percent', 0)
-                sign = '+' if chg >= 0 else ''
-                change_display = f'<span style="color: {"#dc2626" if chg >= 0 else "#3b82f6"}; font-weight: 600;">{sign}{chg:.1f}%</span>'
+                change_display = f'<span style="color: {"#dc2626" if chg >= 0 else "#3b82f6"}; font-weight: 600;">{format_change_percent(chg)}</span>'
             
             # 热度色
             weight = event.get('weight', 0.5)
@@ -1100,14 +1099,58 @@ def get_raw_events_for_sync(hours: int = 24) -> Dict[str, List[Dict]]:
     }
 
 
-# 托盘一级菜单的事件配额：新闻优先，板块异动限量。
-# 合计 12 条——保证「一点开就能看到新闻」，又不会把菜单撑到要滚动。
+# 源端变化率的哨兵值：``history_tracker`` 在 change_pct == inf（权重 0 → N）
+# 时直接写入 999。原样渲染会变成菜单上的「+999.0%」——纯噪音，故统一改写。
+NEW_ENTRY_SENTINEL = 999.0
+
+
+def format_change_percent(change_percent) -> str:
+    """板块涨跌幅的展示文案。
+
+    源端把 inf 编码成 999（见 ``NEW_ENTRY_SENTINEL``），直接 ``f"{chg:+.1f}%"``
+    会在托盘/页面上打出「+999.0%」。这里把它如实改写成「新进榜」，其余照常。
+    """
+    try:
+        chg = float(change_percent)
+    except (TypeError, ValueError):
+        return ""
+    if abs(chg) >= NEW_ENTRY_SENTINEL:
+        return "新进榜"
+    return f"{'+' if chg >= 0 else ''}{chg:.1f}%"
+
+
+# 托盘一级菜单的事件配额。**依据是实测产生速率**（2026-10-13，见
+# ``docs/naja/event_frequency_analysis.md``）：
+#
+#     cn_event         ≈ 14 条/分钟   （store 上限 500 条只覆盖 ~35 分钟）
+#     us_event         ≈ 10 条/分钟   （且内容 100% 是 cn_event 的子集）
+#     high_score_news  ≈  1.2 条/分钟
+#     jin10_news       ≈  每天几十条
+#
+# 关键判断：板块异动是**秒级刷新**的，「取最新 N 条」等价于取最近几秒的
+# 随机样本，单条信息价值极低；新闻则是低频高值。所以配额按**信息价值密度**
+# 分配，而不是按产生速率分配——**速率越高的类型反而要给得越少**，
+# 否则就是在把"更新得最勤的"误当成"最重要的"。
+#
+# 合计 12 条：一点开就能看到新闻，又不至于把菜单撑到要滚动。
 TRAY_TIMELINE_LIMITS = {
-    "high_score_news": 4,
+    "high_score_news": 5,
     "jin10_news": 4,
     "cn_event": 2,
-    "us_event": 2,
+    "us_event": 1,
 }
+
+# 一级菜单上屏上限 = 各类配额之和（单一来源，避免托盘与这里各写一个 12 再漂移）
+TRAY_MENU_MAX_EVENTS = sum(TRAY_TIMELINE_LIMITS.values())
+
+
+def _event_dedup_key(event) -> str:
+    """同一标的 / 同一标题只占一个名额。
+
+    cn/us 板块异动是同一板块每几秒刷一条：给 2 个名额，本意是"看到 2 个板块"，
+    若不去重则可能变成"同一板块的两次刷新"。
+    """
+    return str(event.get("block_name") or event.get("title") or "").strip()
 
 
 def select_timeline_events(all_events, per_type_limits=None):
@@ -1119,25 +1162,42 @@ def select_timeline_events(all_events, per_type_limits=None):
     ``_check_and_send_notifications``（只认这两类且 score≥0.7，遍历同一列表）
     **实际永不触发**——典型「链路写了、数据不在同一条路上」的静默失效。
 
-    改为按类型给配额，每类取最新 N 条，保证新闻类一定有机会出现。
+    改为按类型给配额，每类取最新 N 条（并在该类内**按标的去重**），
+    保证新闻类一定有机会出现、且名额不浪费在同一板块的重复刷新上。
 
     Args:
-        all_events: 已按时间降序排好的事件列表。
-        per_type_limits: ``{"high_score_news": 4, "jin10_news": 4, ...}``；
-            传 ``None`` 或空则退化为旧行为 ``all_events[:15]``，
+        all_events: 事件列表（本函数内部自行按时间降序，不依赖调用方预排序）。
+        per_type_limits: ``{"high_score_news": 5, "jin10_news": 4, ...}``；
+            传 ``None`` 或空则退化为旧行为 ``all_events[:15]``（不做去重），
             以此保证 ``/market`` 等既有调用方行为完全不变。
 
     Returns:
-        挑选后的事件列表（仍按时间降序）。
+        挑选后的事件列表（按时间降序）。
     """
     if not per_type_limits:
         return list(all_events[:15])
+
+    ordered = sorted(all_events, key=lambda e: e.get("timestamp", 0), reverse=True)
 
     picked = []
     for etype, limit in per_type_limits.items():
         if limit <= 0:
             continue
-        picked.extend([e for e in all_events if e.get("type") == etype][:limit])
+        seen = set()
+        count = 0
+        for e in ordered:
+            if e.get("type") != etype:
+                continue
+            key = _event_dedup_key(e)
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            picked.append(e)
+            count += 1
+            if count >= limit:
+                break
+
     picked.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
     return picked
 
@@ -1194,9 +1254,7 @@ def get_timeline_data_for_api(hours: int = 24, per_type_limits=None) -> dict:
             flash_id = event.get('flash_id', '')
             item['url'] = event.get('url', '') or (f"https://www.jin10.com/news/{flash_id}" if flash_id else "")
         elif event_type in ('cn_event', 'us_event'):
-            change_percent = event.get('change_percent', 0)
-            sign = '+' if change_percent >= 0 else ''
-            item['change'] = f"{sign}{change_percent:.1f}%"
+            item['change'] = format_change_percent(event.get('change_percent', 0))
             item['weight'] = event.get('weight', 0.5)
         
         timeline_items.append(item)
