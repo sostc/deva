@@ -357,6 +357,36 @@ class DBStream(Stream):
         """迭代器"""
         return self.db.__iter__()
 
+    def prune_older_than(self, cutoff_ts: float) -> int:
+        """按时间键清理历史：删除 key 早于 cutoff_ts 的记录，返回删除条数。
+
+        仅对 `key_mode='time'`（键为时间戳）的表有意义，供只增不减的历史表
+        （如行情快照）做时间轮转，替代人工交互式清理脚本。
+
+        注意：key 列为 TEXT 亲和性，写入的时间戳会被 SQLite 转为字符串存储，
+        因此这里用从库里读出的**原始 key** 精确删除，避免 float/str 类型不匹配删不掉。
+        """
+        victims = []
+        for key in list(self.db.keys()):
+            ts = self._to_float_timestamp(key)
+            if ts is not None and ts < cutoff_ts:
+                victims.append(key)
+        if not victims:
+            return 0
+
+        deleted = 0
+        del_sql = 'DELETE FROM "%s" WHERE key = ?' % self.tablename
+        for key in victims:
+            try:
+                self.db.conn.execute(del_sql, (key,))
+                deleted += 1
+            except Exception as e:
+                logger.warning("prune_older_than 删除失败 key=%r: %s", key, e)
+        self.db.commit(blocking=True)
+        self._mark_time_index_dirty()
+        logger.info("prune_older_than 表=%s 删除 %d 条", self.tablename, deleted)
+        return deleted
+
     def clear(self):
         """清空当前表。"""
         result = self.db.clear()

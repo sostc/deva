@@ -157,6 +157,16 @@ class DataSourceManager(SingletonLazyManager, CatalogManagerMixin[DataSourceEntr
         if entry_id in db:
             del db[entry_id]
 
+        # 级联清理该数据源的最新数据缓存。
+        # 否则每删掉一个数据源就留下一条孤儿缓存（单条约 0.5MB），实测累积到
+        # 195 条 / 96MB —— 缓存只增不减，且 id 不存在后再也不会被读到。
+        try:
+            latest_db = NB(DS_LATEST_DATA_TABLE)
+            if entry_id in latest_db:
+                del latest_db[entry_id]
+        except Exception:
+            pass
+
         self._log("INFO", "DataSource deleted", id=entry_id, name=entry.name)
         return {"success": True}
 
