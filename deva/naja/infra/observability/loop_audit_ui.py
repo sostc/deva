@@ -36,79 +36,82 @@ def _get_connection():
     return sqlite3.connect(str(DB_PATH))
 
 
-def _get_stats(since_hours: int = 24) -> Dict[str, Any]:
-    since = datetime.now() - timedelta(hours=since_hours)
-    since_ts = since.timestamp()
+def _open_table():
+    """打开闭环审计表（DBStream）。
 
-    conn = _get_connection()
-    if conn is None:
+    该表由 `LoopAuditLogger` 以 DBStream 形式写入 —— 结构是 ``(key, value)``，
+    value 为序列化的记录 dict，**不是**列式宽表（loop_id / loop_type /
+    timestamp ...）。因此读取必须经 DBStream，不能对这些"字段"直接做 SQL：
+    否则查询会因 "no such column" 抛错，被 except 静默吞掉，页面永远空白。
+    """
+    if DB_PATH is None:
+        return None
+    try:
+        return NB(LOOP_AUDIT_TABLE)
+    except Exception:
+        return None
+
+
+def _iter_records(db):
+    """安全遍历表中所有记录 dict（跳过坏行）。"""
+    try:
+        keys = list(db)
+    except Exception:
+        return
+    for key in keys:
+        try:
+            rec = db[key]
+        except Exception:
+            continue
+        if isinstance(rec, dict):
+            yield rec
+
+
+def _get_stats(since_hours: int = 24) -> Dict[str, Any]:
+    since_ts = (datetime.now() - timedelta(hours=since_hours)).timestamp()
+
+    db = _open_table()
+    if db is None:
         return {}
 
-    cur = conn.cursor()
-    stats = {}
+    stats: Dict[str, Any] = {}
+    for rec in _iter_records(db):
+        ts = rec.get("timestamp") or 0
+        if ts < since_ts:
+            continue
+        loop_type = rec.get("loop_type") or "unknown"
+        s = stats.setdefault(loop_type, {
+            "total": 0, "completed": 0, "failed": 0, "running": 0, "skipped": 0,
+            "_dur_sum": 0.0, "_dur_n": 0, "last_run": 0,
+        })
+        s["total"] += 1
+        status = rec.get("status")
+        if status in ("completed", "failed", "running", "skipped"):
+            s[status] += 1
+        dur = rec.get("duration_ms")
+        if isinstance(dur, (int, float)):
+            s["_dur_sum"] += dur
+            s["_dur_n"] += 1
+        if ts > s["last_run"]:
+            s["last_run"] = ts
 
-    try:
-        cur.execute(f"""
-            SELECT
-                loop_type,
-                COUNT(*) as total_count,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
-                SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
-                SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) as skipped,
-                AVG(duration_ms) as avg_duration_ms,
-                MAX(timestamp) as last_run
-            FROM {LOOP_AUDIT_TABLE}
-            WHERE timestamp >= ?
-            GROUP BY loop_type
-        """, (since_ts,))
-
-        for row in cur.fetchall():
-            loop_type, total, completed, failed, running, skipped, avg_dur, last_run = row
-            stats[loop_type] = {
-                "total": total or 0,
-                "completed": completed or 0,
-                "failed": failed or 0,
-                "running": running or 0,
-                "skipped": skipped or 0,
-                "avg_duration_ms": avg_dur or 0,
-                "last_run": last_run,
-            }
-    except Exception as e:
-        pass
-
-    conn.close()
+    for s in stats.values():
+        n = s.pop("_dur_n", 0)
+        total_dur = s.pop("_dur_sum", 0.0)
+        s["avg_duration_ms"] = round(total_dur / n, 2) if n else 0
     return stats
 
 
 def _get_recent_records(limit: int = 20, since_hours: int = 24) -> List[Dict]:
-    since = datetime.now() - timedelta(hours=since_hours)
-    since_ts = since.timestamp()
+    since_ts = (datetime.now() - timedelta(hours=since_hours)).timestamp()
 
-    conn = _get_connection()
-    if conn is None:
+    db = _open_table()
+    if db is None:
         return []
 
-    cur = conn.cursor()
-    records = []
-
-    try:
-        cur.execute(f"""
-            SELECT * FROM {LOOP_AUDIT_TABLE}
-            WHERE timestamp >= ?
-            ORDER BY timestamp DESC
-            LIMIT ?
-        """, (since_ts, limit))
-
-        columns = [desc[0] for desc in cur.description]
-        for row in cur.fetchall():
-            d = dict(zip(columns, row))
-            records.append(d)
-    except Exception:
-        pass
-
-    conn.close()
-    return records
+    records = [r for r in _iter_records(db) if (r.get("timestamp") or 0) >= since_ts]
+    records.sort(key=lambda r: r.get("timestamp") or 0, reverse=True)
+    return records[:limit]
 
 
 def _check_table_exists() -> bool:
