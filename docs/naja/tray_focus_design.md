@@ -100,19 +100,54 @@ def select_timeline_events(all_events, per_type_limits=None):
 | 状态行 | 3 行（标题 / 状态 / 端口）→ **1 行**：`📊 Naja 运行中 · 交易中 · 端口 8080` |
 | 常用页面 | 补 `/focusadmin`；`/logstream`、`/health` 移出 |
 | 顶层快捷 | 「📄 打开日志」去重（常用页面内的「系统日志」已删） |
-| 新闻流 | 标题 `📰 今日新闻流 · 共 N 条（新闻优先）`；**新闻优先排序**，`ordered[:12]` 限长；保留「✨ 一键总结」；补「⏰ 查看全部时间线（N 条）」 |
+| 新闻流 | 标题 `📰 今日新闻流 · 24h N 条 · 显示 M`（如实区分总量与上屏数）；**按时间倒序**，`ordered[:TRAY_MENU_MAX_EVENTS]` 限长；保留「✨ 一键总结」；补「⏰ 查看全部时间线（N 条）」 |
 | 系统子菜单 | `⚙️ 系统 ▸` 收拢：日志流 / 系统状态 / 数据源 / 任务 / 策略 / 信号 / 自启 / 同步 / 重启 / 退出 |
 
-新闻优先排序（**呈现顺序**，与配额的"入选"是两件事）：
+**呈现顺序 = 纯时间倒序**（2026-10-13 修订）：
 
 ```python
-news_first = {'high_score_news': 0, 'jin10_news': 0, 'cn_event': 1, 'us_event': 1}
-ordered = sorted(events, key=lambda e: (news_first.get(e.get('type'), 1),
-                                        -float(e.get('timestamp') or 0)))
+ordered = sorted(items, key=lambda e: -float(e.get('timestamp', 0) or 0))
 ```
 
-> 注意：`news_first` 在 Python 里取值时，`0` 是"假值"——若写成
-> `news_first.get(...) or 1` 会把新闻误判为板块异动。这里直接取默认值 `1`，不用 `or`。
+> **为什么不再按 `news_first` 分组**：分组会把时间线切成"新闻段 + 板块段"两截，
+> 看着不像时间线（用户诉求原话：「event 和新闻最好是按照时间排序」）。
+>
+> 「新闻不被板块异动挤掉」这件事**已经由取数侧的配额保证**——
+> `select_timeline_events(TRAY_TIMELINE_LIMITS)` 让板块异动最多只占 3/12 个名额，
+> 呈现层再分组就是重复设防。
+>
+> 副作用（符合预期）：板块异动是秒级/批式更新的，时间戳最新 → 会自然落在**最上面几条**。
+> 这是时间序的真实反映，不是"又被挤占"——数量上它只有 3 条，其余 9 条是新闻。
+
+### 2.2.1 配额依据：按「信息价值密度」而非「产生速率」
+
+实测（见 `docs/naja/event_frequency_analysis.md`）：
+
+| 类型 | 产生速率 | 配额 |
+|---|---|---|
+| `cn_event` | ≈ 14 条/分钟（**批式**：一次扫描 100+ 条） | 2 |
+| `us_event` | ≈ 10 条/分钟（内容 100% 是 cn 的子集） | 1 |
+| `high_score_news` | ≈ 1.2 条/分钟 | 5 |
+| `jin10_news` | ≪ 1 条/分钟 | 4 |
+
+**速率越高 → 配额越小**。因为「取最新 N 条」对秒级/批式事件等价于随机抽样，
+对低频新闻才真的等于"最新资讯"。若反过来按速率分配，`cn_event` 该拿 6 个名额——
+那正是原 `[:15]` 的病根。
+
+配额外还有一层：同类事件**按标的去重**（`_event_dedup_key`），
+保证 2 个 `cn_event` 名额代表 **2 个不同板块**，而不是同一板块的重复刷新。
+
+### 2.2.2 单价噪音治理
+
+```python
+NEW_ENTRY_SENTINEL = 999.0   # 源端 change_pct == inf 的编码
+
+def format_change_percent(chg) -> str:
+    return "新进榜" if abs(chg) >= NEW_ENTRY_SENTINEL else f"{'+' if chg >= 0 else ''}{chg:.1f}%"
+```
+
+`history_tracker.py:693` 把 `inf` 写成 `999`，原样渲染就是菜单上的 `+999.0%`。
+托盘、`/market` 页面、文本导出三处**共用**这一个函数，避免各写一份再漂移。
 
 ### 2.3 通知聚合限流
 
