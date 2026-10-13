@@ -141,9 +141,26 @@ _NUMERIC_MARKET: Dict[int, str] = {5: "HK", 6: "CN"}
 _US_SYMBOLS: Optional[frozenset] = None
 
 
+def strip_market_prefix(code: str) -> str:
+    """剥掉**无点**市场前缀：``sh600487`` → ``600487``、``hk06666`` → ``06666``。
+
+    ❗只在后半段全是数字时才剥，否则会把美股 ``usac`` 削成 ``ac``。
+    带点的（``SH.600487``）由调用方先 partition，不归这里管。
+    """
+    text = str(code or "").strip()
+    if len(text) > 2 and text[:2].isalpha() and text[2:].isdigit() \
+            and text[:2].upper() in _KNOWN_MARKET_TOKENS:
+        return text[2:]
+    return text
+
+
 def cn_exchange(code: str) -> str:
-    """6 位 A 股代码 → 交易所前缀（``SH`` / ``SZ``）；认不出返回空串。"""
-    bare = str(code or "").strip()
+    """6 位 A 股代码 → 交易所前缀（``SH`` / ``SZ``）；认不出返回空串。
+
+    同时接受无点前缀式（``sh600487``）—— 带进去会让首位变成 ``S``，
+    于是认不出交易所、拼出 ``CN.SH600487`` 这种废码。
+    """
+    bare = strip_market_prefix(code).upper()
     return _CN_EXCHANGE_BY_HEAD.get(bare[:1], "") if bare.isdigit() and len(bare) == 6 else ""
 
 
@@ -207,8 +224,9 @@ def infer_market(code: str, raw_data: Optional[Dict[str, Any]] = None) -> Tuple[
         调用方必须据此**跳过**，不能拿空串当"随便哪个市场"。
 
     判定优先级（前者压过后者）：
-      1. **代码自带的市场标记** —— 前缀式 ``US.NVDA``（富途写法）与
-         后缀式 ``NVDA.US``（本项目事件里的写法）**都认**。
+      1. **代码自带的市场标记** —— 前缀式 ``US.NVDA``（富途写法）、
+         后缀式 ``NVDA.US``（本项目事件里的写法）、以及**无点前缀式**
+         ``sh600487``（行情总线/题材策略的写法）**都认**。
       2. **代码形态** —— 5 位数字→港股、6 位数字→A 股；
          裸字母→查系统自有美股注册表，命中才是美股。
       3. **信号声称的市场** —— 仅在形态「说不出话」时作补充证据，
@@ -231,6 +249,15 @@ def infer_market(code: str, raw_data: Optional[Dict[str, Any]] = None) -> Tuple[
             # 「前缀 = NVDA」→ 市场判成 ``NVDA``，必然被白名单挡掉。
             return _normalise_market(tail_u), f"代码后缀（{text}）"
         return "", f"带点代码 {text!r} 的市场标记认不出来（前缀/后缀都不是已知市场）"
+
+    # **无点前缀式**：``sh600487`` / ``sz000636`` / ``hk06666`` —— 行情总线与
+    # 题材策略用的就是这种写法（实测日志里 100% 是它）。老实现只认带点的，
+    # 于是 A 股信号**全部**被判成「裸字母，无法判定市场」→ 100% 跳过。
+    # ❗只在**后半段全是数字**时才采信：否则会把美股 ``usac`` 误读成 US+"ac"。
+    if len(text) > 2 and text[:2].isalpha() and text[2:].isdigit():
+        head_u = text[:2].upper()
+        if head_u in _KNOWN_MARKET_TOKENS:
+            return _normalise_market(head_u), f"无点市场前缀（{text}）"
 
     said = declared_market(raw_data)
 
@@ -267,7 +294,15 @@ def futu_code(market: str, code: str) -> str:
     mkt = str(market or "").strip().upper()
     bare = str(code or "").strip().upper()
     if "." in bare:
-        bare = bare.partition(".")[2].strip()
+        # ❗带点的要分清**哪半边是市场**：
+        #   前缀式 ``US.NVDA`` → 取 NVDA；后缀式 ``NVDA.US`` → 取 NVDA。
+        # 老实现一律 ``partition(".")[2]``，于是 ``NVDA.US`` 被拼成 ``US.US``
+        # —— 一个不存在的代码，报单必被拒。
+        head, _, tail = bare.partition(".")
+        head, tail = head.strip(), tail.strip()
+        bare = head if tail in _KNOWN_MARKET_TOKENS else tail
+    # 剥掉无点前缀（``SH600487`` → ``600487``）：不剥就会拼成 ``SH.SH600487``
+    bare = strip_market_prefix(bare)
 
     if mkt == "CN":
         exchange = cn_exchange(bare)
