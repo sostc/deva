@@ -8,11 +8,147 @@ import requests
 import json
 import logging
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from bs4 import BeautifulSoup
 
 log = logging.getLogger(__name__)
+
+# ============================================================================
+# 发送槽位（slot）—— 唯一权威的「今天这条晚报发过了吗」判据
+# ============================================================================
+#
+# 为什么需要它（2026-10-14 修）：
+#   此前 WakeSync 的守卫靠**猜报告产物文件名**判断「今天发过没有」：
+#       guard 查  ~/.naja/ai_reports/{YYYYMMDD}_v2.txt
+#       execute 写 ~/.naja/ai_reports/{YYYYMMDD_HHMM}_v2.txt
+#   两者口径不一致（后者带时分）→ 守卫永远为真 → 每次启动都重发。
+#   产物文件名是给人翻阅用的，本来就应该带时分；把它当幂等键是错配。
+#   => 幂等键必须与产物命名解耦，单独维护。
+#
+# 槽位口径（与 cron 0 21 * * * 对齐）：
+#   21:00 之前的补发属于「昨天」那一期，21:00 之后属于「今天」那一期。
+#   这样凌晨启动补发昨天的晚报，不会把今晚 21:00 的正刊吞掉。
+AI_REPORT_HOUR = 21
+
+# 相邻两次真实推送的最小间隔（小时）。兜住跨槽位边界抖动导致的连发。
+MIN_RESEND_INTERVAL_HOURS = 6
+
+AI_REPORTS_DIR = os.path.expanduser("~/.naja/ai_reports")
+SENT_MARKER_DIR = os.path.join(AI_REPORTS_DIR, ".sent")
+
+
+def current_slot_date(now: datetime = None) -> str:
+    """返回当前晚报槽位日期（YYYY-MM-DD）。
+
+    21:00 之前算作前一天的槽位，21:00 起算作当天。
+    """
+    now = now or datetime.now()
+    if now.hour >= AI_REPORT_HOUR:
+        return now.strftime("%Y-%m-%d")
+    return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def sent_marker_path(slot: str = None) -> str:
+    """槽位标记文件路径"""
+    slot = slot or current_slot_date()
+    return os.path.join(SENT_MARKER_DIR, f"{slot}.json")
+
+
+def is_slot_sent(slot: str = None) -> bool:
+    """该槽位是否已成功推送过"""
+    try:
+        return os.path.exists(sent_marker_path(slot))
+    except Exception:
+        return False
+
+
+def _read_marker(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def last_sent_timestamp() -> float:
+    """最近一次成功推送的时间戳（扫描标记目录，0 表示没有记录）"""
+    newest = 0.0
+    try:
+        if not os.path.isdir(SENT_MARKER_DIR):
+            return 0.0
+        for name in os.listdir(SENT_MARKER_DIR):
+            if not name.endswith(".json"):
+                continue
+            ts = _read_marker(os.path.join(SENT_MARKER_DIR, name)).get("sent_at", 0) or 0
+            newest = max(newest, float(ts))
+    except Exception:
+        pass
+    return newest
+
+
+def should_skip_send(now: datetime = None) -> tuple:
+    """判断本次是否应当放弃推送。
+
+    Returns:
+        (skip: bool, reason: str)
+    """
+    now = now or datetime.now()
+    slot = current_slot_date(now)
+
+    if is_slot_sent(slot):
+        return True, f"槽位 {slot} 已推送过"
+
+    last_ts = last_sent_timestamp()
+    if last_ts > 0:
+        gap_hours = (now - datetime.fromtimestamp(last_ts)).total_seconds() / 3600.0
+        if gap_hours < MIN_RESEND_INTERVAL_HOURS:
+            return True, f"距上次推送仅 {gap_hours:.1f}h（<{MIN_RESEND_INTERVAL_HOURS}h）"
+
+    return False, ""
+
+
+def claim_send_slot(slot: str = None) -> bool:
+    """原子认领本槽位的发送权。
+
+    用 O_CREAT|O_EXCL 保证「同一槽位同一时刻只有一个执行体能真正发送」——
+    这正是启动时 TaskManager 补执行与 WakeSync 同时在跑的场景。
+    """
+    slot = slot or current_slot_date()
+    path = sent_marker_path(slot)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return False
+    except Exception as e:
+        log.warning(f"[AI_Report_v2] 认领发送槽位失败: {e}")
+        return False
+    try:
+        payload = {"slot": slot, "sent_at": time.time(), "pid": os.getpid()}
+        os.write(fd, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    except Exception:
+        pass
+    finally:
+        os.close(fd)
+    return True
+
+
+def release_send_slot(slot: str = None) -> None:
+    """发送失败时回退认领，避免当天被永久堵死。"""
+    try:
+        os.remove(sent_marker_path(slot))
+    except Exception:
+        pass
+
+
+def report_path_for(now: datetime = None) -> str:
+    """报告产物路径（带时分，供人工翻阅；**不作为幂等键**）。"""
+    now = now or datetime.now()
+    return os.path.join(AI_REPORTS_DIR, f"{now.strftime('%Y%m%d_%H%M')}_v2.txt")
+
 
 # 消息推送函数
 def send_imessage(phone: str, text: str):
@@ -552,16 +688,16 @@ async def fetch_aibase_articles_list(
     finally:
         if context is not None:
             try:
-                await asyncio.wait_for(context.close(), timeout=10.0)
-            except asyncio.TimeoutError:
+                await async_lib.wait_for(context.close(), timeout=10.0)
+            except async_lib.TimeoutError:
                 try:
                     await context.close(force=True)
                 except Exception:
                     pass
         if browser is not None:
             try:
-                await asyncio.wait_for(browser.close(), timeout=10.0)
-            except asyncio.TimeoutError:
+                await async_lib.wait_for(browser.close(), timeout=10.0)
+            except async_lib.TimeoutError:
                 log.warning("fetch_aibase_articles_list: browser.close() 超时，强制终止")
                 try:
                     await browser.close(force=True)
@@ -681,16 +817,16 @@ async def fetch_aibase_daily_playwright(
     finally:
         if context is not None:
             try:
-                await asyncio.wait_for(context.close(), timeout=10.0)
-            except asyncio.TimeoutError:
+                await async_lib.wait_for(context.close(), timeout=10.0)
+            except async_lib.TimeoutError:
                 try:
                     await context.close(force=True)
                 except Exception:
                     pass
         if browser is not None:
             try:
-                await asyncio.wait_for(browser.close(), timeout=10.0)
-            except asyncio.TimeoutError:
+                await async_lib.wait_for(browser.close(), timeout=10.0)
+            except async_lib.TimeoutError:
                 log.warning("fetch_aibase_daily_playwright: browser.close() 超时，强制终止")
                 try:
                     await browser.close(force=True)
@@ -825,6 +961,20 @@ def execute() -> dict:
 
     log.info("[AI_Report_v2] 开始生成AI晚报...")
 
+    # 幂等闸①：本槽位已推过就直接短路 —— 连抓取都不做。
+    # 启动时 TaskManager 补执行与 WakeSync 会**同时**进入本函数，
+    # 这一层负责挡住「后到者」。
+    skip, reason = should_skip_send()
+    if skip:
+        log.info(f"[AI_Report_v2] 跳过本次执行: {reason}")
+        return {
+            "success": True,
+            "skipped": True,
+            "reason": reason,
+            "slot": current_slot_date(),
+            "pushed": False,
+        }
+
     try:
         papers = fetch_arxiv_papers("cs.AI", max_results=5)
         models = fetch_huggingface_trending()
@@ -905,8 +1055,7 @@ def execute() -> dict:
 
         log.info(f"[AI_Report_v2] 简报已生成，长度: {len(report)}")
 
-        today = datetime.now().strftime("%Y%m%d_%H%M")
-        report_path = os.path.expanduser(f"~/.naja/ai_reports/{today}_v2.txt")
+        report_path = report_path_for()
         try:
             os.makedirs(os.path.dirname(report_path), exist_ok=True)
             with open(report_path, 'w', encoding='utf-8') as f:
@@ -915,12 +1064,29 @@ def execute() -> dict:
         except Exception as e:
             log.warning(f"[AI_Report_v2] 保存失败: {e}")
 
-        phone = "+86XXXXXXXXXXX"
-        sent = send_imessage(phone, report)
-        if sent:
-            log.info("[AI_Report_v2] 简报已推送到手机")
+        phone = os.environ.get("NAJA_AI_REPORT_PHONE", "+86XXXXXXXXXXX")
+        slot = current_slot_date()
+        skip_reason = ""
+
+        # 幂等闸②：抓取+生成可能耗时数十秒，期间另一条链路可能已经推送完成。
+        # 幂等闸③：原子认领槽位，保证同槽位同一时刻只有一个执行体真正发送。
+        skip, reason = should_skip_send()
+        if skip:
+            log.info(f"[AI_Report_v2] 生成完成但放弃推送: {reason}")
+            sent = False
+            skip_reason = reason
+        elif not claim_send_slot(slot):
+            log.info(f"[AI_Report_v2] 槽位 {slot} 已被并发执行体认领，放弃推送")
+            sent = False
+            skip_reason = f"槽位 {slot} 竞态"
         else:
-            log.warning("[AI_Report_v2] 推送失败")
+            sent = send_imessage(phone, report)
+            if sent:
+                log.info(f"[AI_Report_v2] 简报已推送到手机（槽位 {slot}）")
+            else:
+                release_send_slot(slot)
+                log.warning("[AI_Report_v2] 推送失败，已回退槽位认领")
+                skip_reason = "推送失败"
 
         knowledge_count = 0
         validating_count = 0
@@ -971,6 +1137,8 @@ def execute() -> dict:
             "wechat_count": len(wechat),
             "knowledge_injected": knowledge_count,
             "pushed": sent,
+            "slot": slot,
+            "skip_reason": skip_reason,
             "aibase_learned": aibase_learned,
             "aibase_title": aibase_title,
             "aibase_articles_learned": aibase_articles_learned

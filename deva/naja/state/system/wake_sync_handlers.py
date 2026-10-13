@@ -40,10 +40,12 @@ class AIDailyReportWakeSync:
     """
     AI日报同步器
 
-    判断逻辑：
-    1. 凌晨 0-7点：前一天的新闻陆续出来 → 同步昨天的
-    2. 白天 8-20点：检查昨天是否执行，没执行就同步
-    3. 晚上 20点后：今天的任务可能刚错过 → 同步今天的
+    判断逻辑（按「槽位」）：
+    - 21:00 之前：当前槽位 = 昨天那一期 → 昨天没发过就补发
+    - 21:00 之后：当前槽位 = 今天那一期 → 今天没发过就补发
+
+    槽位标记由 ``tasks/ai_daily_report.py`` 统一维护
+    （``~/.naja/ai_reports/.sent/{slot}.json``），本类只读不写。
     """
 
     @property
@@ -59,37 +61,46 @@ class AIDailyReportWakeSync:
         return 5
 
     def should_wake_sync(self, last_active: datetime) -> bool:
-        """判断是否需要同步"""
-        now = datetime.now()
-        current_hour = now.hour
+        """判断是否需要同步
 
-        today_str = now.strftime("%Y%m%d")
-        report_file_today = f"/Users/spark/.naja/ai_reports/{today_str}_v2.txt"
+        ❗判据来自 ai_daily_report 的**槽位标记**，不再猜报告产物文件名。
 
-        yesterday = now - timedelta(days=1)
-        yesterday_str = yesterday.strftime("%Y%m%d")
-        report_file_yesterday = f"/Users/spark/.naja/ai_reports/{yesterday_str}_v2.txt"
+        旧实现查 ``~/.naja/ai_reports/{YYYYMMDD}_v2.txt``，而 ``execute()``
+        实际落盘的是 ``{YYYYMMDD_HHMM}_v2.txt``（带时分）。两者口径不一致
+        → 守卫永远为真 → **每次启动都重发一遍晚报**（2026-10-14 实测：
+        一次启动内 00:18:36 / 00:19:22 连推两条）。
+        产物文件名是给人翻阅用的，本来就该带时分，把它当幂等键是错配。
+        """
+        try:
+            from deva.naja.tasks.ai_daily_report import (
+                current_slot_date,
+                should_skip_send,
+            )
 
-        if 0 <= current_hour < 8:
-            return not os.path.exists(report_file_yesterday)
-        elif 8 <= current_hour < 20:
-            return not os.path.exists(report_file_yesterday)
-        else:
-            return not os.path.exists(report_file_today)
+            skip, reason = should_skip_send()
+            slot = current_slot_date()
+            if skip:
+                log.info(f"[WakeSync] AIDailyReport: 槽位 {slot} 无需补发 - {reason}")
+                return False
+            log.info(f"[WakeSync] AIDailyReport: 槽位 {slot} 待补发")
+            return True
+        except Exception as e:
+            # 推送类任务失败时**不要 fail-open** —— 宁可漏补，不可重发。
+            log.warning(f"[WakeSync] AIDailyReport: 检查失败，放弃补发 - {e}")
+            return False
 
     def get_wake_sync_range(self, last_active: datetime, max_hours: int = 24) -> Tuple[datetime, datetime]:
-        """获取同步时间范围"""
+        """获取同步时间范围（窗口起点与 cron 的 AI_REPORT_HOUR 对齐）"""
+        from deva.naja.tasks.ai_daily_report import AI_REPORT_HOUR
+
         now = datetime.now()
-        current_hour = now.hour
 
-        if 0 <= current_hour < 8:
-            target_date = now - timedelta(days=1)
-        elif 8 <= current_hour < 20:
-            target_date = now - timedelta(days=1)
-        else:
+        if now.hour >= AI_REPORT_HOUR:
             target_date = now
+        else:
+            target_date = now - timedelta(days=1)
 
-        start = target_date.replace(hour=20, minute=0, second=0, microsecond=0)
+        start = target_date.replace(hour=AI_REPORT_HOUR, minute=0, second=0, microsecond=0)
         end = now
 
         if end - start > timedelta(hours=max_hours):
