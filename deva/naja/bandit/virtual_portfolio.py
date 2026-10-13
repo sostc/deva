@@ -200,6 +200,7 @@ class VirtualPortfolio:
         take_profit_pct: float = 10.0,
         market_time: float = 0.0,
         signal_confidence: float = 0.5,
+        bypass_limits: bool = False,
     ) -> Optional[VirtualPosition]:
         """开仓（虚拟买入）
         
@@ -213,6 +214,12 @@ class VirtualPortfolio:
             amount: 买入金额（如果 quantity=0，则使用 amount 计算）
             stop_loss_pct: 止损百分比
             take_profit_pct: 止盈百分比
+            bypass_limits: 绕过仓位限额检查。
+
+                **仅供"必须完成、不可失败"的回购义务使用**。
+                做 T 卖出产生的份额是约定要买回的，若因为撞到仓位上限而买不回来，
+                就等于侵蚀了长期持有的底仓 —— 这比超限本身严重得多。
+                日常开仓必须保持 False。
             
         Returns:
             VirtualPosition: 持仓对象
@@ -231,14 +238,20 @@ class VirtualPortfolio:
             
             position_value = quantity * price
             used = self._used_capital + position_value
-            
-            if used > self._total_capital * self._max_total_pct:
-                log.warning(f"总持仓超限: {used} > {self._total_capital * self._max_total_pct}")
-                return None
-            
-            if position_value > self._total_capital * self._max_position_pct:
-                log.warning(f"单笔持仓超限: {position_value} > {self._total_capital * self._max_position_pct}")
-                return None
+
+            if not bypass_limits:
+                if used > self._total_capital * self._max_total_pct:
+                    log.warning(f"总持仓超限: {used} > {self._total_capital * self._max_total_pct}")
+                    return None
+
+                if position_value > self._total_capital * self._max_position_pct:
+                    log.warning(f"单笔持仓超限: {position_value} > {self._total_capital * self._max_position_pct}")
+                    return None
+            else:
+                log.warning(
+                    f"[VirtualPortfolio] ⚠️ 本次开仓绕过仓位限额（回购义务专用）: "
+                    f"{stock_code} qty={quantity:.2f}，已用 {used:.0f}/总额 {self._total_capital:.0f}"
+                )
             
             position_id = f"VP_{stock_code}_{int(time.time() * 1000)}"
 
@@ -368,6 +381,70 @@ class VirtualPortfolio:
             self._save_positions()
             return position
     
+    def reduce_position(
+        self,
+        position_id: str,
+        quantity: float,
+        exit_price: float,
+        reason: str = "REDUCE",
+    ) -> Optional[VirtualPosition]:
+        """部分减仓（保留剩余份额）
+
+        做 T 专用。为什么需要它而不是先用 ``close_position`` 再建仓：
+        ``close_position`` 会把整条持仓关掉，要保留余数就得重新 ``open_position``，
+        那样 ``entry_time`` 会变成今天，份额被判成"当日买入"，
+        次日之前的 T+1 判断全部失真。这个方法原地减数量，
+        ``entry_time`` / ``entry_price`` 保持原样。
+
+        加权平均成本的处理上，调用方应当**按数量比例**在多条同标的持仓间分摊，
+        这样剩余部分的加权平均成本不变 —— 与 A 股实际的
+        加权平均成本法一致（卖出不指定批次）。
+
+        Returns:
+            减仓后的持仓对象（已全平则为 None 的兄弟值：返回对象但 status=CLOSED）
+        """
+        with self._lock:
+            position = self._positions.get(position_id)
+            if not position or position.status != "OPEN":
+                return None
+            if quantity <= 0:
+                log.warning(f"减仓数量非法: {quantity}")
+                return None
+
+            qty = min(float(quantity), position.quantity)
+            released = position.entry_price * qty
+
+            position.current_price = exit_price
+            position.last_update_time = self._mts.get_market_time()
+            position.quantity = max(0.0, position.quantity - qty)
+            self._used_capital = max(0.0, self._used_capital - released)
+
+            if position.quantity <= 1e-9:
+                position.quantity = 0.0
+                position.status = "CLOSED"
+                position.exit_price = exit_price
+                exit_time = self._mts.get_market_time()
+                position.exit_time = max(exit_time, position.entry_time + 1)
+                position.close_reason = reason
+                for callback in self._close_callbacks:
+                    try:
+                        callback(position_id, position, reason)
+                    except Exception as e:
+                        log.error(f"平仓回调失败: {e}")
+            else:
+                for callback in self._position_callbacks:
+                    try:
+                        callback(position_id, position)
+                    except Exception as e:
+                        log.error(f"持仓更新回调失败: {e}")
+
+            log.info(
+                f"虚拟减仓: {position.stock_name}({position.stock_code}) "
+                f"减 {qty:.2f} @{exit_price:.3f} 余 {position.quantity:.2f} 原因={reason}"
+            )
+            self._save_positions()
+            return position
+
     def close_all(self, reason: str = "FORCE") -> int:
         """平所有持仓"""
         with self._lock:
