@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from pywebio.output import put_html, put_markdown, put_text, set_scope
+from pywebio.output import put_html, put_markdown, put_text, set_scope, toast
 from pywebio.session import set_env, run_js
 from tornado.web import RequestHandler
 
@@ -156,6 +156,7 @@ async def dictadmin():
 async def tableadmin():
     """数据表管理"""
     from deva.naja.tables.ui import render_tables_page
+    from deva import NB
     ctx = _ctx()
     ctx["NB"] = NB
     ctx["pd"] = __import__("pandas")
