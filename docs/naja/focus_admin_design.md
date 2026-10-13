@@ -132,6 +132,12 @@ get_direct_downstream(node_id)   # 直接下游（一跳）
 | `FutuReal` / `FutuSim` | 富途同步器 `register_futu_account()` 注册 | **否**（`persist=False`） |
 | `手动`（本轮新增） | **用户手填** | **是**（`persist=True`） |
 
+> 更新（2026-10-14）：上表第三行已过时。富途同步器现在按**品牌**注册
+> `FutuHK` / `MoomooUS` / `MoomooSG` / …（旧名 `FutuReal` 已自动清理），
+> 模拟账户另按 **`FutuSim<市场><品类>`** 注册（如 `FutuSimHK` /
+> `FutuSimHKOption`）—— 模拟账户是**全局共享、不分品牌**的，所以名字里不带品牌。
+> 旧的那个 `FutuSim` 空壳块（`positions={}`、无生产者）已于同日清除。
+
 **关键改动**：
 
 ```python
