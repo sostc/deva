@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -40,6 +41,8 @@ from typing import Any, Dict, List, Optional, Union
 from deva import NB
 
 LOOP_AUDIT_TABLE = "naja_loop_audit"
+
+logger = logging.getLogger(__name__)
 
 
 class LoopType(Enum):
@@ -142,6 +145,7 @@ class LoopAuditLogger:
         self._counter_lock = threading.Lock()
         self._active_loops: Dict[str, LoopAuditRecord] = {}
         self._active_lock = threading.Lock()
+        self._last_prune_ts: float = 0.0
 
     @classmethod
     def get_instance(cls) -> "LoopAuditLogger":
@@ -159,38 +163,18 @@ class LoopAuditLogger:
         try:
             self._db = NB(LOOP_AUDIT_TABLE, key_mode="time")
         except Exception as e:
-            import logging
-            logging.warning(f"[LoopAudit] 无法初始化DB: {e}")
+            logger.warning(f"[LoopAudit] 无法初始化DB: {e}")
             self._db = None
 
-        self._ensure_table()
+        # 启动即做一次轮转清理（DB 记录 + 日志文件），此后由 _write_log 按小时节流。
+        self._maybe_prune(force=True)
 
-    def _ensure_table(self):
-        if self._db is None:
-            return
-        try:
-            conn = sqlite3.connect(str(Path.home() / ".deva" / "nb.sqlite"))
-            cur = conn.cursor()
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS {LOOP_AUDIT_TABLE} (
-                    loop_id TEXT,
-                    loop_type TEXT,
-                    stage TEXT,
-                    timestamp REAL,
-                    data_in_summary TEXT,
-                    data_out_summary TEXT,
-                    status TEXT,
-                    duration_ms REAL,
-                    error TEXT,
-                    metadata TEXT,
-                    parent_loop_id TEXT,
-                    PRIMARY KEY (loop_id, stage)
-                )
-            """)
-            conn.close()
-        except Exception as e:
-            import logging
-            logging.warning(f"[LoopAudit] 建表失败: {e}")
+    # 注：旧版这里有个 _ensure_table()，试图用原生 SQL 建一张列式宽表
+    # （loop_id / loop_type / timestamp ... PRIMARY KEY(loop_id, stage)）。
+    # 但表先由上面的 NB(LOOP_AUDIT_TABLE) 以 DBStream 形式建成了 (key, value)，
+    # “CREATE TABLE IF NOT EXISTS” 于是变成 no-op —— 列式结构从未存在，
+    # 而读取端（本文件与 loop_audit_ui）却按列式字段查询，全部抛错被静默吞掉。
+    # 现已删除：表结构以 DBStream 为唯一事实，写入/读取都经它进行。
 
     def _open_log_file(self):
         today = datetime.now().strftime("%Y-%m-%d")
@@ -317,30 +301,78 @@ class LoopAuditLogger:
                 self._db[key] = record.to_dict()
             except Exception:
                 pass
+            self._maybe_prune()
+
+    # ------------------------------------------------------------------
+    # 保留期 / 轮转清理
+    # ------------------------------------------------------------------
+    KEEP_DAYS = int(os.environ.get("NAJA_LOOP_AUDIT_KEEP_DAYS") or "7")
+    PRUNE_INTERVAL_SECONDS = 3600
+
+    def _maybe_prune(self, force: bool = False):
+        """按 PRUNE_INTERVAL_SECONDS 节流地清理过期审计记录与日志文件。"""
+        now = time.time()
+        if not force and now - self._last_prune_ts < self.PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_prune_ts = now
+        try:
+            self.prune_old_records(self.KEEP_DAYS)
+        except Exception as e:
+            logger.warning(f"[LoopAudit] 清理失败: {e}")
+
+    def prune_old_records(self, keep_days: int = None) -> int:
+        """清理超过保留期的审计记录（DB 记录 + 日志文件），返回删除的 DB 条数。
+
+        注意：本表的 key 形如 ``{loop_id}:{stage}``（loop_id 内嵌时间串），
+        **不是**时间戳 —— ``DBStream.prune_older_than`` 的 key 解析对它无效，
+        因此这里按 value（dict）内的 ``timestamp`` 字段做轮转。
+        """
+        if keep_days is None:
+            keep_days = self.KEEP_DAYS
+        cutoff = time.time() - keep_days * 86400
+
+        removed = 0
+        if self._db is not None:
+            try:
+                removed = self._db.prune_older_than_field("timestamp", cutoff)
+            except Exception as e:
+                logger.warning(f"[LoopAudit] DB 清理失败: {e}")
+
+        self._rotate_log_files(cutoff)
+        return removed
+
+    def _rotate_log_files(self, cutoff_ts: float):
+        """删除修改时间早于 cutoff 的审计日志文件（写入中的当天文件不会被删）。"""
+        try:
+            for f in self._log_dir.glob("naja_loop_audit_*.log"):
+                try:
+                    if f.stat().st_mtime < cutoff_ts:
+                        f.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _iter_db_records(self):
+        """安全遍历 DBStream 中的所有记录 dict（跳过坏行）。"""
+        if self._db is None:
+            return
+        try:
+            keys = list(self._db)
+        except Exception:
+            return
+        for key in keys:
+            try:
+                rec = self._db[key]
+            except Exception:
+                continue
+            if isinstance(rec, dict):
+                yield rec
 
     def get_loop_trace(self, loop_id: str) -> List[Dict[str, Any]]:
-        if self._db is None:
-            return []
-
-        try:
-            conn = sqlite3.connect(str(Path.home() / ".deva" / "nb.sqlite"))
-            cur = conn.cursor()
-            cur.execute(
-                f"SELECT * FROM {LOOP_AUDIT_TABLE} WHERE loop_id = ? ORDER BY timestamp",
-                (loop_id,),
-            )
-            columns = [desc[0] for desc in cur.description]
-            results = []
-            for row in cur.fetchall():
-                d = dict(zip(columns, row))
-                d["data_in_summary"] = json.loads(d["data_in_summary"]) if d["data_in_summary"] else {}
-                d["data_out_summary"] = json.loads(d["data_out_summary"]) if d["data_out_summary"] else {}
-                d["metadata"] = json.loads(d["metadata"]) if d["metadata"] else {}
-                results.append(d)
-            conn.close()
-            return results
-        except Exception:
-            return []
+        results = [r for r in self._iter_db_records() if r.get("loop_id") == loop_id]
+        results.sort(key=lambda r: r.get("timestamp") or 0)
+        return results
 
     def get_loop_summary(
         self,
@@ -349,81 +381,40 @@ class LoopAuditLogger:
         status: str = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        if self._db is None:
-            return []
-
-        try:
-            conn = sqlite3.connect(str(Path.home() / ".deva" / "nb.sqlite"))
-            cur = conn.cursor()
-
-            query = f"SELECT * FROM {LOOP_AUDIT_TABLE}"
-            conditions = []
-            params = []
-
-            if since:
-                conditions.append("timestamp >= ?")
-                params.append(since)
-
-            if loop_type:
-                conditions.append("loop_type = ?")
-                params.append(loop_type)
-
-            if status:
-                conditions.append("status = ?")
-                params.append(status)
-
-            if conditions:
-                query += " WHERE " + " AND ".join(conditions)
-
-            query += " ORDER BY timestamp DESC LIMIT ?"
-            params.append(limit)
-
-            cur.execute(query, params)
-            columns = [desc[0] for desc in cur.description]
-            results = []
-            for row in cur.fetchall():
-                d = dict(zip(columns, row))
-                d["data_in_summary"] = json.loads(d["data_in_summary"]) if d["data_in_summary"] else {}
-                d["data_out_summary"] = json.loads(d["data_out_summary"]) if d["data_out_summary"] else {}
-                d["metadata"] = json.loads(d["metadata"]) if d["metadata"] else {}
-                results.append(d)
-            conn.close()
-            return results
-        except Exception:
-            return []
+        results = []
+        for r in self._iter_db_records():
+            if since and (r.get("timestamp") or 0) < since:
+                continue
+            if loop_type and r.get("loop_type") != loop_type:
+                continue
+            if status and r.get("status") != status:
+                continue
+            results.append(r)
+        results.sort(key=lambda r: r.get("timestamp") or 0, reverse=True)
+        return results[:limit]
 
     def get_loop_stats(self, since: float = None) -> Dict[str, Dict[str, Any]]:
-        if self._db is None:
-            return {}
+        stats: Dict[str, Dict[str, Any]] = {}
+        for r in self._iter_db_records():
+            if since and (r.get("timestamp") or 0) < since:
+                continue
+            loop_type = r.get("loop_type") or "unknown"
+            s = stats.setdefault(loop_type, {"count": 0, "_dur_sum": 0.0, "_dur_n": 0})
+            s["count"] += 1
+            status = r.get("status")
+            if status:
+                s[f"status_{status}"] = s.get(f"status_{status}", 0) + 1
+            dur = r.get("duration_ms")
+            if isinstance(dur, (int, float)):
+                s["_dur_sum"] += dur
+                s["_dur_n"] += 1
 
-        try:
-            conn = sqlite3.connect(str(Path.home() / ".deva" / "nb.sqlite"))
-            cur = conn.cursor()
-
-            base_query = f"FROM {LOOP_AUDIT_TABLE}"
-            if since:
-                base_query += f" WHERE timestamp >= {since}"
-
-            cur.execute(f"SELECT loop_type, COUNT(*) as count {base_query} GROUP BY loop_type")
-            loop_counts = {row[0]: {"count": row[1]} for row in cur.fetchall()}
-
-            cur.execute(f"SELECT loop_type, status, COUNT(*) as count {base_query} GROUP BY loop_type, status")
-            for row in cur.fetchall():
-                loop_type, status, count = row
-                if loop_type not in loop_counts:
-                    loop_counts[loop_type] = {"count": 0}
-                loop_counts[loop_type][f"status_{status}"] = count
-
-            cur.execute(f"SELECT loop_type, AVG(duration_ms) as avg_duration {base_query} GROUP BY loop_type")
-            for row in cur.fetchall():
-                loop_type, avg_duration = row
-                if loop_type in loop_counts:
-                    loop_counts[loop_type]["avg_duration_ms"] = round(avg_duration, 2)
-
-            conn.close()
-            return loop_counts
-        except Exception:
-            return {}
+        for s in stats.values():
+            n = s.pop("_dur_n", 0)
+            total_dur = s.pop("_dur_sum", 0.0)
+            if n:
+                s["avg_duration_ms"] = round(total_dur / n, 2)
+        return stats
 
     def close(self):
         if self._log_file_handle:

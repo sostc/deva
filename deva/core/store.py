@@ -387,6 +387,40 @@ class DBStream(Stream):
         logger.info("prune_older_than 表=%s 删除 %d 条", self.tablename, deleted)
         return deleted
 
+    def prune_older_than_field(self, field: str, cutoff_ts: float) -> int:
+        """按 value（dict）内的数值时间字段清理历史，返回删除条数。
+
+        供 key **不是**时间戳、但 value 里带时间字段的表使用，例如闭环审计表
+        `naja_loop_audit`（key 形如 ``{loop_id}:{stage}``，`prune_older_than`
+        的 key 解析对它无效）。删除用读出的**原始 key** 精确匹配，避免类型不匹配。
+        """
+        victims = []
+        for key in list(self.db.keys()):
+            try:
+                value = self.db[key]
+            except Exception:
+                continue
+            if isinstance(value, dict):
+                ts = value.get(field)
+                if isinstance(ts, (int, float)) and ts < cutoff_ts:
+                    victims.append(key)
+        if not victims:
+            return 0
+
+        deleted = 0
+        del_sql = 'DELETE FROM "%s" WHERE key = ?' % self.tablename
+        for key in victims:
+            try:
+                self.db.conn.execute(del_sql, (key,))
+                deleted += 1
+            except Exception as e:
+                logger.warning("prune_older_than_field 删除失败 key=%r: %s", key, e)
+        self.db.commit(blocking=True)
+        self._mark_time_index_dirty()
+        logger.info("prune_older_than_field 表=%s 字段=%s 删除 %d 条",
+                    self.tablename, field, deleted)
+        return deleted
+
     def clear(self):
         """清空当前表。"""
         result = self.db.clear()
