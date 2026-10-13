@@ -622,6 +622,18 @@ function handleAction(action, entryId, note = '') {
 """
         return html
 
+    def _reject_reason(self, entry: KnowledgeEntry, target_state: KnowledgeState,
+                       is_manual: bool = True) -> Optional[Dict[str, Any]]:
+        """转换前置校验：通不过就把**具体原因**回给前端。
+
+        以前 handle_action 只把 transition() 的 bool 转成笼统的「操作失败」，
+        用户根本不知道自己撞的是哪条约束（证据不够？已过期？已是目标状态？）。
+        """
+        can, why = self.state_manager.can_transition_to(entry, target_state, is_manual=is_manual)
+        if can:
+            return None
+        return {"success": False, "message": f"操作失败：{why}"}
+
     def handle_action(self, action: str, entry_id: str, note: str = "") -> Dict[str, Any]:
         """处理用户操作（全部为手动操作）"""
         entry = self.store.get(entry_id)
@@ -629,6 +641,9 @@ function handleAction(action, entryId, note = '') {
             return {"success": False, "message": f"知识 {entry_id} 不存在"}
 
         if action == "force_qualify":
+            reject = self._reject_reason(entry, KnowledgeState.QUALIFIED)
+            if reject:
+                return reject
             success = self.state_manager.transition(
                 entry_id,
                 KnowledgeState.QUALIFIED,
@@ -640,10 +655,13 @@ function handleAction(action, entryId, note = '') {
                 self.cognition_interface.inject_causality(entry_id)
             return {
                 "success": success,
-                "message": "已强制通过" if success else "操作失败"
+                "message": "已强制通过" if success else "操作失败：状态写入未生效"
             }
 
         elif action == "mark_expired":
+            reject = self._reject_reason(entry, KnowledgeState.EXPIRED)
+            if reject:
+                return reject
             success = self.state_manager.transition(
                 entry_id,
                 KnowledgeState.EXPIRED,
@@ -653,14 +671,17 @@ function handleAction(action, entryId, note = '') {
             )
             return {
                 "success": success,
-                "message": "已标记过期" if success else "操作失败"
+                "message": "已标记过期" if success else "操作失败：状态写入未生效"
             }
 
         elif action == "reset_to_observation":
+            reject = self._reject_reason(entry, KnowledgeState.OBSERVING)
+            if reject:
+                return reject
             success = self.state_manager.reset_to_observation(entry_id, note)
             return {
                 "success": success,
-                "message": "已重置到观察期" if success else "操作失败"
+                "message": "已重置到观察期" if success else "操作失败：状态写入未生效"
             }
 
         else:

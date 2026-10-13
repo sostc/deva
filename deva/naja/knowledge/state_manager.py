@@ -110,9 +110,17 @@ class KnowledgeStateManager:
             except Exception as e:
                 print(f"[StateManager] 通知失败: {e}")
 
-    def can_transition_to(self, entry: KnowledgeEntry, target_state: KnowledgeState) -> tuple[bool, str]:
+    def can_transition_to(self, entry: KnowledgeEntry, target_state: KnowledgeState,
+                          is_manual: bool = False) -> tuple[bool, str]:
         """
         检查是否可以转换到目标状态
+
+        Args:
+            entry: 知识条目
+            target_state: 目标状态
+            is_manual: 是否为人工干预。为 True 时跳过**自动门槛**（证据数 / 置信度），
+                因为「强制通过」的语义就是人工越过自动判定。结构性约束不受影响：
+                EXPIRED 仍只能重置到观察期、目标状态白名单（OBSERVING/VALIDATING）仍然生效。
 
         Returns:
             (can_transition, reason)
@@ -147,6 +155,12 @@ class KnowledgeStateManager:
         if target_state == KnowledgeState.QUALIFIED:
             if current_state not in [KnowledgeState.OBSERVING, KnowledgeState.VALIDATING]:
                 return False, "需要经过验证期"
+            if is_manual:
+                # 人工强制通过：越过证据数 / 置信度门槛，但把被越过的口径写进 reason 供审计
+                return True, (
+                    f"跳过自动门槛（证据 {entry.evidence_count}/{self.MIN_EVIDENCE_FOR_QUALIFIED}，"
+                    f"置信度 {entry.adjusted_confidence:.2f}/{self.MIN_CONFIDENCE_THRESHOLD}）"
+                )
             if entry.evidence_count < self.MIN_EVIDENCE_FOR_QUALIFIED:
                 return False, f"需要至少 {self.MIN_EVIDENCE_FOR_QUALIFIED} 个证据（当前 {entry.evidence_count}）"
             if entry.adjusted_confidence < self.MIN_CONFIDENCE_THRESHOLD:
@@ -173,7 +187,12 @@ class KnowledgeStateManager:
             return False
 
         old_state = KnowledgeState(entry.status)
-        can_transition, check_reason = self.can_transition_to(entry, target_state)
+
+        # 有 manual_note 也视为手动操作。必须在判定前归一化：
+        # can_transition_to 要靠 is_manual 决定是否跳过自动门槛（证据数/置信度）。
+        is_manual = is_manual or bool(manual_note)
+
+        can_transition, check_reason = self.can_transition_to(entry, target_state, is_manual=is_manual)
 
         if not can_transition:
             import logging
@@ -182,8 +201,6 @@ class KnowledgeStateManager:
             )
             return False
 
-        # 有 manual_note 也视为手动操作
-        is_manual = is_manual or bool(manual_note)
         transition_type = StateTransition.MANUAL.value if is_manual else StateTransition.AUTO.value
 
         entry.status = target_state.value
@@ -195,11 +212,14 @@ class KnowledgeStateManager:
 
         self.store.update(entry_id, entry)
 
+        # 手动干预时把「跳过了哪些自动门槛」一并落进日志，便于事后审计
+        final_reason = f"{reason}（{check_reason}）" if (is_manual and reason) else (reason or check_reason)
+
         transition_log = StateTransitionLog(
             entry_id=entry_id,
             from_state=old_state.value,
             to_state=target_state.value,
-            reason=reason or check_reason,
+            reason=final_reason,
             transition_type=transition_type,
             timestamp=datetime.now().isoformat(),
             manual_note=manual_note
