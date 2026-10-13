@@ -240,6 +240,82 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 结果守卫把自己判成违约。故守卫扫描前先 `_strip_comment_lines()` 去掉整行注释
 （只去整行，不做 inline 剥离，避免误伤字符串字面量）。
 
+### 2.6 长任务状态可见（2026-10-13）
+
+用户反馈：「点击菜单里系统重启时，整个动画和显示不明显，状态无感知」。
+
+追查后确认**不是动画问题，是四态全缺**。`_on_reload → _restart_tray → _do_restart`
+的实际耗时结构：
+
+| 阶段 | 代码 | 最坏 |
+|---|---|---|
+| 等旧服务退出 | `_wait_for_pid_exit(timeout=15)` | 15s |
+| 起新进程 | `Popen(… -s start)` | — |
+| 等新服务就绪 | `_wait_for_naja_ready(timeout=30)`，每 0.5s 轮询 | 30s |
+| 刷新菜单 | `_refresh_after_restart()` | 静默 |
+
+典型 8~15s、最坏 45s，而这期间**菜单栏图标不变、菜单内容不变、通知也没有**——
+代码里只有 `_notify_restart_failed` 一条通知路径，**成功分支只写日志**。
+
+#### 载体：菜单栏文字（`app.title`）
+
+rumps 的 `App.title` → `setStatusBarTitle()` → `nsstatusitem.setTitle_()`，与
+`setImage_()`（图标）**互不冲突**、可并存。它是唯一「始终可见 + 不受系统勿扰模式
+影响 + 可与图标共存」的通道——而全代码里 `_app.title` **一次都没被赋值**。
+
+系统通知仍保留作完成态提醒，但不再作为唯一反馈（会被勿扰吞、`LSUIElement` 应用
+不保证显示、闪过即消失）。
+
+#### 状态位机制
+
+```python
+self._op_status = {"key": "restart", "label": "🔄 停止旧服务…",
+                   "started": ts, "busy": True}
+```
+
+| 方法 | 作用 |
+|---|---|
+| `_begin_op(key, label)` | 占用状态位；返回 `False` = 已有长任务在进行（**互斥**） |
+| `_update_op(label)` | 更新阶段文案 |
+| `_clear_op(key=None)` | 释放；传 key 时**只清自己的**（不误清别的任务） |
+| `_flash_status(label, s)` | 短暂提示（不置 busy、可被覆盖，但**不抢占**长任务） |
+
+互斥是必需的：重启期间再点一次重启会起第二个线程，两个线程同时 kill 同一 PID、
+同时 `Popen` 新进程 → 服务状态彻底错乱。
+
+#### 接入范围
+
+| 操作 | 状态文案 | 释放点 |
+|---|---|---|
+| 🔄 重启服务 | 正在重启 / 停止旧服务 / 启动新服务 / 等待服务就绪 | `try/finally`（异常也释放） |
+| 🚪 退出 | 「正在退出…」 | 不释放（进程随即退出） |
+| 🚀 登录自启 | 「设置自启…」 | 主线程 `apply` 内 |
+| 🔄 刷新菜单 | 「刷新中…」→「已刷新 HH:MM:SS」 | flash 到期自动清 |
+| ☁️ 服务器同步 | 「同步中…」 | `finally` |
+| ✨ 一键总结 | 「总结中…」（大模型调用可能十几秒） | `_on_timer` 消费结果时 |
+
+未接入的两类：**瞬时操作**（打开页面 / Web / 日志——浏览器弹出即是反馈，加状态
+反成噪音）与 **`_check_and_send_notifications`**（它自己就是通知，无需再挂状态）。
+
+#### 三个必须写下来的坑
+
+**① 状态行会谎报。** 重启期间托盘**故意不重启**（避免图标空窗，见 2.2），所以菜单
+不会重建，那行 `📊 Naja 运行中 · …` 会一直挂着——而此刻旧服务**其实已经停了**。
+用户点开菜单想确认，看到的反而是错的状态。修法：`_op_line(port)` 在有 busy 任务时
+返回任务进度，`_build_menu` 走 `if op_line:` 分支。
+
+**② 释放必须走 `finally`。** 状态位卡住会让**后续所有长任务被互斥拒绝**——比不显示
+状态更糟。所以重启/同步都用 `try/finally`。
+
+**③ 阻塞前要先渲染。** `_on_quit` 会阻塞主线程最多 10s，而阻塞期间 AppKit 不重绘
+——直接设 `app.title` 是画不出来的。所以先用 `_apply_op_status()` 写状态，再用
+`threading.Timer(0.4, …)` 推迟进入阻塞：这 0.4s 主线程空闲、runloop 正常跑，
+标题才真的画得出来。
+
+> 守卫注意：`_op_line` 的 docstring 里**自然会写到「运行中」这个词**（解释为什么
+> 不能写它）。所以「状态行不含运行中」这条**不能扫文本**，要改成**行为断言**
+> （有操作时调用 `_op_line`，断言返回值不含该词）——否则又是一次假警报。
+
 ---
 
 ## 3. 改动清单
@@ -259,6 +335,9 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 | `infra/ui/menu_bar_tray.py`（2.5 主线程审计） | `_build_menu` 去掉 2 处 HTTP 取数、IO 移出锁；删 `_get_system_status` / `_get_system_status_cached` / `_is_trading_time`；新增 `_check_naja_listening`；`_on_timer` 总结收尾封装 `_finish_summary` 丢后台；`_on_toggle_autostart` 移入后台线程；`open` 改非阻塞 `Popen` |
 | `tests/test_tray_no_block.py`（新） | 12 条：空缓存零 HTTP / 端口探测 / 各回调静态守卫 |
 | `scripts/verify/verify_tray_no_block.py`（新） | 6 段：空缓存零 HTTP / 端口探测 / `_build_menu` 静态守卫 / `_on_timer` + 收尾 / 自启开关 + 死代码 / 冷启动 |
+| `infra/ui/menu_bar_tray.py`（2.6 状态可见） | 新增状态位机制 `_begin_op` / `_update_op` / `_clear_op` / `_flash_status` / `_op_line` / `_apply_op_status`；`_do_restart_tray` 拆出包 `try/finally` 并加四态文案 + 成功通知；`_on_quit` 拆出 `_stop_service_and_quit`（先渲染再阻塞）；自启补失败提示；刷新改异步 + 可见反馈；同步/总结接入状态位；`_build_menu` 状态行改用 `_op_line` |
+| `tests/test_tray_status.py`（新） | 19 条：状态位机制 8 + 各任务接入与释放 7 + 状态行/退出 3 + 冷启动 1 |
+| `scripts/verify/verify_tray_status.py`（新） | 6 段：状态位机制 / 重启四态 + `finally` / 其他长任务接入 / 状态行不谎报 / 退出先渲染 / 冷启动 |
 
 ---
 
@@ -305,6 +384,20 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 
 单测：`deva/naja/tests/test_tray_no_block.py` 12 条。
 
+`scripts/verify/verify_tray_status.py --strict`（6 段）：
+
+1. **状态位机制**（功能）：占用置 busy 并写 `app.title`；互斥拒绝且不覆盖；阶段文案可更新；
+   别的 key 不能清自己的；`flash` 不抢占长任务；释放后恢复为只有图标；`flash` 到点自动清
+2. **重启四态 + 保证释放**：四个阶段文案齐全；释放位于 `try/finally`（异常也不会卡住）；
+   成功分支有完成通知（原先静默）；失败通知保留
+3. **其他长任务接入**：同步（`finally`）/ 一键总结 / 登录自启（含失败提示）/ 刷新菜单
+4. **状态行不谎报**：`_build_menu` 走 `if op_line:` 分支；**行为断言**——重启期间菜单里
+   出现任务进度、且**不出现「运行中」**
+5. **退出先渲染再阻塞**：`_apply_op_status()` 在阻塞前，`threading.Timer(...)` 推迟进入阻塞
+6. **冷启动**：`menu_bar_tray` 可独立导入
+
+单测：`deva/naja/tests/test_tray_status.py` 19 条。
+
 ---
 
 ## 5. 边界与遗留
@@ -325,4 +418,14 @@ for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
 - `_relevance_keywords()` → `build_focus_state()` 仍在主线程被调用，但它自带
   60s TTL（外加 5min 关键词缓存）、只读内存/本地焦点快照，且失败降级为空集
   **绝不阻断通知** —— 属可接受量级，未动。
+- **状态位只在菜单栏文字上呈现，没有进度百分比**：重启的分阶段文案（停止旧服务 →
+  启动新服务 → 等待服务就绪）是**离散四态**，不是 `30%` 这种连续进度——因为
+  `_wait_for_naja_ready` 的剩余时间不可预估，报百分比反而会误导。
+- **托盘图标仍是两态**（交易中 / 休市），本轮**未加**「重启中」第三态：用户选了
+  以菜单栏文字为优先载体。若后续要加，注意 `ICON_GREEN` 常量实际指向
+  `naja_tray_red_22.png`（**变量名与文件语义不符**，改前先重命名）。
+- **互斥是按"同一时刻一个长任务"设计的**：若将来出现"可并行的两个长任务"，需要把
+  `_op_status` 从单槽改为多槽（或引入优先级），当前不做——现有六个长任务本就互斥。
+- 托盘菜单是原生 macOS 菜单，状态呈现无法像网页那样截图验收；本轮以
+  **守卫的行为断言（`_op_line` / `_build_menu` 实际产出）+ 落盘日志**替代。
 
