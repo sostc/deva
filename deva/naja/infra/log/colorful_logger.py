@@ -68,6 +68,28 @@ LEVEL_COLORS = {
 }
 
 
+def _append_exception_text(message: str, record: logging.LogRecord) -> str:
+    """把异常堆栈拼回日志行。
+
+    ColorfulFormatter / PlainFormatter 都重写了 ``Formatter.format()``，
+    而基类里「把 ``record.exc_info`` 渲染成 traceback 并追加」的那段逻辑，
+    恰好就在被覆盖掉的实现中。于是 ``logger.exception()`` 与
+    ``logger.error(..., exc_info=True)`` 落到这两条 handler 上时，
+    **只剩一行消息、堆栈整段丢失** —— pywebio 的 "Unhandled error in
+    pywebio app" 之所以查不到原因，根因就在这里。
+
+    这里只补追加动作，不碰原有排版，保持既有日志格式不变。
+    """
+    if record.exc_info:
+        if not record.exc_text:
+            record.exc_text = logging.Formatter().formatException(record.exc_info)
+        if record.exc_text:
+            if not message.endswith("\n"):
+                message += "\n"
+            message += record.exc_text
+    return message
+
+
 class ColorfulFormatter(logging.Formatter):
     """彩色日志格式化器 - 按模块着色"""
 
@@ -96,23 +118,24 @@ class ColorfulFormatter(logging.Formatter):
 
         if self.use_color:
             if self.show_timestamp:
-                return (
+                line = (
                     f"{AnsiColors.DIM}[{ts}]{AnsiColors.RESET} "
                     f"{level_color}[{record.levelname}]{AnsiColors.RESET} "
                     f"{module_color}[{record.name}]{AnsiColors.RESET} "
                     f"{record.getMessage()}"
                 )
             else:
-                return (
+                line = (
                     f"{level_color}[{record.levelname}]{AnsiColors.RESET} "
                     f"{module_color}[{record.name}]{AnsiColors.RESET} "
                     f"{record.getMessage()}"
                 )
         else:
             if self.show_timestamp:
-                return f"[{ts}] [{record.levelname}] [{record.name}] {record.getMessage()}"
+                line = f"[{ts}] [{record.levelname}] [{record.name}] {record.getMessage()}"
             else:
-                return f"[{record.levelname}] [{record.name}] {record.getMessage()}"
+                line = f"[{record.levelname}] [{record.name}] {record.getMessage()}"
+        return _append_exception_text(line, record)
 
 
 class PlainFormatter(logging.Formatter):
@@ -126,9 +149,10 @@ class PlainFormatter(logging.Formatter):
         import datetime
         ts = datetime.datetime.fromtimestamp(record.created).strftime('%Y-%m-%d %H:%M:%S')
         if self.show_timestamp:
-            return f"[{ts}] [{record.levelname}] [{record.name}] {record.getMessage()}"
+            line = f"[{ts}] [{record.levelname}] [{record.name}] {record.getMessage()}"
         else:
-            return f"[{record.levelname}] [{record.name}] {record.getMessage()}"
+            line = f"[{record.levelname}] [{record.name}] {record.getMessage()}"
+        return _append_exception_text(line, record)
 
 
 _colorful_logger_configured = False
