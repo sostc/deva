@@ -60,28 +60,38 @@ def _normalize_code(code: str) -> str:
     """
     if code.startswith("gb_"):
         return code.split("_", 1)[-1]
-    if code.startswith("sh") or code.startswith("sz"):
+    if code.startswith(("sh", "sz", "bj")):
         return code[2:]
     return code
 
 
-def _format_code(code: str) -> str:
-    """还原带前缀的 code，用于外部 API 查询
+def format_exchange_code(code: str) -> str:
+    """还原带前缀的 code，用于外部 API 查询。
 
-    规则：
-    - 美股: gb_ 前缀保留，如 gb_nvda
-    - A股: 以 6 开头为上交所(sh)，其他为深交所(sz)
+    规则（按交易所真实号段）：
+        沪市 ``sh``：6xxxxx（主板/科创板股票）+ **5xxxxx（基金/ETF，
+            含 58xxxx 科创板 ETF、588xxx 科创板指数 ETF）** + 9xxxxx（B 股）
+        深市 ``sz``：0xxxxx/3xxxxx（主板/创业板）+ 1xxxxx（基金/ETF）+ 2xxxxx（B 股）
+
+    ⚠️ 曾经这里只写 ``code.startswith("6") → sh``，**其余一律 sz** ——
+    于是所有沪市 ETF（510300 / 512480 / **588200**）和基金都被编成 sz，
+    新浪返回空行，整个 A 股拉取链路静默返回 ``{}``。
+    报错信息还被 ``log.debug`` 吞掉，表现为「取不到行情」而不是「代码错了」。
     """
     if code.startswith("gb_"):
         return code
-    if code.startswith("sh") or code.startswith("sz"):
+    if code.startswith("sh") or code.startswith("sz") or code.startswith("bj"):
         return code
     if len(code) == 6 and code.isdigit():
-        if code.startswith("6"):
+        if code[0] in ("5", "6", "9"):
             return f"sh{code}"
-        else:
-            return f"sz{code}"
+        return f"sz{code}"
     return code
+
+
+def _format_code(code: str) -> str:
+    """内部别名，保留给既有调用方。"""
+    return format_exchange_code(code)
 
 
 @dataclass
