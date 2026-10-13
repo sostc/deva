@@ -149,15 +149,33 @@ class PerformanceMetrics:
         return self.error_count / self.call_count
     
     def get_severity(self, thresholds: Dict[str, float]) -> SeverityLevel:
-        """根据阈值获取严重程度"""
+        """根据阈值获取严重程度。
+
+        2026-10-14 修正：原先只用 `max` 判定，最近 100 次里出现**一次**尖峰就会被
+        标成「极重」（例如进程被 macOS 挂起数秒），排行榜因而把环境噪声排到 TOP1。
+        现改为：
+          - 样本足够（>=20）时以 **P95** 代表常态，抗单次尖峰；
+          - 样本不足时退回 avg（用几个点算 P95 会失真）；
+          - max 仅在**极端离群**（≥ severe 阈值 5 倍）时才单独触发定级 ——
+            真卡死不该被平均掉。
+        """
         avg_time = self.avg_execution_time
+        p95_time = self.p95_execution_time
         max_time = self.max_execution_time
-        
-        if max_time >= thresholds.get("severe", 1000):
+        severe = thresholds.get("severe", 1000)
+        critical = thresholds.get("critical", 500)
+        warning = thresholds.get("warning", 100)
+
+        if max_time >= severe * 5:
             return SeverityLevel.SEVERE
-        elif max_time >= thresholds.get("critical", 500):
+
+        typical = p95_time if len(self.execution_times) >= 20 else avg_time
+
+        if typical >= severe:
+            return SeverityLevel.SEVERE
+        elif typical >= critical:
             return SeverityLevel.CRITICAL
-        elif avg_time >= thresholds.get("warning", 100):
+        elif avg_time >= warning:
             return SeverityLevel.WARNING
         return SeverityLevel.NORMAL
     
@@ -438,7 +456,9 @@ class NajaPerformanceMonitor:
             SeverityLevel.WARNING: 2,
             SeverityLevel.NORMAL: 3,
         }
-        reports.sort(key=lambda r: severity_order.get(r.severity, 4))
+        # 先按严重程度；同级别内按平均耗时降序。
+        # （原先同级保持 dict 插入顺序 → 榜单 #4/#5/#6 的名次其实没有含义）
+        reports.sort(key=lambda r: (severity_order.get(r.severity, 4), -r.avg_time_ms))
         
         return reports
     
