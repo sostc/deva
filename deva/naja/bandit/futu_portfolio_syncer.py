@@ -84,6 +84,25 @@ SECURITY_FIRM_DEFAULT_CURRENCY: Dict[str, str] = {
 # 一个永不更新的僵尸账户 —— 位置还在、数字永远停在改名那一刻。
 LEGACY_ACCOUNT_NAMES = frozenset({"FutuReal"})
 
+# 模拟账户（``TrdEnv.SIMULATE``）账户块的统一前缀。
+#
+# 为什么**不复用品牌名**（FutuHK / MoomooUS）
+# ------------------------------------------
+# 富途的模拟账户是**全局共享、不分品牌**的：逐品牌调 ``get_acc_list()``，
+# 7 个品牌每一个都会把**同一批**模拟账户原样返回一遍。若沿用品牌命名，
+# 同一批账户会被重复写入 7 次且彼此重名（实测：14 个目标 / 7 组重名）。
+# 模拟账户也用不上 ``security_firm``（该字段对模拟账户恒为 ``N/A``）。
+SIM_ACCOUNT_PREFIX = "FutuSim"
+
+# 模拟账户品类 → 账户名后缀。STOCK / STOCK_AND_OPTION 视为默认品类不加后缀，
+# 其余加后缀，好让同市场下的多个模拟账户（如港股股票 + 港股期权）名字唯一。
+SIM_ACC_TYPE_SUFFIX: Dict[str, str] = {
+    "STOCK": "",
+    "STOCK_AND_OPTION": "",
+    "OPTION": "Option",
+    "FUTURES": "Futures",
+}
+
 _MARKET_CURRENCY: Dict[str, str] = {
     "HK": "HKD",
     "US": "USD",
@@ -267,6 +286,21 @@ class FutuPortfolioSyncer:
         except Exception:
             return 0
 
+    def _is_simulate(self) -> bool:
+        """本次同步是否走模拟环境。"""
+        return self.trd_env.upper() == "SIMULATE"
+
+    @staticmethod
+    def _sim_target_name(row: Dict[str, Any]) -> str:
+        """给一个模拟账户起名，如 ``FutuSimHK`` / ``FutuSimHKOption``。
+
+        模拟账户**没有品牌**（``security_firm`` 恒为 N/A），所以名字里只带
+        市场与品类：市场保证看得出交易范围，品类保证同市场多账户不撞名。
+        """
+        market = (row.get("market_auth") or ["X"])[0]
+        kind = str(row.get("sim_acc_type") or "").upper()
+        return f"{SIM_ACCOUNT_PREFIX}{market}{SIM_ACC_TYPE_SUFFIX.get(kind, kind.title())}"
+
     # ---------------------------------------------------------- 账户探测
 
     def _probe_firm(self, firm: str) -> Tuple[bool, List[Dict[str, Any]]]:
@@ -306,6 +340,7 @@ class FutuPortfolioSyncer:
                     "trd_env": _clean(row.get("trd_env", "")),
                     "market_auth": _market_auth(row),
                     "acc_role": _clean(row.get("acc_role", "")),
+                    "sim_acc_type": _clean(row.get("sim_acc_type", "")),
                     "security_firm": firm,
                 })
             return True, rows
@@ -355,10 +390,20 @@ class FutuPortfolioSyncer:
 
         Returns:
             ``(目标账户列表, 枚举失败的品牌说明, 枚举成功的品牌集合)``
+
+        模拟环境（``trd_env="SIMULATE"``）与真实环境的取法**必须分开**：
+
+        * 模拟账户**全局共享、不分品牌** —— 逐品牌枚举会让同一批账户
+          被返回 7 遍。这里**按 ``acc_id`` 跨品牌去重**，只保留首次见到的那份。
+        * 模拟账户命名**不带品牌**（``FutuSimHK`` / ``FutuSimHKOption``）：
+          同一个品牌下可能同时有股票与期权两个模拟账户，同市场下
+          ``f"{base}_{market}"`` 必然撞名（实测 ``FutuHK_HK`` × 2）。
         """
         targets: List[Dict[str, Any]] = []
         probe_errors: List[str] = []
         probed_ok: Set[str] = set()
+        is_sim = self._is_simulate()
+        seen_acc_ids: Set[int] = set()
 
         for firm in self.firms:
             ok, rows = self._probe_firm(firm)
@@ -368,10 +413,17 @@ class FutuPortfolioSyncer:
             probed_ok.add(firm)
 
             selected = self._select_main_accounts(rows)
+            if is_sim:
+                # 模拟账户跨品牌重复：同一个 acc_id 只取一次
+                selected = [r for r in selected if r["acc_id"] not in seen_acc_ids]
+                seen_acc_ids.update(r["acc_id"] for r in selected)
+
             multi = len(selected) > 1
             base = SECURITY_FIRM_ACCOUNT_NAMES.get(firm, firm)
             for row in selected:
-                if multi:
+                if is_sim:
+                    name = self._sim_target_name(row)
+                elif multi:
                     # 一个品牌有多个账户时才加市场后缀，避免名字撞车
                     market = (row["market_auth"] or ["X"])[0]
                     name = f"{base}_{market}"
@@ -384,6 +436,7 @@ class FutuPortfolioSyncer:
                     "card_num": row["card_num"],
                     "market_auth": list(row["market_auth"]),
                     "acc_type": row["acc_type"],
+                    "trd_env": self.trd_env.upper(),
                 })
         return targets, probe_errors, probed_ok
 
@@ -480,9 +533,25 @@ class FutuPortfolioSyncer:
             raise RuntimeError(f"持仓查询失败: {str(pos_data)[:120]}")
 
         positions = self._parse_positions(pos_data)
-        currency = decide_currency(target["firm"], positions)
+        currency = self._decide_account_currency(target, positions)
         funds = self._query_funds(ctx, acc_id, currency)
         return {"funds": funds, "positions": positions, "currency": currency}
+
+    def _decide_account_currency(
+        self, target: Dict[str, Any], positions: Sequence[Dict[str, Any]],
+    ) -> str:
+        """决定账户的资金查询币种。
+
+        有持仓时沿用 :func:`decide_currency`（按持仓多数决）。但**模拟账户
+        无持仓时不能退回「品牌本地币种」**：模拟账户不分品牌，代码把
+        ``target["firm"]`` 记成首个枚举到它的品牌（通常是 ``FUTUSECURITIES``
+        → HKD），对港股模拟盘碰巧对，对**美股模拟盘就是凭空造币种**。
+        这种情况改按账户自己的市场推。
+        """
+        if not positions and self._is_simulate():
+            market = (target.get("market_auth") or [""])[0]
+            return _MARKET_CURRENCY.get(market, "USD")
+        return decide_currency(target["firm"], positions)
 
     def get_portfolio(
         self, acc_id: Optional[int] = None, firm: Optional[str] = None,
@@ -644,9 +713,13 @@ class FutuPortfolioSyncer:
             }
 
         funds = data.get("funds", {}) or {}
+        is_sim = (target.get("trd_env") or self.trd_env).upper() == "SIMULATE"
         return {
             "account_type": "futu",
-            "security_firm": target["firm"],
+            # 模拟账户不分品牌（``security_firm`` 对它恒为 N/A）→ 留空，
+            # 免得页面显示一个它其实并不属于的品牌
+            "security_firm": "" if is_sim else target["firm"],
+            "trd_env": target.get("trd_env", self.trd_env.upper()),
             "acc_id": target["acc_id"],
             "card_num": target["card_num"],
             "market_auth": target.get("market_auth", []),
@@ -664,12 +737,25 @@ class FutuPortfolioSyncer:
     ) -> Set[str]:
         """算出该清理的旧账户名。
 
-        两条规矩：
+        三条规矩：
         1. **探测失败的品牌一律不清** —— 分不清「账户没了」还是「连不上」，
            宁可留着旧数据，也不能因为一次网络抖动把页面清空。
         2. 只有「品牌探测成功、但它名下的账户已不在本次同步结果里」才清。
+        3. ❗**只管本次环境名下的账户** —— 真实与模拟账户共用同一张
+           ``accounts`` 表（同一份 ``naja_bandit_positions``）。模拟同步时
+           7 个品牌会**全部探测成功**，若沿用「品牌名 → 品牌名下账户」的规则，
+           ``FutuHK`` / ``MoomooUS`` 会被判成「已不在本次结果里」而**被清空**
+           —— 即**跑一次模拟同步就会抹掉全部实盘持仓**。
+           故：模拟环境只允许清 ``FutuSim`` 前缀；真实环境只清品牌前缀。
         """
         stale: Set[str] = set()
+
+        if self._is_simulate():
+            for name in existing:
+                if name.startswith(SIM_ACCOUNT_PREFIX) and name not in current:
+                    stale.add(name)
+            return stale - current
+
         for firm, base in SECURITY_FIRM_ACCOUNT_NAMES.items():
             if firm not in probed_ok:
                 continue
@@ -697,7 +783,10 @@ class FutuPortfolioSyncer:
             target = by_name[name]
             accounts_data[name] = self._build_account_record(target, data)
 
-        stale = self._stale_account_names(set(accounts_data), set(payloads), probed_ok)
+        # ❗`current` 必须是**本次目标账户名**（账户确实还在），不是**取数成功**
+        # 的账户名（``payloads``）：否则「账户还在、只是这一轮 3 次重试都失败」
+        # 会被判成「已消失」而删掉 —— 拿一次网络故障当结论，白清页面数据。
+        stale = self._stale_account_names(set(accounts_data), set(by_name), probed_ok)
         for name in stale:
             accounts_data.pop(name, None)
 
