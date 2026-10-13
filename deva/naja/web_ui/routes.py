@@ -858,12 +858,17 @@ class TrayDataHandler(RequestHandler):
     def get(self):
         try:
             from datetime import datetime
-            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import get_timeline_data_for_api
+            from deva.naja.market_hotspot.ui_components.timeline.market_24h_timeline import (
+                get_timeline_data_for_api, TRAY_TIMELINE_LIMITS,
+            )
             from deva.naja.radar.trading_clock import get_global_trading_status
             from concurrent.futures import ThreadPoolExecutor
 
             def _fetch_timeline():
-                return get_timeline_data_for_api(hours=24)
+                # 托盘专用配额：保证 high_score_news / jin10_news 必现，
+                # 不再被秒级滚动的板块异动挤光（见 select_timeline_events）。
+                return get_timeline_data_for_api(
+                    hours=24, per_type_limits=TRAY_TIMELINE_LIMITS)
 
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(_fetch_timeline)
