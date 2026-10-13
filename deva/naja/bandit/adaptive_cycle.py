@@ -17,6 +17,7 @@ from .virtual_portfolio import VirtualPortfolio, VirtualPosition
 from .market_observer import MarketDataObserver, get_market_observer
 from .optimizer import get_bandit_optimizer
 from .data_freshness import get_freshness_tracker, SOURCE_CN_PRICE
+from .execution import resolve_backend
 from deva.naja.register import SR
 from deva.naja.decision import compute_order_amount, manas_sizing_enabled
 
@@ -385,65 +386,76 @@ class AdaptiveCycle:
         stop_loss_pct, take_profit_pct = self._get_adaptive_stop_loss()
         log.info(f"[AdaptiveCycle] 自适应止盈止损: stop_loss={stop_loss_pct}%, take_profit={take_profit_pct}%")
 
-        position = self._portfolio.open_position(
-            strategy_id=signal.strategy_id,
-            strategy_name=signal.strategy_name,
-            stock_code=signal.stock_code,
-            stock_name=signal.stock_name,
+        # 执行后端：默认 ``virtual``（写虚拟仓，与改造前完全一致）；
+        # 设 ``NAJA_EXEC_BACKEND=futu_sim`` 才改报到富途模拟账户。
+        outcome = resolve_backend(portfolio=self._portfolio).submit(
+            signal=signal,
+            plan=decision.get("plan"),
+            side="buy",                     # 上面已确认是买入信号
             price=signal.price,
             amount=amount,
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
-            market_time=signal.market_time,
-            signal_confidence=signal.confidence,
         )
-        
-        if position:
-            log.info(f"[AdaptiveCycle] 🎉 持仓创建成功! ID={position.position_id} {signal.stock_name}({signal.stock_code}) @ {signal.price}")
-            self._market_observer.track_stock(signal.stock_code)
 
-            try:
-                from deva.naja.bandit.notifier import get_bandit_notifier
-                notifier = get_bandit_notifier()
-                notifier.notify_position_opened(
-                    position_id=position.position_id,
-                    stock_code=signal.stock_code,
-                    stock_name=signal.stock_name,
-                    price=signal.price,
-                    amount=amount,
-                )
-                notifier.notify_buy_signal(
-                    stock_code=signal.stock_code,
-                    stock_name=signal.stock_name,
-                    price=signal.price,
-                    confidence=signal.confidence,
-                    strategy_name=signal.strategy_name,
-                    reason=f"信号触发: {signal.signal_type}",
-                )
-            except Exception as e:
-                log.warning(f"[AdaptiveCycle] 发送交易通知失败: {e}")
+        # ❗「跳过」与「失败」必须分开报：跳过是链路好、只是某道闸没放行
+        # （原因要透出）；失败是链路坏了。混成一个布尔会制造假警报，
+        # 或者反过来把故障埋成"长期正常"。
+        if not outcome.acted:
+            if outcome.skipped:
+                log.info(f"[AdaptiveCycle] ⏭ 执行跳过 [{outcome.backend}]: "
+                         f"{signal.stock_code} —— {outcome.reason}")
+            else:
+                log.error(f"[AdaptiveCycle] ❌ 执行失败 [{outcome.backend}]: "
+                          f"{signal.stock_code} —— {outcome.reason or outcome.detail}")
+            return
 
-            try:
-                from deva.naja.state.snapshot import record_bandit_decision
-                record_bandit_decision(
-                    action="BUY",
-                    symbol=signal.stock_code,
-                    price=signal.price,
-                    confidence=signal.confidence,
-                    quantity=amount,
-                    reason=f"信号触发: {signal.signal_type} from {signal.strategy_name}"
-                )
-            except Exception as e:
-                log.debug(f"记录Bandit决策快照失败: {e}")
+        log.info(f"[AdaptiveCycle] 🎉 执行成功 [{outcome.backend}]! "
+                 f"ID={outcome.position_id} {signal.stock_name}({signal.stock_code}) @ {signal.price}")
 
-            self._optimizer.select_strategy(
-                available_strategies=[signal.strategy_id],
-                context={"stock_code": signal.stock_code, "price": signal.price}
+        self._market_observer.track_stock(signal.stock_code)
+
+        try:
+            from deva.naja.bandit.notifier import get_bandit_notifier
+            notifier = get_bandit_notifier()
+            notifier.notify_position_opened(
+                position_id=outcome.position_id,
+                stock_code=signal.stock_code,
+                stock_name=signal.stock_name,
+                price=signal.price,
+                amount=amount,
             )
+            notifier.notify_buy_signal(
+                stock_code=signal.stock_code,
+                stock_name=signal.stock_name,
+                price=signal.price,
+                confidence=signal.confidence,
+                strategy_name=signal.strategy_name,
+                reason=f"信号触发: {signal.signal_type}",
+            )
+        except Exception as e:
+            log.warning(f"[AdaptiveCycle] 发送交易通知失败: {e}")
 
-            log.info(f"[AdaptiveCycle] ✅ 自适应循环: 创建虚拟持仓 {signal.stock_name}({signal.stock_code}) @ {signal.price}")
-        else:
-            log.error(f"[AdaptiveCycle] ❌ 持仓创建失败: {signal.stock_code}")
+        try:
+            from deva.naja.state.snapshot import record_bandit_decision
+            record_bandit_decision(
+                action="BUY",
+                symbol=signal.stock_code,
+                price=signal.price,
+                confidence=signal.confidence,
+                quantity=amount,
+                reason=f"信号触发: {signal.signal_type} from {signal.strategy_name}"
+            )
+        except Exception as e:
+            log.debug(f"记录Bandit决策快照失败: {e}")
+
+        self._optimizer.select_strategy(
+            available_strategies=[signal.strategy_id],
+            context={"stock_code": signal.stock_code, "price": signal.price}
+        )
+
+        log.info(f"[AdaptiveCycle] ✅ 自适应循环: {outcome.backend} 执行 "
+                 f"{signal.stock_name}({signal.stock_code}) @ {signal.price}")
     
     def _on_price_update(self, stock_code: str, price: float):
         """处理价格更新"""

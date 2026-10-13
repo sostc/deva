@@ -1,0 +1,735 @@
+#!/usr/bin/env python3
+"""守卫：富途模拟执行后端（``DecisionPlan`` → 真的下一笔单）。
+
+守三件事：
+1. **不动手就不许动**：默认后端必须是虚拟仓；配置写错要回落虚拟仓，
+   绝不能"因为装了新代码就开始报单"。
+2. **每道闸各拦各的**：非买入 / 判不出市场 / 市场不在白名单 /
+   找不到模拟账户 / 取不到每手股数 / 金额买不起一手 / 槽位已占用 ——
+   每条都要**独立**给出跳过与原因（不能合并成一句"失败"），
+   且原因两两不同（一条保护掩盖另一条 = 假绿）。
+3. **失败要归还槽位**：报单失败不归还 → 该标的当天再也下不出单。
+
+用法::
+
+    python3 scripts/verify/verify_futu_sim_execution.py --strict
+    python3 scripts/verify/verify_futu_sim_execution.py --self-test
+    python3 scripts/verify/verify_futu_sim_execution.py --exercise-injections
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import os
+import re
+import shutil
+import sys
+import tempfile
+import threading
+import types
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+BANDIT = REPO / "deva" / "naja" / "bandit"
+
+EXEC_PY = BANDIT / "execution.py"
+ADAPTIVE_PY = BANDIT / "adaptive_cycle.py"
+SYNCER_PY = BANDIT / "futu_portfolio_syncer.py"
+FRESHNESS_PY = BANDIT / "data_freshness.py"
+
+# ---------------------------------------------------------------- ① 静态
+
+STATIC_RULES = [
+    (EXEC_PY, r'ENV_BACKEND\s*=\s*"NAJA_EXEC_BACKEND"',
+     "缺少执行后端开关（没法回滚到虚拟仓）"),
+    (EXEC_PY, r'BACKEND_VIRTUAL\s*=\s*"virtual"',
+     "缺少默认后端名 virtual"),
+    (EXEC_PY, r'os\.O_CREAT\s*\|\s*os\.O_EXCL',
+     "幂等槽位未用 O_CREAT|O_EXCL 原子认领（先查后写会在并发下重复下单）"),
+    (EXEC_PY, r'def floor_to_lot\(',
+     "缺少整手折算（港股下单必须是每手整数倍）"),
+    (EXEC_PY, r'if price <= 0 or lot_size <= 0 or amount <= 0:',
+     "整手折算缺少非正数保护"),
+    (EXEC_PY, r'release_order_slot\(key\)',
+     "报单失败后未归还槽位（该标的当天再也下不出单）"),
+    (EXEC_PY, r'skipped: bool = False',
+     "结果契约缺少 skipped —— 跳过与失败必须分成两个维度"),
+    (EXEC_PY, r'if market not in self\.markets:',
+     "缺少市场白名单检查（美股信号会去撞不存在的模拟账户）"),
+    (EXEC_PY, r'if not market:\s*\n\s*return skip\(why\)',
+     "市场判不出来时未如实跳过（猜市场 = 把单下到别的盘口）"),
+    (EXEC_PY, r'if lot_size <= 0:',
+     "取不到每手股数时未跳过（凭猜报单必被拒）"),
+    (ADAPTIVE_PY, r'resolve_backend\(portfolio=self\._portfolio\)',
+     "AdaptiveCycle 未走执行后端（回到直连虚拟仓的老路）"),
+    (ADAPTIVE_PY, r'if not outcome\.acted:',
+     "AdaptiveCycle 未区分「跳过」与「失败」"),
+]
+
+STATIC_FORBIDDEN = [
+    (EXEC_PY, r'TrdEnv\.REAL',
+     "模拟后端出现 TrdEnv.REAL —— 会把模拟单报到真实账户"),
+    (EXEC_PY, r'lot_size\s*=\s*\d+\s*$',
+     "每手股数被写死（港股每手 20~10000 不等，必须实查）"),
+    (EXEC_PY, r'def selected_backend_name[\s\S]{0,400}?return\s+BACKEND_FUTU_SIM\s*\n',
+     "默认后端变成了 futu_sim —— 装上新代码就自动开始报单"),
+    (ADAPTIVE_PY, r'self\._portfolio\.open_position\(',
+     "AdaptiveCycle 绕过执行后端直接调 open_position"),
+]
+
+# 负向注入：改一处源码，check() 必须报错
+INJECTIONS = [
+    {
+        "name": "把模拟单的环境改成真实环境",
+        "file": EXEC_PY,
+        "old": "                trd_env=TrdEnv.SIMULATE,",
+        "new": "                trd_env=TrdEnv.REAL,",
+    },
+    {
+        "name": "去掉「报单失败归还槽位」",
+        "file": EXEC_PY,
+        "old": "        if not order_id:\n"
+               "            # 报单没成功 → 归还槽位，别把当天唯一的机会吃掉\n"
+               "            release_order_slot(key)\n",
+        "new": "        if not order_id:\n",
+    },
+    {
+        "name": "整手折算改成不按手取整（回到小数股）",
+        "file": EXEC_PY,
+        "old": "    return int(amount // (price * float(lot_size))) * int(lot_size)",
+        "new": "    return int(amount // price)",
+    },
+    {
+        "name": "AdaptiveCycle 绕过后端直调虚拟仓",
+        "file": ADAPTIVE_PY,
+        "old": "        outcome = resolve_backend(portfolio=self._portfolio).submit(",
+        "new": "        from .execution import VirtualPortfolioBackend as _VPB\n"
+               "        outcome = _VPB(self._portfolio).submit(",
+    },
+]
+
+
+# ---------------------------------------------------------------- 载入
+
+def _stub_package(name: str, path=None):
+    mod = types.ModuleType(name)
+    if path is not None:
+        mod.__path__ = [str(path)]
+    sys.modules[name] = mod
+    return mod
+
+
+def _load_by_path(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 {path}")
+    mod = importlib.util.module_from_spec(spec)
+    # 必须先登记进 sys.modules：@dataclass 解析注解时靠它反查所属模块
+    sys.modules[name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return mod
+
+
+class Sandbox:
+    """把被测模块加载进临时目录沙箱：不碰生产库、不碰真实报单目录。"""
+
+    def __init__(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="verify_sim_exec_"))
+        self.exec_mod = None
+        self.syncer_mod = None
+
+    def close(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def load(self):
+        if self.exec_mod is not None:
+            return self.exec_mod
+        # execution.py 模块级只依赖 stdlib，直接按路径加载
+        self.exec_mod = _load_by_path("_execution_under_test", EXEC_PY)
+        # 报单目录改到沙箱，避免污染 ~/.naja
+        self.exec_mod.order_dir = lambda: self.tmp
+        return self.exec_mod
+
+    def load_syncer(self):
+        """加载同步器（用桩件替代 deva 包）。"""
+        if self.syncer_mod is not None:
+            return self.syncer_mod
+
+        def _no_db(*_a, **_k):
+            raise RuntimeError("守卫不访问数据库")
+
+        deva = _stub_package("deva")
+        deva.NB = _no_db
+        _stub_package("deva.naja")
+        _stub_package("deva.naja.bandit", BANDIT)
+        _load_by_path("deva.naja.bandit.data_freshness", FRESHNESS_PY)
+        self.syncer_mod = _load_by_path("_futu_syncer_under_test", SYNCER_PY)
+        return self.syncer_mod
+
+
+# ---------------------------------------------------------------- ② 纯函数
+
+def check_pure(mod) -> list:
+    failures = []
+
+    def eq(got, want, label):
+        if got != want:
+            failures.append(f"{label}: 得到 {got!r}，应为 {want!r}")
+
+    # 市场判定
+    eq(mod.infer_market("HK.06666")[0], "HK", "带前缀港股")
+    eq(mod.infer_market("US.NVDA")[0], "US", "带前缀美股")
+    eq(mod.infer_market("06666")[0], "HK", "5 位数字 → 港股")
+    eq(mod.infer_market("000001")[0], "CN", "6 位数字 → A 股（与港股同形，靠位数区分）")
+    eq(mod.infer_market("1234")[0], "", "4 位数字判不出市场")
+    eq(mod.infer_market("")[0], "", "空代码判不出市场")
+    eq(mod.infer_market("nvda")[0], "", "裸字母代码不许猜市场（可能是港股也可能是美股）")
+    eq(mod.infer_market("nvda", {"market": "US"})[0], "US", "信号字段兜底")
+    if not mod.infer_market("1234")[1]:
+        failures.append("判不出市场时必须给出原因（不能返回空理由）")
+
+    # 代码规范化
+    eq(mod.futu_code("HK", "06666"), "HK.06666", "港股代码补零")
+    eq(mod.futu_code("HK", "6666"), "HK.06666", "港股短代码补零到 5 位")
+    eq(mod.futu_code("HK", "100"), "HK.00100", "港股代码补零（00100）")
+    eq(mod.futu_code("HK", "HK.06666"), "HK.06666", "已带前缀不重复拼接")
+    eq(mod.futu_code("US", "nvda"), "US.NVDA", "美股代码大写")
+
+    # 整手折算
+    eq(mod.floor_to_lot(10000.0, 1.205, 500), 8000, "向下取整到手（16 手 × 500）")
+    eq(mod.floor_to_lot(500.0, 1.205, 500), 0, "买不起一手 → 0")
+    eq(mod.floor_to_lot(10000.0, 0.0, 500), 0, "价格为 0 → 0")
+    eq(mod.floor_to_lot(10000.0, 10.0, 0), 0, "每手为 0 → 0")
+    eq(mod.floor_to_lot(0.0, 10.0, 100), 0, "金额为 0 → 0")
+    eq(mod.floor_to_lot(602500.0, 1.205, 500), 500000, "正好整手（1000 手）")
+
+    # 后端选择语义
+    saved = {k: os.environ.get(k) for k in (mod.ENV_BACKEND, mod.ENV_SIM_MARKETS)}
+    try:
+        os.environ.pop(mod.ENV_BACKEND, None)
+        eq(mod.selected_backend_name(), mod.BACKEND_VIRTUAL, "未配置时默认虚拟仓")
+        eq(mod.futu_sim_enabled(), False, "未配置时不应启用模拟报单")
+        os.environ[mod.ENV_BACKEND] = mod.BACKEND_FUTU_SIM
+        eq(mod.selected_backend_name(), mod.BACKEND_FUTU_SIM, "显式开启模拟报单")
+        os.environ[mod.ENV_BACKEND] = "nonsense"
+        eq(mod.selected_backend_name(), mod.BACKEND_VIRTUAL, "未知配置回落虚拟仓")
+        os.environ[mod.ENV_BACKEND] = "FUTU_SIM"
+        eq(mod.selected_backend_name(), mod.BACKEND_FUTU_SIM, "大小写不敏感")
+
+        os.environ[mod.ENV_SIM_MARKETS] = "hk, us"
+        eq(sorted(mod.sim_markets()), ["HK", "US"], "白名单解析 + 大写归一")
+        os.environ.pop(mod.ENV_SIM_MARKETS, None)
+        eq(sorted(mod.sim_markets()), ["HK"], "白名单默认只有 HK（美股模拟账户尚未开通）")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    return failures
+
+
+# ---------------------------------------------------------------- ③ 幂等槽位
+
+def check_slots(mod) -> list:
+    failures = []
+
+    key = mod.order_slot_key("HK", "06666", "buy", day="20260101")
+    if not mod.claim_order_slot(key):
+        failures.append("首次认领槽位失败")
+    if mod.claim_order_slot(key):
+        failures.append("同一槽位被重复认领 —— 幂等失效，会重复下单")
+    if not mod.slot_taken(key):
+        failures.append("已认领的槽位查询不到")
+    mod.release_order_slot(key)
+    if mod.slot_taken(key):
+        failures.append("归还槽位失败 —— 该标的当天再也下不出单")
+    mod.release_order_slot(key)  # 二次归还不许抛
+
+    # 键必须区分市场/标的/方向/日期
+    keys = {
+        mod.order_slot_key("HK", "06666", "buy", day="20260101"),
+        mod.order_slot_key("HK", "06666", "sell", day="20260101"),
+        mod.order_slot_key("US", "06666", "buy", day="20260101"),
+        mod.order_slot_key("HK", "00100", "buy", day="20260101"),
+        mod.order_slot_key("HK", "06666", "buy", day="20260102"),
+    }
+    if len(keys) != 5:
+        failures.append(f"槽位键维度不足，{5} 种情形只产生 {len(keys)} 个键")
+
+    # 并发认领：同一键 8 线程 × 40 次，必须**恰好** 1 次成功
+    concur_key = mod.order_slot_key("HK", "00001", "buy", day="20260101")
+    wins = []
+    lock = threading.Lock()
+
+    def worker():
+        for _ in range(40):
+            if mod.claim_order_slot(concur_key):
+                with lock:
+                    wins.append(1)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if sum(wins) != 1:
+        failures.append(f"并发认领同一槽位成功了 {sum(wins)} 次，应恰好 1 次（会重复下单）")
+
+    # 不同键互不干扰（避开上面已占用的 00001）
+    codes = [f"{20000 + i:05d}" for i in range(60)]
+    results = [mod.claim_order_slot(mod.order_slot_key("HK", c, "buy", day="20260101"))
+               for c in codes]
+    if not all(results):
+        failures.append("不同标的的槽位互相干扰（应各自独立成功）")
+    # 反方向：同一标的重复认领必须失败（一条保护不能掩盖另一条）
+    again = [mod.claim_order_slot(mod.order_slot_key("HK", c, "buy", day="20260101"))
+             for c in codes]
+    if any(again):
+        failures.append("已占用的标的槽位又被认领成功（幂等失效）")
+    # 方向/日期的反方向：换个方向或换天，必须能再次认领
+    fresh = [
+        mod.claim_order_slot(mod.order_slot_key("HK", codes[0], "sell", day="20260101")),
+        mod.claim_order_slot(mod.order_slot_key("HK", codes[0], "buy", day="20260102")),
+    ]
+    if not all(fresh):
+        failures.append("换方向/换天后仍无法认领（幂等键维度过多，会误拦真实订单）")
+
+    return failures
+
+
+# ---------------------------------------------------------------- ④ 后端选择
+
+class _FakeSyncer:
+    def __init__(self, targets):
+        self._targets = targets
+
+    def get_sync_targets(self):
+        return list(self._targets), [], {"FUTUSECURITIES"}
+
+
+class _FakePosition:
+    def __init__(self, **kw):
+        self.position_id = "VP_X_1"
+        self.quantity = kw.get("amount", 0) / kw.get("price", 1)
+        self.entry_price = kw.get("price", 1)
+
+
+class _FakePortfolio:
+    def __init__(self, position=None, boom=False):
+        self.calls = []
+        self._position = position
+        self._boom = boom
+
+    def open_position(self, **kw):
+        self.calls.append(kw)
+        if self._boom:
+            raise RuntimeError("虚拟仓炸了")
+        return self._position
+
+
+class _FakeSignal:
+    def __init__(self, code, **kw):
+        self.signal_id = "SIG-1"
+        self.strategy_id = "river_main"
+        self.strategy_name = "River"
+        self.stock_code = code
+        self.stock_name = code
+        self.signal_type = "BUY"
+        self.price = kw.get("price", 1.205)
+        self.confidence = 0.8
+        self.timestamp = 0.0
+        self.raw_data = kw.get("raw_data", {})
+        self.market_time = 0.0
+
+
+def check_backends(mod, sandbox) -> list:
+    failures = []
+    hk_target = {
+        "name": "FutuSimHK", "firm": "FUTUSECURITIES", "acc_id": 1973930,
+        "card_num": "", "market_auth": ["HK"], "acc_type": "CASH", "trd_env": "SIMULATE",
+    }
+
+    # ---------- 装配：默认与未知都必须是虚拟仓 ----------
+    portfolio = _FakePortfolio(position=_FakePosition(price=1.205, amount=10000))
+    if not isinstance(mod.resolve_backend(portfolio=portfolio), mod.VirtualPortfolioBackend):
+        failures.append("默认装配的不是虚拟仓后端")
+    if not isinstance(mod.resolve_backend("nonsense", portfolio=portfolio), mod.VirtualPortfolioBackend):
+        failures.append("未知后端名没有回落虚拟仓")
+    if not isinstance(mod.resolve_backend(mod.BACKEND_FUTU_SIM, portfolio=portfolio), mod.FutuSimBackend):
+        failures.append("显式指定 futu_sim 未装配模拟后端")
+
+    # ---------- 虚拟仓后端 ----------
+    sig = _FakeSignal("nvda", price=100.0)
+    out = mod.VirtualPortfolioBackend(portfolio).submit(
+        signal=sig, plan=None, side="buy", price=100.0, amount=10000.0)
+    if not out.acted or out.position_id != "VP_X_1":
+        failures.append("虚拟仓后端未按预期开仓")
+    if out.backend != mod.BACKEND_VIRTUAL:
+        failures.append("虚拟仓后端名字不对")
+    got = portfolio.calls[-1]
+    if got["stock_code"] != "nvda" or got["amount"] != 10000.0:
+        failures.append(f"虚拟仓后端透传参数有误: {got}")
+
+    out = mod.VirtualPortfolioBackend(None).submit(
+        signal=sig, plan=None, side="buy", price=100.0, amount=10000.0)
+    if out.ok or not out.reason:
+        failures.append("虚拟仓不可用时必须失败并给原因")
+
+    out = mod.VirtualPortfolioBackend(_FakePortfolio(position=None)).submit(
+        signal=sig, plan=None, side="buy", price=100.0, amount=10000.0)
+    if out.ok or not out.reason:
+        failures.append("虚拟开仓被拒时必须失败并给原因")
+
+    out = mod.VirtualPortfolioBackend(_FakePortfolio(boom=True)).submit(
+        signal=sig, plan=None, side="buy", price=100.0, amount=10000.0)
+    if out.ok or "异常" not in out.reason:
+        failures.append("虚拟开仓抛异常时必须失败并给原因（不能冒泡打断循环）")
+
+    # ---------- 模拟后端：每道闸独立跳过 ----------
+    class Probe(mod.FutuSimBackend):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            self.lot = 500
+            self.place_result = "OID-1"
+            self.place_calls = []
+            self.slot_alive_at_place = None
+            self.boom = False
+
+        def _query_lot_size(self, market, code):
+            return self.lot
+
+        def _place(self, market, code, quantity, price, target):
+            if self.boom:
+                raise RuntimeError("连接断了")
+            self.place_calls.append((market, code, quantity, price, target["acc_id"]))
+            # 记下"报单那一刻槽位是否已认领"，验证认领早于报单
+            self.slot_alive_at_place = mod.slot_taken(mod.order_slot_key(market, code, "buy"))
+            return self.place_result
+
+    def probe(**kw):
+        targets = kw.pop("targets", [hk_target])
+        p = Probe(syncer=_FakeSyncer(targets), **kw)
+        return p
+
+    gate_reasons = []
+
+    def gate(label, sig, *, side="buy", price=1.205, amount=10000.0, whitelist=None, targets=None,
+             lot=500, place="OID-1", boom=False, **kw):
+        p = probe(**({"markets": whitelist} if whitelist is not None else {}))
+        if targets is not None:
+            p._syncer = _FakeSyncer(targets)
+        p.lot = lot
+        p.place_result = place
+        p.boom = boom
+        out = p.submit(signal=sig, plan=None, side=side, price=price, amount=amount)
+        gate_reasons.append((label, out.skipped, out.reason))
+        return out, p
+
+    # ① 非买入
+    out, _ = gate("非买入", _FakeSignal("06666"), side="sell")
+    if not (out.skipped and not out.ok):
+        failures.append("非买入方向必须跳过")
+    # ② 判不出市场
+    out, _ = gate("判不出市场", _FakeSignal("1234"))
+    if not out.skipped:
+        failures.append("判不出市场必须跳过")
+    # ③ 市场不在白名单
+    out, _ = gate("白名单外", _FakeSignal("000001"))
+    if not out.skipped:
+        failures.append("白名单外市场必须跳过")
+    # ④ 找不到模拟账户
+    out, _ = gate("无模拟账户", _FakeSignal("06666"), targets=[])
+    if not out.skipped:
+        failures.append("找不到模拟账户必须跳过")
+    # ⑤ 取不到每手股数
+    out, _ = gate("无每手股数", _FakeSignal("06666"), lot=0)
+    if not out.skipped:
+        failures.append("取不到每手股数必须跳过（不许凭猜报单）")
+    # ⑥ 金额买不起一手
+    out, _ = gate("买不起一手", _FakeSignal("06666", price=1.205), amount=500.0)
+    if not out.skipped:
+        failures.append("买不起一手必须跳过")
+    # ⑦ 价格无效
+    out, _ = gate("价格无效", _FakeSignal("06666", price=0.0), price=0.0)
+    if not out.skipped:
+        failures.append("价格无效必须跳过")
+    # ⑧ 金额无效
+    out, _ = gate("金额无效", _FakeSignal("06666"), amount=0.0)
+    if not out.skipped:
+        failures.append("金额无效必须跳过")
+
+    # 所有跳过原因必须**两两不同**且非空 —— 一条保护不能掩盖另一条
+    reason_texts = [r for _, skipped, r in gate_reasons if skipped]
+    if len(reason_texts) != len(gate_reasons):
+        failures.append(f"有 {len(gate_reasons) - len(reason_texts)} 道闸没有跳过")
+    if len(set(reason_texts)) != len(reason_texts):
+        dup = [r for r in reason_texts if reason_texts.count(r) > 1]
+        failures.append(f"跳过原因重复，守卫无区分度: {sorted(set(dup))}")
+    if any(not r.strip() for r in reason_texts):
+        failures.append("存在空的跳过原因（前端只会显示一句笼统的失败）")
+
+    # ⑨ 槽位已占用
+    sig = _FakeSignal("06666")
+    taken = mod.order_slot_key("HK", "06666", "buy")
+    mod.claim_order_slot(taken)
+    out, p = gate("槽位占用", sig)
+    if not out.skipped or "幂等" not in out.reason:
+        failures.append(f"槽位已占用时必须跳过并说明幂等，实得: {out.reason!r}")
+    if p.place_calls:
+        failures.append("槽位已占用时仍然报了单")
+    mod.release_order_slot(taken)
+
+    # ⑩ 报单失败 → 必须归还槽位
+    out, p = gate("报单失败", sig, place="")
+    if out.ok or not out.reason:
+        failures.append("报单未返回单号时必须失败")
+    if mod.slot_taken(taken):
+        failures.append("报单失败后槽位没归还 —— 该标的当天再也下不出单")
+
+    # ⑪ 报单抛异常 → 必须归还槽位且不冒泡
+    out, p = gate("报单异常", sig, boom=True)
+    if out.ok or "异常" not in out.reason:
+        failures.append("报单抛异常时必须失败并给原因")
+    if mod.slot_taken(taken):
+        failures.append("报单异常后槽位没归还")
+
+    # ⑫ 正常路径
+    out, p = gate("正常", sig, place="OID-9")
+    if not out.acted:
+        failures.append(f"正常路径应成功，实得 skipped={out.skipped} reason={out.reason!r}")
+    else:
+        if out.order_id != "OID-9":
+            failures.append("成功路径未带回单号")
+        if out.quantity != mod.floor_to_lot(10000.0, 1.205, 500):
+            failures.append(f"下单股数未按整手折算: {out.quantity}")
+        if int(out.quantity) % 500 != 0:
+            failures.append(f"下单股数不是每手整数倍: {out.quantity}")
+        if not p.slot_alive_at_place:
+            failures.append("报单发生在认领槽位之前（并发下会重复下单）")
+        if p.place_calls[-1][3] != 1.205 or p.place_calls[-1][2] != int(out.quantity):
+            failures.append(f"报单参数有误: {p.place_calls[-1]}")
+        if not mod.slot_taken(taken):
+            failures.append("成功后槽位应保持占用（否则当天会重复下单）")
+    mod.release_order_slot(taken)
+
+    # 落流水：成功与跳过都要留痕（跳过也要可审计）
+    journal = mod.read_journal(limit=50)
+    if not journal:
+        failures.append("执行流水为空 —— 跳过/失败事后无从追溯")
+    else:
+        if not any(rec.get("skipped") for rec in journal):
+            failures.append("跳过没有进流水（无法回答'为什么没下单'）")
+        if not any(rec.get("ok") for rec in journal):
+            failures.append("成功没有进流水")
+
+    return failures
+
+
+# ---------------------------------------------------------------- ⑤ 环境隔离
+
+def check_env_isolation(sandbox) -> list:
+    """模拟同步绝不能清掉实盘账户 —— 这是接入前最危险的一条。"""
+    failures = []
+    try:
+        syncer_mod = sandbox.load_syncer()
+    except Exception as e:
+        return [f"无法加载同步器: {e}"]
+
+    existing = {"FutuHK", "MoomooUS", "Spark", "FutuSimHK", "FutuSimHKOption"}
+
+    # 模拟：7 个品牌全部探测成功，也只许清 FutuSim 前缀
+    sim = syncer_mod.FutuPortfolioSyncer(trd_env="SIMULATE")
+    all_firms = set(syncer_mod.SECURITY_FIRM_ACCOUNT_NAMES)
+    stale = sim._stale_account_names(
+        existing, {"FutuSimHK", "FutuSimHKOption"}, all_firms)
+    if stale & {"FutuHK", "MoomooUS", "Spark"}:
+        failures.append(f"模拟同步会清掉实盘账户: {sorted(stale)}（跑一次模拟同步即抹掉全部实盘持仓）")
+    if "FutuSimHKOption" in stale:
+        failures.append("模拟同步把本次成功写库的账户也清了")
+
+    # 模拟账户确实消失时才清
+    stale = sim._stale_account_names(existing, {"FutuSimHK"}, all_firms)
+    if "FutuSimHKOption" not in stale:
+        failures.append("模拟账户已消失却仍保留（留下永不更新的僵尸块）")
+
+    # 真实：不许碰 FutuSim 前缀
+    real = syncer_mod.FutuPortfolioSyncer(trd_env="REAL")
+    stale = real._stale_account_names(
+        existing, {"FutuHK", "MoomooUS"}, {"FUTUSECURITIES", "FUTUINC"})
+    if stale & {"FutuSimHK", "FutuSimHKOption"}:
+        failures.append(f"真实同步会清掉模拟账户: {sorted(stale)}")
+
+    # 模拟目标命名：全局去重 + 无品牌 + 同市场多账户不撞名
+    rows = [
+        {"acc_id": 1973930, "card_num": "", "acc_type": "CASH",
+         "trd_env": "SIMULATE", "market_auth": ["HK"], "acc_role": "",
+         "sim_acc_type": "STOCK", "security_firm": "FUTUSECURITIES"},
+        {"acc_id": 10836386, "card_num": "", "acc_type": "MARGIN",
+         "trd_env": "SIMULATE", "market_auth": ["HK"], "acc_role": "",
+         "sim_acc_type": "OPTION", "security_firm": "FUTUSECURITIES"},
+    ]
+    names = [sim._sim_target_name(r) for r in rows]
+    if len(set(names)) != 2:
+        failures.append(f"同市场股票/期权模拟账户撞名: {names}")
+    if any(syncer_mod.SIM_ACCOUNT_PREFIX not in n for n in names):
+        failures.append(f"模拟账户名未带统一前缀: {names}")
+
+    return failures
+
+
+# ---------------------------------------------------------------- 主检查
+
+def check() -> int:
+    sandbox = Sandbox()
+    try:
+        mod = sandbox.load()
+    except Exception as e:
+        print(f"❌ 无法加载被测模块: {e}")
+        sandbox.close()
+        return 1
+
+    print(f"被测模块：{EXEC_PY.relative_to(REPO)}")
+    print(f"          {ADAPTIVE_PY.relative_to(REPO)}")
+
+    static_fail = []
+    for path, pattern, desc in STATIC_RULES:
+        if not re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE):
+            static_fail.append(f"{path.name}：{desc}")
+    for path, pattern, desc in STATIC_FORBIDDEN:
+        if re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE):
+            static_fail.append(f"{path.name}：{desc}")
+
+    sections = [
+        ("静态（后端开关/原子认领/整数手/失败归还）", static_fail),
+        ("契约 · 市场判定与整手折算", check_pure(mod)),
+        ("契约 · 幂等槽位（含并发）", check_slots(mod)),
+        ("契约 · 后端装配与七道闸", check_backends(mod, sandbox)),
+        ("契约 · 模拟/真实环境隔离", check_env_isolation(sandbox)),
+    ]
+
+    bad = 0
+    for title, failures in sections:
+        if failures:
+            bad += 1
+            print(f"❌ {title}：")
+            for f in failures:
+                print(f"    - {f}")
+        else:
+            print(f"✅ {title}：通过")
+
+    sandbox.close()
+    if bad:
+        return 1
+    print("\n✅ 通过：默认不报单、每道闸独立可辨、失败必归还槽位、模拟同步不碰实盘账户")
+    return 0
+
+
+# ---------------------------------------------------------------- 自证
+
+def self_test() -> int:
+    """规则有区分度：把源码改成"全坏"版本，必须被规则抓到。"""
+    failures = []
+    sandbox = Sandbox()
+    try:
+        mod = sandbox.load()
+    except Exception as e:
+        print(f"❌ 无法加载: {e}")
+        sandbox.close()
+        return 1
+
+    # 每条静态规则都必须能在真实源码里命中（否则是写错的空规则）
+    for path, pattern, desc in STATIC_RULES:
+        if not re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE):
+            failures.append(f"静态规则命中不了真实源码（规则写错了）：{desc}")
+    for path, pattern, desc in STATIC_FORBIDDEN:
+        if re.search(pattern, path.read_text(encoding="utf-8"), re.MULTILINE):
+            failures.append(f"禁用规则命中了真实源码：{desc}")
+
+    # 行为检查必须有区分度：把关键函数替换成"错版本"，必须报错
+    good_floor = mod.floor_to_lot
+    mod.floor_to_lot = lambda amount, price, lot_size: int(amount // price) if price > 0 else 0
+    try:
+        if not check_pure(mod):
+            failures.append("把整手折算换成不取整版本，check_pure 竟然全绿（无区分度）")
+    finally:
+        mod.floor_to_lot = good_floor
+
+    good_name = mod.selected_backend_name
+    mod.selected_backend_name = lambda: mod.BACKEND_FUTU_SIM
+    try:
+        if not check_pure(mod):
+            failures.append("把默认后端换成 futu_sim，check_pure 竟然全绿（无区分度）")
+    finally:
+        mod.selected_backend_name = good_name
+
+    sandbox.close()
+    if failures:
+        print("❌ 自证失败：")
+        for f in failures:
+            print(f"    - {f}")
+        return 1
+    print("✅ 自证通过：静态规则均命中真实源码，且行为检查有区分度")
+    return 0
+
+
+# ---------------------------------------------------------------- 注入
+
+def exercise_injections() -> int:
+    """逐例注入 → check() 必须报错 → 立即还原并确认。"""
+    backups = {}
+    problems = []
+
+    for inj in INJECTIONS:
+        path = inj["file"]
+        original = path.read_text(encoding="utf-8")
+        backups[path] = original
+        if inj["old"] not in original:
+            problems.append(f"[{inj['name']}] 注入锚点找不到，用例已失效")
+            continue
+
+        path.write_text(original.replace(inj["old"], inj["new"], 1), encoding="utf-8")
+        try:
+            rc = check()
+        finally:
+            path.write_text(original, encoding="utf-8")
+
+        if rc == 0:
+            problems.append(f"[{inj['name']}] 注入后守卫仍然全绿 —— 这条保护是假的")
+        else:
+            print(f"✅ 注入被捕获：{inj['name']}")
+        # 立即确认已还原（restore 覆盖后续改动是踩过的坑）
+        if path.read_text(encoding="utf-8") != original:
+            problems.append(f"[{inj['name']}] 还原失败，源码未复位")
+
+    if problems:
+        print("\n❌ 注入自证失败：")
+        for p in problems:
+            print(f"    - {p}")
+        return 1
+    print(f"\n✅ 注入自证通过：{len(INJECTIONS)} 例注入全部被捕获，且已还原")
+    return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="富途模拟执行后端守卫")
+    ap.add_argument("--strict", action="store_true", help="严格模式（默认行为）")
+    ap.add_argument("--self-test", action="store_true", help="隔离自证：规则有区分度")
+    ap.add_argument("--exercise-injections", action="store_true", help="真实注入后必须报错")
+    args = ap.parse_args()
+
+    if args.self_test:
+        return self_test()
+    if args.exercise_injections:
+        return exercise_injections()
+    return check()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
