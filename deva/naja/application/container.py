@@ -166,7 +166,18 @@ class AppContainer:
         components = {
             # ── 基础组件 ──
             "trading_clock": self._trading_clock,
-            "market_time_service": self._trading_clock,  # 别名：旧代码可能用这个名
+            # ❗不要把 market_time_service 别名到 _trading_clock。
+            # 两者是两套互不相通的接口：
+            #   MarketTimeService -> get_market_time / get_market_datetime / set_replay_mode
+            #   TradingClock      -> cn_phase / us_phase / get_global_status
+            # TradingClock **没有** get_market_time()。此处曾写成
+            #   "market_time_service": self._trading_clock,  # 别名：旧代码可能用这个名
+            # 导致 SR('market_time_service').get_market_time() 必然 AttributeError，
+            # 直接表现为 /banditadmin 打开即 "Unhandled error in pywebio app"
+            # （VirtualPosition.holding_seconds 是唯一未被 try 包住的消费点），
+            # 并让 market_hotspot 的回放时间/回放模式静默降级为系统时间。
+            # 该名字由 register.py 的声明式表注册为真正的 MarketTimeService，
+            # 这里保持不覆盖即可。
             "virtual_portfolio": self._virtual_portfolio,
             "value_system": self._value_system,
             # ── Attention Kernel / OS ──
