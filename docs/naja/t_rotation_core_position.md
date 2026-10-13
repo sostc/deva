@@ -1,7 +1,9 @@
 # 做 T 降成本模块设计（长期持有 + 日内回转）
 
 > 实现：`deva/naja/bandit/{core_position,intraday_deviation,t_rotation}.py`
-> 守卫：`scripts/verify/verify_t_rotation_core.py`（25 项，`ALL PASS` 且通过负向验证）
+> 接线：`deva/naja/bandit/{core_holdings,t_rotation_runner}.py`
+> 守卫：`scripts/verify/verify_t_rotation_core.py`（25 项）
+> 　　　`scripts/verify/verify_t_rotation_wiring.py`（19 项，均通过负向验证）
 
 ## 一、需求与拆解
 
@@ -187,6 +189,67 @@ TRotationConfig(
 
 今天的实测：科创芯片振幅 5.85%，低吸高抛空间约 6.11%——但这种锐度伴随着同等的风险。
 
+## 六之二、真实接线（标的 = 科创芯片 ETF，数据源 = MarketDataBus）
+
+引擎写完之后全仓库**零调用方** —— 代码、文档、25 项守卫都是绿的，
+但没有一行行情流进它。这是本仓库反复出现的静默失效形态，特此单列一节。
+
+### 标的：`core_holdings.py`
+
+用户拍板 **科创芯片 ETF（588200）**。名称与代码已用新浪行情核对：
+
+| 代码 | 名称 | 2026-10-13 昨收 | 当日振幅 |
+|---|---|---|---|
+| **588200** | **科创芯片ETF嘉实** ← 默认 | 0.996 | 6.02% |
+| 512480 | 半导体ETF国联安 | 0.888 | 5.74% |
+| 159995 | 芯片ETF | 0.973 | 5.55% |
+
+环境与 Read 接口：
+
+```
+NAJA_T_ROTATION_SYMBOLS          默认 588200（逗号分隔可加多个）
+NAJA_T_ROTATION_TARGET_SHARES    100000 或 588200:100000,512480:50000
+NAJA_T_ROTATION_ENABLED          0 关闭运行器
+NAJA_T_ROTATION_ESTABLISH        1 才允许自动补足底仓（默认关）
+NAJA_T_ROTATION_POLL_SECONDS     30
+```
+
+### 运行器：`t_rotation_runner.py`
+
+```
+MarketDataBus ──(fetch/subscribe)──> TRotationRunner ──> TRotationEngine ──> VirtualPortfolio
+                                          │
+                                          ├─ 交易日会话（昨收 / 09:30 开盘 / 距收盘分钟）
+                                          ├─ 收盘前 settle_before_close（强制买回）
+                                          └─ 换日跨会话回购（崩溃遗留也补）
+```
+
+四个必须写下来的细节：
+
+1. **只走 `bus.fetch()`，不用 `get_price_async()`**。
+   后者内部 `asyncio.create_task`，在轮询线程（无事件循环）里直接抛
+   `RuntimeError`，再被 try/except 吃掉 → 表现为「行情永远取不到」。
+2. **成交量要从累计转增量**。新浪 `volume` 是当日累计值，直接喂给 tracker
+   会让 VWAP 变成一条发散曲线（守卫第 5 项）。
+3. **换日第一件事是把欠的份额买回来**。这是「保证长期持有」在
+   重启 / 提前退出场景下的唯一兑现点（守卫第 9 项，跨会话实测）。
+4. **注册 ≠ 启动**。除 `register.py` 之外，`AppContainer._start_schedulers()`
+   里必须显式 `start()`；守卫第 15 项用 AST 精确确认「被取出的那个变量真的被调用了
+   `.start()`」——粗判「方法里有 .start()」会被同文件的 DailyReviewScheduler 蒙混过关。
+
+今天的实测（真实 588200 走势喂进真引擎）：低吸 0.951 → 了结 1.009，
+一轮 +1740 元，份额 100000 → 100000 守恒。
+
+### 附：接线过程中挖出的真 bug —— 交易所号段
+
+`market_data_bus._format_code()` 原先只认「6 开头 → sh，其余一律 sz」，
+于是**所有沪市 ETF/基金**（510300、512480、**588200**）都被编成 `sz`。
+新浪对错误代码返回空行 → 解析结果 `{}` → 上层只看见「取不到行情」，
+而真正的错误在三层之外，还被 `log.debug` 吞掉。
+
+修正为按号段判定（`format_exchange_code`）：沪市 = 5/6/9 开头，深市 = 0/1/2/3 开头。
+配置模块不再自己写一份规则，统一委托给总线。守卫第 18 项锁死 10 个用例。
+
 ## 七、已知边界 / 未做的事
 
 - **不接方向/传导预测**。判据只用当下可验证的偏离度。
@@ -196,4 +259,10 @@ TRotationConfig(
 - **不实时下单**。全程虚拟仓，模块内 `place_order` 出现 0 次（守卫 20）。
 - `session_open_ts` 拿不到时会降级为 8 小时滚动窗口近似判断"当日仓位"，
   并打 warning。接入时应传真实开盘时间。
-- 尚未接入真实分时数据源（当前靠外部调用 `on_tick` 驱动），也未接 UI。
+- ~~尚未接入真实分时数据源~~ —— 已接 MarketDataBus 轮询（30s），
+  由 `AppContainer._start_schedulers()` 启动。
+- **交易日历只判周末**，没有节假日表。因此加了一层死水检测：
+  连续 N 次「价格与成交量都没变」就停喂并告警，避免节假日里反复用昨收制造幻觉。
+- **不会自动建仓**：`NAJA_T_ROTATION_ESTABLISH` 默认关闭，
+  底仓不到位时只告警。动用多少资金由人决定。
+- 尚未接 UI（`/status` 里能看到 `TRotationRunner.get_status()` 的输出）。
