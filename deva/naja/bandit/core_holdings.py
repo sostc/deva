@@ -7,7 +7,17 @@
       不过中间可以做 T，但要利用这种流动性的机会，做完之后一定要买回来，
       保证我们长期持有。」
 
-落地为默认配置项：**科创芯片 ETF（588200）**。
+落地为默认配置项：**科创芯片 ETF（588200）**，规模占总资产 **40%**。
+
+用户的两次话（2026-10-13）
+------------------------
+    「订单：「你要长期持有一个半导体指数……
+      中间可以做 T，但做完之后一定要买回来，保证我们长期持有。」
+    二、「我觉得先有 40% 的仓位吧，用来做这个底仓。」
+
+第二条是**授权**：此前 ``ESTABLISH`` 默认关闭的理由是「动用多少资金
+由人拍板，代码不替用户决定」——既然数字已经给了，这个前提不再成立，
+故自动补足底仓改为默认开启（仍可用环境变量关掉）。
 
 为什么集中在一个文件里
 ----------------------
@@ -31,12 +41,24 @@ bus 内部 ``_normalize_code`` 会剥前缀当 key，
 环境变量
 --------
 ``NAJA_T_ROTATION_SYMBOLS``        逗号分隔的标的代码，默认 ``588200``
-``NAJA_T_ROTATION_TARGET_SHARES``  目标份额。支持两种写法：
-                                   ``100000``（对所有标的生效）或
-                                   ``588200:100000,512480:50000``（逐标的）
+``NAJA_T_ROTATION_ALLOC_PCT``      底仓占**总资产**的百分比，默认 ``40``
+``NAJA_T_ROTATION_TARGET_SHARES``  目标份额的**显式覆盖**（优先于 alloc_pct）。
+                                   写法：``200000``（对所有标的生效）或
+                                   ``588200:200000,512480:50000``（逐标的）
 ``NAJA_T_ROTATION_ENABLED``        ``0`` 关闭整个做 T 运行器
-``NAJA_T_ROTATION_ESTABLISH``      ``1`` 允许自动补足未达标的底仓（默认 **关**）
+``NAJA_T_ROTATION_ESTABLISH``      ``1`` 允许自动补足未达标的底仓（默认 **开**，
+                                   依据：用户已明确给出 40% 的仓位规模）
 ``NAJA_T_ROTATION_POLL_SECONDS``   行情轮询秒数，默认 30
+
+份额从哪来
+----------
+``target_shares`` 默认是 **0**，意思是「没显式指定」——
+此时份额由 ``总资产 × alloc_pct / 当前价`` 算出。
+
+为什么不直接写死一个份额数字：同样的 40%，
+价格 1.0 时是 40 万份、价格 2.0 时就该是 20 万份。
+写死份额等于把「占多少仓位」这个决定偷换成「买多少份」，
+价格一变，仓位比例就悄悄漂走了。
 """
 
 from __future__ import annotations
@@ -51,12 +73,26 @@ log = logging.getLogger(__name__)
 #: 默认核心底仓 —— 科创芯片 ETF（嘉实，跟踪上证科创板芯片指数）
 DEFAULT_CORE_CODE = "588200"
 
-#: 默认目标份额（约合 10 万元，按 2026-10-13 的 1.0 元/份估算）。
-#: 这是「随时能做 T 的权利」的规模，不是一次性投入的上限。
-DEFAULT_TARGET_SHARES = 100_000.0
+#: 底仓默认占总资产的百分比。用户拍板（2026-10-13）：「先有 40% 的仓位吧」。
+#:
+#: 为什么是比例而不是份额：见模块 docstring「份额从哪来」。
+#: 40% 的依据是「留出 60% 做机动」—— 正 T 需要备用资金、
+#: 突发机会也需要现金，把全部资金押在一个标的上就没有做 T 的空间了。
+DEFAULT_ALLOC_PCT = 40.0
+
+#: 显式覆盖目标份额时的默认值。**0 表示「未指定」**，
+#: 走 alloc_pct × 总资产 / 现价 的路径（见 :meth:`CoreHoldingSpec.resolve_target_shares`）。
+DEFAULT_TARGET_SHARES = 0.0
 
 #: ETF 场内最小交易单位
 DEFAULT_ROUND_LOT = 100.0
+
+
+def _floor_lot(value: float, lot: float) -> float:
+    """向下取整到交易单位的整数倍。宁可少买，不可超出预算或买成零股。"""
+    if lot <= 0 or value <= 0:
+        return 0.0
+    return float(int(value / lot)) * lot
 
 
 @dataclass(frozen=True)
@@ -66,10 +102,33 @@ class CoreHoldingSpec:
     code: str            # 归一化代码，如 "588200"
     bus_code: str        # 行情总线代码，如 "sh588200"
     name: str            # 中文名
-    target_shares: float  # 长期目标份额（底仓规模）
+    target_shares: float  # 显式指定的目标份额；0 = 未指定，按 alloc_pct 折算
     round_lot: float = DEFAULT_ROUND_LOT
+    alloc_pct: float = DEFAULT_ALLOC_PCT  # 占总资产百分比
     enabled: bool = True
     note: str = ""
+
+    # ---- 口径换算 -------------------------------------------------
+    @property
+    def explicit(self) -> bool:
+        """是否显式指定了份额（人的手填数字优先于按比例折算）。"""
+        return self.target_shares > 0
+
+    def target_budget(self, total_assets: float) -> float:
+        """这份底仓对应多少钱。"""
+        return max(0.0, total_assets) * max(0.0, self.alloc_pct) / 100.0
+
+    def resolve_target_shares(self, total_assets: float, price: float) -> float:
+        """折算成份额。**调用方必须负责"每天只算一次"**（见 runner 的锁定逻辑）。
+
+        这里按调用瞬间的价格折算——价格会动，若每个 tick 都重算，
+        计划份额就会跟着漂，份额守恒的基准也跟着漂。
+        """
+        if self.explicit:
+            return _floor_lot(self.target_shares, self.round_lot)
+        if price <= 0 or total_assets <= 0:
+            return 0.0
+        return _floor_lot(self.target_budget(total_assets) / price, self.round_lot)
 
     def to_dict(self) -> Dict:
         return {
@@ -78,6 +137,7 @@ class CoreHoldingSpec:
             "name": self.name,
             "target_shares": self.target_shares,
             "round_lot": self.round_lot,
+            "alloc_pct": self.alloc_pct,
             "enabled": self.enabled,
             "note": self.note,
         }
@@ -90,6 +150,7 @@ class CoreHoldingSpec:
 #:   588200 昨收 0.996  振幅 (1.013-0.953)/0.996 = 6.02%
 #:   512480 昨收 0.888  振幅 (0.899-0.848)/0.888 = 5.74%
 #:   159995 昨收 0.973  振幅 (0.987-0.933)/0.973 = 5.55%
+# 三者的 target_shares 一律为 0 —— 走 alloc_pct 折算，不写死份额。
 CHIP_ETF_CATALOG: Dict[str, CoreHoldingSpec] = {
     "588200": CoreHoldingSpec(
         code="588200", bus_code="sh588200", name="科创芯片ETF嘉实",
@@ -190,6 +251,19 @@ def load_core_holdings() -> List[CoreHoldingSpec]:
     codes = [c.strip() for c in raw_codes.split(",") if c.strip()] if raw_codes else [DEFAULT_CORE_CODE]
 
     overrides = _parse_targets(_env("NAJA_T_ROTATION_TARGET_SHARES"), codes)
+    alloc_pct = env_float("NAJA_T_ROTATION_ALLOC_PCT", DEFAULT_ALLOC_PCT)
+    if alloc_pct <= 0:
+        log.warning(
+            f"[CoreHoldings] NAJA_T_ROTATION_ALLOC_PCT={alloc_pct} 不是正数，"
+            f"回退为 {DEFAULT_ALLOC_PCT}"
+        )
+        alloc_pct = DEFAULT_ALLOC_PCT
+    elif alloc_pct > 100:
+        log.warning(
+            f"[CoreHoldings] NAJA_T_ROTATION_ALLOC_PCT={alloc_pct} 超过 100%，"
+            f"回退为 {DEFAULT_ALLOC_PCT}（底仓不能吃掉全部资金）"
+        )
+        alloc_pct = DEFAULT_ALLOC_PCT
 
     specs: List[CoreHoldingSpec] = []
     for code in codes:
@@ -202,15 +276,18 @@ def load_core_holdings() -> List[CoreHoldingSpec]:
                 bus_code=_bus_code_for(code),
                 name=code,
                 target_shares=overrides.get(code, DEFAULT_TARGET_SHARES),
+                alloc_pct=alloc_pct,
                 note="未登记的标的：请自行确认其为 ETF（否则摩擦成本参数不适用）",
             )
             log.warning(
                 f"[CoreHoldings] {code} 不在备选 ETF 清单中，"
                 f"按默认精度/交易单位处理"
             )
+        else:
+            base = replace(base, alloc_pct=alloc_pct)
         if code in overrides:
             base = replace(base, target_shares=overrides[code])
-        if base.target_shares <= 0:
+        if base.explicit and base.target_shares <= 0:
             log.warning(f"[CoreHoldings] {code} 目标份额 <=0，本次跳过")
             continue
         specs.append(base)
@@ -221,8 +298,9 @@ def core_summary() -> Dict:
     """给状态页/日志用的摘要。"""
     return {
         "enabled": env_flag("NAJA_T_ROTATION_ENABLED", True),
-        "establish_enabled": env_flag("NAJA_T_ROTATION_ESTABLISH", False),
+        "establish_enabled": env_flag("NAJA_T_ROTATION_ESTABLISH", True),
         "poll_seconds": env_float("NAJA_T_ROTATION_POLL_SECONDS", 30.0),
+        "alloc_pct": env_float("NAJA_T_ROTATION_ALLOC_PCT", DEFAULT_ALLOC_PCT),
         "holdings": [s.to_dict() for s in load_core_holdings()],
         "default_code": DEFAULT_CORE_CODE,
     }
@@ -231,6 +309,8 @@ def core_summary() -> Dict:
 __all__ = [
     "DEFAULT_CORE_CODE",
     "DEFAULT_TARGET_SHARES",
+    "DEFAULT_ALLOC_PCT",
+    "DEFAULT_ROUND_LOT",
     "CHIP_ETF_CATALOG",
     "CoreHoldingSpec",
     "load_core_holdings",

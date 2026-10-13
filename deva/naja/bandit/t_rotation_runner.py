@@ -123,7 +123,10 @@ class TRotationRunner:
         )
         self._establish = (
             establish_missing if establish_missing is not None
-            else env_flag("NAJA_T_ROTATION_ESTABLISH", False)
+            # 默认开：用户已给出「40% 仓位」这个数字，
+            # 此前「动用多少资金由人拍板、代码不擅自下场」的前提不再成立。
+            # 想让系统只观察不建仓，置 NAJA_T_ROTATION_ESTABLISH=0。
+            else env_flag("NAJA_T_ROTATION_ESTABLISH", True)
         )
         self._flat_limit = int(flat_poll_limit or self.DEFAULT_FLAT_LIMIT)
 
@@ -139,6 +142,11 @@ class TRotationRunner:
 
         self._session_date: Dict[str, str] = {}
         self._settled: set = set()
+        # 每份计划当天折算出来的目标份额。 **必须按天锁定**：
+        # 目标份额若随 tick 价格漂移，份额守恒的基准就跟着漂，
+        # 守恒校验会变成「拿一把会伸缩的尺子量自己」。
+        self._plan_targets: Dict[str, float] = {}
+        self._plan_date: Dict[str, str] = {}
         self._last_price: Dict[str, float] = {}
         self._last_cum_vol: Dict[str, float] = {}
         self._flat_runs: Dict[str, int] = {}
@@ -248,9 +256,12 @@ class TRotationRunner:
             )
 
         for spec in self._specs:
-            self._engine.register_target(
-                spec.code, spec.target_shares, name=spec.name, note=spec.note
-            )
+            # 只有**显式指定了份额**才能在此时登记；按比例折算的必须等有价格，
+            # 交给 _ensure_plan()（详见那里的注释）。
+            if spec.explicit:
+                self._engine.register_target(
+                    spec.code, spec.target_shares, name=spec.name, note=spec.note
+                )
 
         # 订阅 —— 既让总线知道有人要这只票，也用来观测「推送链路是否活着」。
         # 真正的喂数统一由轮询线程做（见模块 docstring：避免 async 陷阱）。
@@ -387,6 +398,13 @@ class TRotationRunner:
             self._last_diag[code] = diag
             return diag
 
+        # 底仓**每轮**都查，不能只在换日那一轮做：
+        #   ① 一次性买到位会撞虚拟仓的单笔限额（默认 20%），必须分批；
+        #   ② 底仓若因任何原因出现缺口，就该当天补回来。
+        # 位置刻意放在「价量无变化 → 跳过」之前 ——
+        # 横盘时价格不动，若放在后面，分批就永远补不到第二笔。
+        self._maybe_establish_core(spec, quote, now, open_ts, date)
+
         # 价格与成交量都没动 → 没有新信息，不值得占一根 bar
         if self._last_price.get(code) == price and dvol <= 0:
             runs = self._flat_runs.get(code, 0) + 1
@@ -424,6 +442,77 @@ class TRotationRunner:
     # ------------------------------------------------------------------
     # 会话管理
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # 目标份额折算（每个交易日只做一次）
+    # ------------------------------------------------------------------
+    def total_assets(self) -> float:
+        """折算底仓用的分母 = 组合总资金（不是可用资金）。
+
+        刻意不用 available：那玩意会被其它策略的临时持仓挤来挤去，
+        底仓规模不该跟着别人的仓位抖。
+        """
+        try:
+            summary = self._portfolio.get_summary() or {}
+        except Exception as e:  # pragma: no cover
+            log.debug(f"[TRotationRunner] 读组合摘要失败: {e}")
+            return 0.0
+        val = float(summary.get("total_capital", 0.0) or 0.0)
+        if val <= 0:
+            val = float(summary.get("available_capital", 0.0) or 0.0)
+        return val
+
+    def _ensure_plan(
+        self, spec: CoreHoldingSpec, price: float, date: str, carried: float = 0.0
+    ) -> float:
+        """算出并**锁定**本交易日的目标份额。
+
+        为什么必须锁死
+        --------------
+        目标份额 = 总资产 × alloc_pct ÷ 现价。价格每 tick 都在动，
+        若每次都重算，登记在账本里的 plan 就会漂；而计划份额正是
+        「份额守恒」的基准 —— 用一把会伸缩的尺子量自己，校验形同虚设。
+
+        所以：一天只在**见到首份有效行情时**折算一次，
+        其余时间一律读缓存。
+        """
+        cached = self._plan_targets.get(spec.code)
+        if cached is not None and self._plan_date.get(spec.code) == date:
+            return cached
+
+        target = spec.resolve_target_shares(self.total_assets(), price)
+        if target <= 0:
+            # 折算不出来（价格缺失 / 资金为 0）就沿用昨天的，
+            # 绝不把计划悄悄砍成 0 —— 那等于无声地放弃长期持有。
+            if cached:
+                log.debug(
+                    f"[TRotationRunner] {spec.code} 本次折算失败，沿用昨日计划 {cached:.0f} 份"
+                )
+                return cached
+            log.warning(f"[TRotationRunner] {spec.code} 无法折算目标份额（价格/资金缺失）")
+            return 0.0
+
+        # 只增不减：价格上涨会让同一比例折出更少的份额，
+        # 若照单收录，等于事后宣布「你的底仓超配了」→ 可用卖出额度被压缩。
+        # 长期持有的份额只能被人为下调（改 env），不能被行情悄悄削掉。
+        if cached and cached > target:
+            log.info(
+                f"[TRotationRunner] {spec.name} 折算目标 {target:.0f} 份 < 已登记 "
+                f"{cached:.0f} 份（价格上涨所致），按「只增不减」保留较大值"
+            )
+            target = cached
+
+        self._engine.register_target(
+            spec.code, target, name=spec.name,
+            note=f"{spec.note}｜目标约占总资产 {spec.alloc_pct:g}%",
+        )
+        self._plan_targets[spec.code] = target
+        self._plan_date[spec.code] = date
+        log.info(
+            f"[TRotationRunner] 📐 {spec.name}({spec.code}) 今日目标 {target:.0f} 份"
+            f"（总资产 {self.total_assets():.0f} × {spec.alloc_pct:g}% ÷ {price:.3f}）"
+        )
+        return target
+
     def _maybe_start_session(
         self, spec: CoreHoldingSpec, quote, now: float,
         dt: datetime, open_ts: float, date: str,
@@ -456,26 +545,44 @@ class TRotationRunner:
         self._last_cum_vol.pop(code, None)
         self._flat_runs[code] = 0
 
-        # ③ 底仓是否到位（默认只是告警，不擅自下场）
-        self._maybe_establish_core(spec, quote, now, open_ts)
+        # ③ 开完新会话就登记今日目标（一次性），供下面补给使用
+        self._ensure_plan(spec, float(quote.current), date)
 
     def _maybe_establish_core(
-        self, spec: CoreHoldingSpec, quote, now: float, open_ts: float
+        self, spec: CoreHoldingSpec, quote, now: float, open_ts: float, date: str
     ):
-        """底仓不足时的处理。默认只告警 —— 动用多少资金得由人拍板。"""
-        carried = self._ledger.carried_in_shares(
-            spec.code, self._portfolio, now=now, session_open_ts=open_ts
-        )
-        missing = spec.target_shares - carried
+        """底仓不足时补足。
+
+        规模来自 ``CoreHoldingSpec.resolve_target_shares``
+        （总资产 × ``alloc_pct`` ÷ 现价），这是用户拍板过的数字，
+        所以默认会真的下场买；不想让它自动建仓就把
+        ``NAJA_T_ROTATION_ESTABLISH`` 置为 0。
+        """
+        # 先折算/锁定目标份额：计划都没有的话，下面算不出"缺多少"
+        target = self._ensure_plan(spec, float(quote.current), date)
+        if target <= 0:
+            return
+
+        # ⚠️ 缺口必须按**份额守恒口径**算，不能用 carried_in_shares。
+        #
+        # carried_in_shares 是 T+1 口径，**刻意排除当日新建的仓位**
+        # （当日买入不可卖）。用它当"已持有多少"，当天刚买的第一笔
+        # 就凭空消失，下一轮再算还是缺这么多 → 反复补 Buy，
+        # 实测能把 40 万份的目标买到 76 万份，一路买到资金耗尽。
+        #
+        # effective_shares = 真实 OPEN 持仓 + 未履行回购义务，
+        # 与 _verify_conservation 用的是同一把尺子。
+        carried = self._ledger.effective_shares(spec.code, self._portfolio)
+        missing = target - carried
         if missing <= spec.round_lot:
             return
 
         if not self._establish:
             log.warning(
                 f"[TRotationRunner] ⚠️ {spec.name}({spec.code}) 底仓未到位："
-                f"持有 {carried:.0f} / 目标 {spec.target_shares:.0f}，"
-                f"缺 {missing:.0f} 份。未设置 NAJA_T_ROTATION_ESTABLISH=1，"
-                f"只能旁观（倒 T 必须靠昨夜传承的底仓）"
+                f"持有 {carried:.0f} / 目标 {target:.0f}，"
+                f"缺 {missing:.0f} 份。NAJA_T_ROTATION_ESTABLISH=0，"
+                f"只观察不建仓（倒 T 必须靠昨夜传承的底仓）"
             )
             return
 
@@ -484,12 +591,22 @@ class TRotationRunner:
         price = float(quote.current)
         lot = spec.round_lot
         affordable = available * 0.8 / price if price > 0 else 0.0
-        qty = min(missing, affordable)
+
+        # 分批：单笔金额上限是虚拟仓的风控参数（默认 20% 总资金）。
+        # 40% 的底仓必然超过它，一次性下单会被拒。
+        # 这里**分批**凑齐，而不是用 bypass_limits 绕过风控。
+        single_budget = float(
+            getattr(self._portfolio, "single_position_budget", 0.0) or 0.0
+        )
+        cap_by_limit = (single_budget * 0.95 / price) if single_budget > 0 else missing
+
+        qty = min(missing, affordable, cap_by_limit)
         qty = (int(qty / lot)) * lot
         if qty < lot:
             log.warning(
-                f"[TRotationRunner] 资金不足以补足 {spec.name} 底仓"
-                f"（可用 {available:.0f}，需买 {missing:.0f} 份）"
+                f"[TRotationRunner] 资金/限额不足以补足 {spec.name} 底仓"
+                f"（可用 {available:.0f}，单笔上限 {single_budget:.0f}，"
+                f"需买 {missing:.0f} 份）"
             )
             return
 
@@ -509,10 +626,15 @@ class TRotationRunner:
                 f"{qty:.0f} 份（可能撞仓位限额）"
             )
             return
+
+        batch_note = (
+            f"（分批改：单笔限额 {single_budget:.0f}，下一轮继续补）"
+            if qty < missing else ""
+        )
         log.info(
             f"[TRotationRunner] 🏦 补足底仓 {spec.name}({spec.code}) "
             f"{qty:.0f} 份 @{price:.3f}，"
-            f"累计 {carried + qty:.0f}/{spec.target_shares:.0f}（T+1，今日不可卖）"
+            f"累计 {carried + qty:.0f}/{target:.0f}（T+1，今日不可卖）{batch_note}"
         )
 
     # ------------------------------------------------------------------
@@ -537,7 +659,13 @@ class TRotationRunner:
                 "code": spec.code,
                 "bus_code": spec.bus_code,
                 "name": spec.name,
-                "target_shares": spec.target_shares,
+                # 折算后的才是真实目标；spec.target_shares 为 0 仅表示"按比例折算"。
+                # 尚未折算过（还没见到行情）就如实给 0，并给出 budget 让人能核对。
+                "target_shares": self._plan_targets.get(spec.code, 0.0),
+                "explicit_shares": spec.target_shares,
+                "alloc_pct": spec.alloc_pct,
+                "target_budget": spec.target_budget(self.total_assets()),
+                "target_resolved_date": self._plan_date.get(spec.code),
                 "session_date": self._session_date.get(spec.code),
                 "settled_today": (spec.code, dt.strftime("%Y-%m-%d")) in self._settled,
                 "last_price": self._last_price.get(spec.code, 0.0),
@@ -549,6 +677,8 @@ class TRotationRunner:
             "enabled": self.enabled,
             "running": self.running,
             "establish_enabled": self._establish,
+            "total_assets": self.total_assets(),
+            "alloc_pct": self._specs[0].alloc_pct if self._specs else 0.0,
             "poll_seconds": self._poll_seconds,
             "phase": cn_phase(dt),
             "minutes_to_close": minutes_to_close(dt),

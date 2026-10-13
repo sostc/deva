@@ -3,7 +3,7 @@
 > 实现：`deva/naja/bandit/{core_position,intraday_deviation,t_rotation}.py`
 > 接线：`deva/naja/bandit/{core_holdings,t_rotation_runner}.py`
 > 守卫：`scripts/verify/verify_t_rotation_core.py`（25 项）
-> 　　　`scripts/verify/verify_t_rotation_wiring.py`（19 项，均通过负向验证）
+> 　　　`scripts/verify/verify_t_rotation_wiring.py`（22 项，7 种负向注入全部 exit 1）
 
 ## 一、需求与拆解
 
@@ -204,15 +204,41 @@ TRotationConfig(
 | 512480 | 半导体ETF国联安 | 0.888 | 5.74% |
 | 159995 | 芯片ETF | 0.973 | 5.55% |
 
-环境与 Read 接口：
+### 仓位：**总资产的 40%**
+
+用户拍板（2026-10-13）：「我觉得先有 40% 的仓位吧，用来做这个底仓。」
 
 ```
 NAJA_T_ROTATION_SYMBOLS          默认 588200（逗号分隔可加多个）
-NAJA_T_ROTATION_TARGET_SHARES    100000 或 588200:100000,512480:50000
+NAJA_T_ROTATION_ALLOC_PCT        底仓占总资产百分比，默认 40
+NAJA_T_ROTATION_TARGET_SHARES    显式份额覆盖（优先于 alloc_pct）
+                                 200000 或 588200:200000,512480:50000
 NAJA_T_ROTATION_ENABLED          0 关闭运行器
-NAJA_T_ROTATION_ESTABLISH        1 才允许自动补足底仓（默认关）
+NAJA_T_ROTATION_ESTABLISH        默认 **开**（用户已给出 40% 这个数字）；
+                                 置 0 则只观察、不建仓
 NAJA_T_ROTATION_POLL_SECONDS     30
 ```
+
+**份额必须由预算和价格算出来，不能写死。**
+
+```
+目标份额 = 总资产 × 40% ÷ 当前价
+```
+
+价格 1.0 时是 40 万份，价格 2.0 时是 20 万份 —— 同一笔钱的两种形态。
+写死份额等于把「占多少仓位」这个决定偷换成「买多少份」，
+价格一变，仓位比例就悄悄漂走了（守卫 2b）。
+
+**每个交易日只折算一次并锁定**（`_ensure_plan`）。目标份额正是份额守恒的基准，
+若它随 tick 漂移，守恒校验就成了拿一把会伸缩的尺子量自己。锁定后还要再上两把锁：
+
+| 情形 | 规则 | 理由 |
+|---|---|---|
+| 当日**上涨** | 目标**只增不减** | 涨价会折出更少份额，照单收录等于事后宣布「你的底仓超配了」 |
+| 当日**下跌** | 目标**不许变大** | 否则变成「跌得越狠买得越多」，40% 的目标形同虚设 |
+
+这两条各自需要一个方向的用例才能守住 ——
+只测上涨的话，「锁定」失效会被「只增不减」完全掩盖（负向验证时真的漏过一次）。
 
 ### 运行器：`t_rotation_runner.py`
 
@@ -240,6 +266,34 @@ MarketDataBus ──(fetch/subscribe)──> TRotationRunner ──> TRotationEn
 今天的实测（真实 588200 走势喂进真引擎）：低吸 0.951 → 了结 1.009，
 一轮 +1740 元，份额 100000 → 100000 守恒。
 
+### 自动建仓：两个必须写清的细节
+
+**一、缺额要用「守恒口径」算，不能用 T+1 口径。**
+
+```python
+carried = self._ledger.effective_shares(spec.code, self._portfolio)   # 对
+carried = self._ledger.carried_in_shares(code, pf, now, open_ts)      # 错
+```
+
+`carried_in_shares` 是 T+1 口径，**刻意排除当日新建的仓位**（当日买入不可卖），
+语义是「今天能卖多少」。用它当「已经持有多少」，当天刚买的第一笔就凭空消失，
+下一轮算还是缺这么多 → 反复补。**实测把 40 万份的目标买到了 76 万份**，
+一路买到可用资金见底才停，全程不报错。
+
+这个 bug 在改建仓功能之前就潜伏在 `_maybe_establish_core` 里，
+只是当时 `ESTABLISH` 默认关闭、测试又预先 seed 了昨夜持仓，从未被触发。
+判断依据就得是「判别式 OLS」（守恒口径），别用带业务语义的查询。
+
+**二、40% 必须分批买。**
+
+虚拟仓单笔限额是总资金的 20%（`single_position_budget`），
+40% 一次性下单会被 `open_position` 直接拒掉。
+这里选择**分批**凑齐（每轮补一笔），而不是用 `bypass_limits` 绕过风控 ——
+限额是保护不是障碍，绕过它就等于把这个标的的仓位上限悄悄改成无上限。
+
+实测：总资产 100 万 × 40% ÷ 1.0 = 40 万份，分 3 笔建成
+（19 万 → 19 万 → 2 万），每笔都在限额内，`force_limits` 全程未被调用。
+
 ### 附：接线过程中挖出的真 bug —— 交易所号段
 
 `market_data_bus._format_code()` 原先只认「6 开头 → sh，其余一律 sz」，
@@ -263,6 +317,9 @@ MarketDataBus ──(fetch/subscribe)──> TRotationRunner ──> TRotationEn
   由 `AppContainer._start_schedulers()` 启动。
 - **交易日历只判周末**，没有节假日表。因此加了一层死水检测：
   连续 N 次「价格与成交量都没变」就停喂并告警，避免节假日里反复用昨收制造幻觉。
-- **不会自动建仓**：`NAJA_T_ROTATION_ESTABLISH` 默认关闭，
-  底仓不到位时只告警。动用多少资金由人决定。
+- **默认会自动建仓**（2026-10-13 起）。此前的原则是不擅自下场 ——
+  理由是"动用多少资金得由人拍板"。用户给出「40% 的仓位」后这个前提消失，
+  于是默认改为开启：若仍关着，重启后只会告警、不建仓，
+  用户以为"已经在跑"但实际什么都没发生 —— 这本身就是静默失效。
+  想让系统只观察，置 `NAJA_T_ROTATION_ESTABLISH=0`。
 - 尚未接 UI（`/status` 里能看到 `TRotationRunner.get_status()` 的输出）。
