@@ -1,12 +1,13 @@
 # 关注管理（Focus Admin）设计
 
 > 目标：让**关注主题长在持仓上**——关注什么，应由"我持有什么"推导出它周边的
-> 供应链与需求端，而不是随手关注一堆主题；同时给一个页面手动增删改查**主题**与
-> **仓位**。
+> 供应链与需求端，而不是随手关注一堆主题；同时给一个页面手动增删改查**主题**、
+> **仓位**与**自选**。
 >
 > 交付：`deva/naja/news/focus_advisor.py`（推导/采纳/撤销）+ `focus_admin.py`（后端 API）
 > + `ui.py`（`/focusadmin` 页面）+ 图谱/板块/账户三处数据补齐 + `手动` 第三账户
-> + `scripts/verify/verify_focus_advisor.py`（9 组）+ `test_news_digest.py` 追加 14 条。
+> + 自选 CRUD（`attention/portfolio.py` 增删改查 `naja_watchlist`）
+> + `scripts/verify/verify_focus_advisor.py`（10 组）+ `test_news_digest.py` 追加 22 条。
 
 ---
 
@@ -31,10 +32,21 @@
 实测当时的 narratives 是 `new_energy / 新能源 / 量子计算`，`source` 全是
 `investigation`（系统自动），与持仓毫无关系——正是用户说的"随意关注"。
 
-自选另存在 `naja_watchlist`（`ai_stocks` 22 只 + `stocks` 4 只），与关注配置不是一回事。
+自选另存在 `naja_watchlist`，有两个键，**语义完全不同**：
+
+| 键 | 内容 | 谁在用 | 是否属于"用户自选" |
+|---|---|---|---|
+| `stocks` | 用户自选（`{code, name, add_time}`） | `Portfolio.get_watchlist()` → 新闻筛选「自选档」 | **是**（本轮新增可管理） |
+| `others` | 历史遗留桶，`get_watchlist()` 也会读 | 同上 | 是（一并纳入管理） |
+| `ai_stocks` | 预设 AI 股票池（22 只，带 sector/base_price） | manas `get_focus_themes`、`market_observer` | **否**，绝不能动 |
 
 **处理**：备份到 `~/.naja/backups/focus_config_<ts>.json` 后 `fm.clear_all()` 清空
-narratives / stocks / blocks（`naja_watchlist` 未动），改由推导重建。
+narratives / stocks / blocks，改由推导重建。
+
+> **遗留未清**：`naja_watchlist["stocks"]` 里还留着 4 条当年跟着"新能源"叙事一起
+> 加进来的自选（`宁德时代 / 比亚迪 / 特斯拉 / lg新能源`），它们与持仓
+> （NVDA/CRWV/BABA）无关。按"用户数据不擅自删"的约定**没有自动清理**，
+> 现在可以在 `/focusadmin` 上一键删掉（或改名 / 留作对照）。
 
 ---
 
@@ -149,6 +161,36 @@ def register_futu_account(self, account_name):            # → ensure_account(n
 
 ---
 
+## 4b. 自选管理：`naja_watchlist`
+
+自选 = "在看、但还没买的票"。它与持仓**并列而不合并**：一个是"我的钱"，一个是
+"我在看的"，混在一起会让前者被后者稀释（`news/digest.py` 的分组口径也是分开的）。
+
+**CRUD**（`attention/portfolio.py`，写 `naja_watchlist` 的 `stocks`/`others`）：
+
+| 方法 | 说明 |
+|---|---|
+| `list_watchlist_items()` | 读（纯 dict：code/name/add_time/bucket）；`stocks` 与 `others` 合并去重 |
+| `add_watchlist_item(code, name="")` | 写入 `stocks`；已存在（大小写不敏感）拒绝；`name` 缺省用 `code` |
+| `update_watchlist_item(code, name)` | 只改展示名（代码是标识，不可改） |
+| `remove_watchlist_item(code)` | **物理删除**（自选没有持仓那样的历史价值，不软删） |
+
+三条约束：
+
+1. **绝不碰 `ai_stocks`**：写前先 `dict(nb)` 读全表、只改目标键、再整表写回——
+   预设 AI 股票池是 manas 在用的资产（有测试守着）。
+2. **写后必须 `invalidate_cache()`**：`_load_watchlist` 有 5 分钟 TTL 缓存，
+   不失效会出现"UI 加了、报告 5 分钟后才看到"的假故障。
+3. **前端 API 纯 dict**，`focus_admin.list_watchlist/add_watchlist/update_watchlist/remove_watchlist`
+   一进一出都是 dict，且读失败时 `{"ok": False, "reason": ...}`，不兜底造空列表。
+
+> **坑（本轮实测）**：`Portfolio` 是 `__new__` 单例（`cls._instance`），`Portfolio()`
+> 每次返回**同一实例**且 `__init__` 早退——所以 `_watchlist_cache` 会跨调用/跨测试残留。
+> 单测里显式 `invalidate_cache()`，否则上一个用例的数据会串到下一个
+> （又是"缓存静默陈旧"的老形状）。
+
+---
+
 ## 5. 采纳与撤销流程
 
 ```
@@ -169,11 +211,12 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 
 ## 6. UI：`/focusadmin` 关注管理页
 
-`deva/naja/news/ui.py::render_focus_admin(ctx)`，三块 + 按钮组：
+`deva/naja/news/ui.py::render_focus_admin(ctx)`，四块 + 按钮组：
 
 1. **持仓**（按账户分组，含账户健康状态；手动账户单列）——`➕ 手动加仓`
-2. **关注主题**（手动 / 推导分列）——`➕ 新增主题`｜`✏️ 改优先级`｜`🗑️ 删除主题`
-3. **推导候选**（score + 理由）——`🔄 重新推导`｜`✅ 推导并采纳`｜`↩️ 撤销推导`
+2. **自选**（在看还没买的票）——`➕ 新增自选`｜`✏️ 改名称`｜`🗑️ 删除自选`
+3. **关注主题**（手动 / 推导分列）——`➕ 新增主题`｜`✏️ 改优先级`｜`🗑️ 删除主题`
+4. **推导候选**（score + 理由）——`🔄 重新推导`｜`✅ 推导并采纳`｜`↩️ 撤销推导`
 
 路由：`web_ui/routes.py` 注册 `(r'/focusadmin', webio_handler(focusadmin))`，
 页面壳 `web_ui/pages.py::focusadmin`；导航菜单 `infra/ui/ui_theme.py` 加
@@ -191,8 +234,9 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 |---|---|
 | 主题 | `list_topics` / `add_topic` / `update_topic` / `remove_topic` |
 | 仓位 | `list_positions` / `add_position` / `update_position` / `remove_position` |
+| 自选 | `list_watchlist` / `add_watchlist` / `update_watchlist` / `remove_watchlist` |
 | 推导 | `derive_preview` / `apply_derived` / `revoke_derived` |
-| 总览 | `get_focus_overview()`（一屏：topics + positions + derived） |
+| 总览 | `get_focus_overview()`（一屏：topics + positions + watchlist + derived） |
 
 写操作后失效 `news/focus.py` 的 60s TTL 缓存（`_invalidate_focus_cache`）。
 
@@ -200,7 +244,7 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 
 ## 7. 验证
 
-`scripts/verify/verify_focus_advisor.py --strict`（9 组）：
+`scripts/verify/verify_focus_advisor.py --strict`（10 组）：
 
 1. 图谱数据完整（NVDA 上下游、CRWV 非 Crown Castle、BABA 入图）
 2. 推导正确（score / evidence / 降序 / 共识加分 / 排序稳定）
@@ -208,13 +252,17 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 4. 采纳（标 derived、不覆盖、幂等）
 5. 撤销（只删 derived、记 revoked、自动采纳跳过、清理探针）
 6. 手动账户 CRUD（临时账户，含**子进程读回**验证落盘、清理两张表痕迹）
-7. 反静默（空持仓 / 图谱外票 / 图谱不可用都留痕）
-8. 静态守卫（容器接线 / 路由 / UI 出口 / HTML 片段自闭合）
-9. 冷启动子进程导入
+7. **自选 CRUD**（临时表 `__verify_watchlist__`：增/改/删 + **子进程读回**证落盘；
+   结束后清临时表，并逐字节比对证明**真实自选表分毫未动**）
+8. 反静默（空持仓 / 图谱外票 / 图谱不可用都留痕）
+9. 静态守卫（容器接线 / 路由 / UI 出口 / HTML 片段自闭合）
+10. 冷启动子进程导入
 
-单测：`deva/naja/tests/test_news_digest.py` 追加 14 条（推导覆盖自身/上下游、只走一跳、
+单测：`deva/naja/tests/test_news_digest.py` 追加 22 条（推导覆盖自身/上下游、只走一跳、
 过宽词过滤、共识加分用 max、排序、空持仓诚实、降级留痕、to_dict 展示字段、
-采纳不覆盖、阈值边界、respect_revoked、撤销只删 derived、后端 API CRUD、改优先级保 source）。
+采纳不覆盖、阈值边界、respect_revoked、撤销只删 derived、后端 API CRUD、改优先级保 source；
+自选：CRUD 往返、**不碰 `ai_stocks`**、兼容历史 `others` 桶、写后 `get_watchlist()` 立即可见、
+后端纯 dict CRUD、读失败如实降级、总览含自选块、UI 块转义 + 自闭合）。
 
 ---
 
