@@ -2,12 +2,13 @@
 关注管理页面（``/focusadmin``）
 
 ═══════════════════════════════════════════════════════════════════════════
-页面结构（自上而下三块）
+页面结构（自上而下四块）
 ═══════════════════════════════════════════════════════════════════════════
 
     ① 持仓      按账户分组；「手动」账户可增删改（其余账户只读）
-    ② 关注主题   增删改查；手动 / 推导来源分开显示，推导的能一键撤销
-    ③ 推导候选   从持仓推出「该关注什么」，可预览、可采纳
+    ② 自选      在看、还没买的票；增删改（写 ``naja_watchlist.stocks``）
+    ③ 关注主题   增删改查；手动 / 推导来源分开显示，推导的能一键撤销
+    ④ 推导候选   从持仓推出「该关注什么」，可预览、可采纳
 
 ═══════════════════════════════════════════════════════════════════════════
 实现约定
@@ -58,12 +59,13 @@ def _fmt(value: Any, digits: int = 2) -> str:
 # ── 各块的 HTML 片段（每次都是完整闭合片段）────────────────────────────
 
 def _stats_html(positions: Dict[str, Any], topics: Dict[str, Any],
-                derived: Dict[str, Any]) -> str:
+                watchlist: Dict[str, Any], derived: Dict[str, Any]) -> str:
     accounts = positions.get("accounts") or []
     total_pos = sum(int(a.get("position_count") or 0) for a in accounts)
     manual = next((a for a in accounts if a.get("kind") == "manual"), None)
     manual_n = int((manual or {}).get("position_count") or 0)
     n_topic = len(topics.get("topics") or [])
+    n_watch = int(watchlist.get("count") or 0)
     n_derived = len(derived.get("topics") or [])
 
     def card(label: str, value: Any, color: str) -> str:
@@ -78,6 +80,7 @@ def _stats_html(positions: Dict[str, Any], topics: Dict[str, Any],
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">'
         + card("持仓总数", total_pos, "#1d4ed8")
         + card("手动仓位", manual_n, "#0f766e")
+        + card("自选", n_watch, "#0891b2")
         + card("关注主题", n_topic, "#7c3aed")
         + card("推导候选", n_derived, "#b45309")
         + "</div>"
@@ -145,6 +148,34 @@ def _positions_html(data: Dict[str, Any]) -> str:
             f"{body}{warn}</div>")
 
 
+def _watchlist_html(data: Dict[str, Any]) -> str:
+    if not data.get("ok"):
+        return (f'<div style="{_CARD}"><div style="{_TITLE}">自选</div>'
+                f'<div style="{_MUTED}">读取失败：{_esc(data.get("reason"))}</div></div>')
+
+    items = data.get("items") or []
+    if items:
+        rows = "".join(
+            f"<tr>"
+            f'<td style="{_TD}">{_esc(it.get("code"))}</td>'
+            f'<td style="{_TD}">{_esc(it.get("name"))}</td>'
+            f'<td style="{_TD}">{_esc(it.get("bucket"))}</td>'
+            f"</tr>"
+            for it in items
+        )
+        body = (
+            f'<table style="width:100%;border-collapse:collapse;">'
+            f'<tr><th style="{_TH}">代码</th><th style="{_TH}">名称</th>'
+            f'<th style="{_TH}">来源键</th></tr>{rows}</table>'
+        )
+    else:
+        body = f'<div style="{_MUTED}">（空）—— 在看、但还没买的票放这里</div>'
+
+    return (f'<div style="{_CARD}">'
+            f'<div style="{_TITLE}">② 自选（在看、还没买的票）</div>'
+            f"{body}</div>")
+
+
 def _topics_html(data: Dict[str, Any]) -> str:
     if not data.get("ok"):
         return (f'<div style="{_CARD}"><div style="{_TITLE}">关注主题</div>'
@@ -167,7 +198,7 @@ def _topics_html(data: Dict[str, Any]) -> str:
                 f"{_esc(title)}（{len(rows)}）</b>{items}</div>")
 
     return (f'<div style="{_CARD}">'
-            f'<div style="{_TITLE}">② 关注主题</div>'
+            f'<div style="{_TITLE}">③ 关注主题</div>'
             + section("手动关注", data.get("manual") or [], "#7c3aed")
             + section("推导关注（可一键撤销）", data.get("derived") or [], "#b45309")
             + "</div>")
@@ -175,7 +206,7 @@ def _topics_html(data: Dict[str, Any]) -> str:
 
 def _derived_html(data: Dict[str, Any]) -> str:
     if not data.get("available"):
-        return (f'<div style="{_CARD}"><div style="{_TITLE}">③ 推导候选</div>'
+        return (f'<div style="{_CARD}"><div style="{_TITLE}">④ 推导候选</div>'
                 f'<div style="{_MUTED}">{_esc(data.get("reason") or "不可用")}</div></div>')
 
     holdings = "、".join(
@@ -209,7 +240,7 @@ def _derived_html(data: Dict[str, Any]) -> str:
                 f"{items}</ul></div>")
 
     return (f'<div style="{_CARD}">'
-            f'<div style="{_TITLE}">③ 推导候选（依据持仓推导「该关注什么」）</div>'
+            f'<div style="{_TITLE}">④ 推导候选（依据持仓推导「该关注什么」）</div>'
             f'<div style="{_MUTED}margin-bottom:8px;">依据持仓：{holdings or "无"}</div>'
             f"{table}{warn}</div>")
 
@@ -233,9 +264,10 @@ def render_focus_admin(ctx: Dict[str, Any]) -> None:
 
         topics = overview.get("topics") or {}
         positions = overview.get("positions") or {}
+        watchlist = overview.get("watchlist") or {}
         derived = overview.get("derived") or {}
 
-        put_html(_stats_html(positions, topics, derived))
+        put_html(_stats_html(positions, topics, watchlist, derived))
 
         # ① 持仓 + 手动账户操作按钮
         put_html(_positions_html(positions))
@@ -246,7 +278,20 @@ def render_focus_admin(ctx: Dict[str, Any]) -> None:
                 onclick=lambda v: _dispatch(v, ctx), small=True,
             )
 
-        # ② 主题 + 操作按钮
+        # ② 自选 + 操作按钮（在看、还没买的票）
+        put_html(_watchlist_html(watchlist))
+        put_scope("focus_watch_actions")
+        with use_scope("focus_watch_actions"):
+            put_buttons(
+                [
+                    {"label": "➕ 新增自选", "value": "add_watch", "color": "primary"},
+                    {"label": "✏️ 改名称", "value": "edit_watch", "color": "info"},
+                    {"label": "🗑️ 删除自选", "value": "del_watch", "color": "danger"},
+                ],
+                onclick=lambda v: _dispatch(v, ctx), small=True,
+            )
+
+        # ③ 主题 + 操作按钮
         put_html(_topics_html(topics))
         put_scope("focus_topic_actions")
         with use_scope("focus_topic_actions"):
@@ -259,7 +304,7 @@ def render_focus_admin(ctx: Dict[str, Any]) -> None:
                 onclick=lambda v: _dispatch(v, ctx), small=True,
             )
 
-        # ③ 推导候选 + 操作按钮
+        # ④ 推导候选 + 操作按钮
         put_html(_derived_html(derived))
         put_scope("focus_derived_actions")
         with use_scope("focus_derived_actions"):
@@ -355,6 +400,32 @@ async def _handle(action: str, ctx: Dict[str, Any]) -> None:
         ])
         result = fa.remove_position(form["pid"])
         toast(result.get("reason") or "已移除（保留历史）",
+              color="success" if result.get("ok") else "error")
+
+    elif action == "add_watch":
+        form = await ctx["input_group"]("新增自选（在看、还没买的票）", [
+            ctx["input"]("代码 / 名称", name="code", required=True,
+                         placeholder="如 nvda / 宁德时代"),
+            ctx["input"]("展示名", name="name", placeholder="留空则用代码"),
+        ])
+        result = fa.add_watchlist(form["code"], form.get("name") or "")
+        toast(result.get("reason") or f"已加入自选「{form['code']}」",
+              color="success" if result.get("ok") else "error")
+
+    elif action == "edit_watch":
+        form = await ctx["input_group"]("修改自选展示名", [
+            ctx["input"]("代码 / 名称（须已存在）", name="code", required=True),
+            ctx["input"]("新展示名", name="name", required=True),
+        ])
+        result = fa.update_watchlist(form["code"], form["name"])
+        toast(result.get("reason") or "已更新", color="success" if result.get("ok") else "error")
+
+    elif action == "del_watch":
+        form = await ctx["input_group"]("删除自选", [
+            ctx["input"]("代码 / 名称（须已存在）", name="code", required=True),
+        ])
+        result = fa.remove_watchlist(form["code"])
+        toast(result.get("reason") or f"已删除「{form['code']}」",
               color="success" if result.get("ok") else "error")
 
     elif action == "derive_apply":

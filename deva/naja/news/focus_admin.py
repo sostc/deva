@@ -5,12 +5,13 @@ FocusAdmin —— 「关注管理」的后端 API（**纯 dict 进出，供 UI �
 职责
 ═══════════════════════════════════════════════════════════════════════════
 
-给 ``/focusadmin`` 页面提供三块能力，全部以**纯 dict** 返回，绝不把
+给 ``/focusadmin`` 页面提供四块能力，全部以**纯 dict** 返回，绝不把
 ``FocusItem`` / ``USStockPosition`` 这类内部对象漏给 UI：
 
     ① 关注主题    list / add / update / remove
     ② 持仓        按账户分组查看 + 「手动」账户增删改
-    ③ 推导        preview（只看） / apply（采纳） / revoke（一键撤销）
+    ③ 自选        list / add / update / remove（``naja_watchlist`` 的 ``stocks``）
+    ④ 推导        preview（只看） / apply（采纳） / revoke（一键撤销）
 
 ═══════════════════════════════════════════════════════════════════════════
 三守约（沿用 decision/query.py 的既有约定）
@@ -306,7 +307,56 @@ def remove_position(position_id: str, exit_price: float = 0.0) -> Dict[str, Any]
     return result
 
 
-# ── ③ 推导 ──────────────────────────────────────────────────────────────
+# ── ③ 自选 ──────────────────────────────────────────────────────────────
+#
+# 「自选」= ``naja_watchlist`` 的 ``stocks`` 键（用户在看、但还没买的票）。
+# 与「持仓」并列而不是合并：一个是"我的钱"，一个是"我在看的"，混在一起
+# 会让前者被后者稀释（news/digest.py 的分组口径也是这么分开的）。
+
+def list_watchlist() -> Dict[str, Any]:
+    """列出自选股（纯 dict 列表）。读不到就如实报错，不兜底造空列表糊弄。"""
+    try:
+        items = _pf().list_watchlist_items()
+    except Exception as e:
+        return {"ok": False, "reason": f"自选读取失败（{type(e).__name__}: {e}）",
+                "items": [], "count": 0}
+    return {"ok": True, "reason": "", "items": items, "count": len(items)}
+
+
+def add_watchlist(code: str, name: str = "") -> Dict[str, Any]:
+    """新增自选。已存在则拒绝，不覆盖。"""
+    try:
+        result = _pf().add_watchlist_item(code, name)
+    except Exception as e:
+        return {"ok": False, "reason": f"写入失败（{type(e).__name__}: {e}）"}
+    if result.get("ok"):
+        _invalidate_focus_cache()
+    return result
+
+
+def update_watchlist(code: str, name: str = "") -> Dict[str, Any]:
+    """修改自选的展示名。"""
+    try:
+        result = _pf().update_watchlist_item(code, name)
+    except Exception as e:
+        return {"ok": False, "reason": f"修改失败（{type(e).__name__}: {e}）"}
+    if result.get("ok"):
+        _invalidate_focus_cache()
+    return result
+
+
+def remove_watchlist(code: str) -> Dict[str, Any]:
+    """移除自选。"""
+    try:
+        result = _pf().remove_watchlist_item(code)
+    except Exception as e:
+        return {"ok": False, "reason": f"删除失败（{type(e).__name__}: {e}）"}
+    if result.get("ok"):
+        _invalidate_focus_cache()
+    return result
+
+
+# ── ④ 推导 ──────────────────────────────────────────────────────────────
 
 def derive_preview(max_topics: int = 8) -> Dict[str, Any]:
     """只看不写：从当前持仓推导候选主题。"""
@@ -368,10 +418,11 @@ def revoke_derived() -> Dict[str, Any]:
 # ── 一屏总览（UI 首屏）────────────────────────────────────────────────────
 
 def get_focus_overview(max_topics: int = 8) -> Dict[str, Any]:
-    """一次拿齐：主题 + 持仓 + 推导候选。任一子块失败不影响其它块。"""
+    """一次拿齐：主题 + 持仓 + 自选 + 推导候选。任一子块失败不影响其它块。"""
     return {
         "topics": list_topics(),
         "positions": list_positions(),
+        "watchlist": list_watchlist(),
         "derived": derive_preview(max_topics=max_topics),
     }
 
@@ -379,6 +430,7 @@ def get_focus_overview(max_topics: int = 8) -> Dict[str, Any]:
 __all__ = [
     "list_topics", "add_topic", "update_topic", "remove_topic",
     "list_positions", "add_position", "update_position", "remove_position",
+    "list_watchlist", "add_watchlist", "update_watchlist", "remove_watchlist",
     "derive_preview", "apply_derived", "revoke_derived", "get_focus_overview",
     "SOURCE_DERIVED", "SOURCE_USER",
 ]
