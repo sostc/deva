@@ -187,6 +187,8 @@ def main() -> int:
           "def _summarize_error_hint(" in tray_src, "")
     check("通知 subtitle 使用该提示",
           "self._summarize_error_hint(e)" in tray_src, "")
+    check("「一键总结」带代理兜底重试（启动后才失效的代理在此自愈）",
+          "sanitize_proxy_env" in tray_src and "清除后重试" in tray_src, "")
     try:
         from deva.naja.infra.ui.menu_bar_tray import MenuBarTray
         hint = MenuBarTray._summarize_error_hint(Exception("Connection error."))
