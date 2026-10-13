@@ -417,20 +417,16 @@ class RealtimeDataFetcher:
                 df = df.copy()
                 df['code'] = df.index
 
-            # 注册新符号到热点系统（批量处理）
-            new_symbols = 0
-            codes = df.index.tolist() if 'code' not in df.columns else df['code'].tolist()
-            for symbol in codes:
-                symbol = str(symbol)
-                if symbol and len(symbol) >= 6:
-                    try:
-                        hotspot_system.register_symbol(symbol, ['A股'])
-                        new_symbols += 1
-                    except Exception:
-                        pass
-
-            if new_symbols > 0:
-                log.info(f"[RealtimeDataFetcher] A股注册新符号: {new_symbols} 只")
+            # 注：A 股符号的注册已在 HotspotSystem.initialize() 完成
+            # （启动日志「已注册 6288 个个股」，覆盖全量题材映射），运行时无需再注册。
+            #
+            # 历史遗留（已移除）：此处曾循环调用 hotspot_system.register_symbol(symbol, ['A股']),
+            # 但 MarketHotspotSystem 根本没有该方法 → AttributeError 被上面的 net except
+            # 吞掉，每批行情静默失败一次且**从未生效**。更关键的是：即便补上该方法，传入的
+            # 'A股' 也不是 block_id，register_symbol 会把每只股票的题材映射**覆盖成 ['A股']**，
+            # 反而摧毁原有的题材归属。它「一直没生效」实际上一直在保护系统。
+            # 若将来确需运行时补注册新符号，正确入口是 weight_pool.register_symbol
+            # 并传入该股票**真实的题材 id**，且不得覆盖已存在的映射。
 
             # 处理数据
             hotspot_system.process_data(df)
