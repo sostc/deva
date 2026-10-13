@@ -487,6 +487,16 @@ class AppContainer:
             scheduler.start()
         except Exception as e:
             log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
+
+        # 做 T 降本：长期持有芯片指数底仓 + 日内做 T，收盘前强制买回。
+        # 注册到单例表不等于会跑 —— 这里必须显式 start()，否则整套模块
+        # 会变成「代码是对的、守卫是绿的、但一条行情都没流过」的摆设。
+        try:
+            from ..bandit.t_rotation_runner import get_t_rotation_runner
+            t_runner = get_t_rotation_runner()
+            t_runner.start()
+        except Exception as e:
+            log.warning(f"[AppContainer] TRotationRunner 启动失败: {e}", exc_info=True)
         
         # 注册所有 TaskManager 管理的定时任务
         self._register_ai_daily_report_task()
