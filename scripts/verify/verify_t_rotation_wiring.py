@@ -44,6 +44,15 @@ from datetime import datetime
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
+# ★ 必须早于任何 deva 导入：本守卫会真的建/删虚拟持仓（40% 底仓的分批成交）。
+# 曾经跑一遍就在生产库留下 T_ROTATION_* 账户的假持仓假价格。
+VERIFY_DIR = os.path.join(ROOT, "scripts", "verify")
+if VERIFY_DIR not in sys.path:
+    sys.path.insert(0, VERIFY_DIR)
+from guard_sandbox import isolate_guard_db  # noqa: E402
+
+isolate_guard_db()
+
 BANDIT_DIR = os.path.join(ROOT, "deva", "naja", "bandit")
 RUNNER_FILE = os.path.join(BANDIT_DIR, "t_rotation_runner.py")
 HOLDINGS_FILE = os.path.join(BANDIT_DIR, "core_holdings.py")
@@ -703,6 +712,60 @@ def check_minutes_to_close():
     print("8) 交易时段/收盘倒计时 OK")
 
 
+def check_position_id_no_collision():
+    """9b) 同一毫秒对同一标的连开两笔，两笔都必须留下。
+
+    ``position_id`` 曾经是 ``VP_{code}_{int(time.time()*1000)}`` —— 毫秒时间戳，
+    且生成后不做唯一性检查。同一毫秒内的第二笔会用**同一个 key** 写进
+    ``self._positions``，把第一笔直接覆盖：资金照扣、份额凭空少一块，
+    调用方看不到任何异常（``open_position`` 返回值还是正常的那笔）。
+
+    真实触发场景就在本模块里：收盘强平 / 强制回购 / 分批建仓，
+    两笔下单常常落在同一个 poll（毫秒级）内。
+
+    这里把 ``time.time`` 冻住，让碰撞**必然发生**而不是靠运气，
+    否则这个缺陷会以「偶发守卫失败」的形式长期伪装成测试不稳定。
+    """
+    import deva.naja.bandit.virtual_portfolio as vpm
+
+    env = make_alloc_env()
+    vp = env["vp"]
+
+    real_time = vpm.time.time
+    vpm.time.time = lambda: 1_700_000_000.0
+    try:
+        a = vp.open_position(
+            strategy_id="core", strategy_name="长期底仓",
+            stock_code="588200", stock_name="科创芯片ETF",
+            price=1.0, quantity=100.0,
+        )
+        b = vp.open_position(
+            strategy_id="core", strategy_name="长期底仓",
+            stock_code="588200", stock_name="科创芯片ETF",
+            price=1.0, quantity=200.0,
+        )
+        assert a is not None and b is not None, "同一毫秒的第二笔被拒了"
+        assert a.position_id != b.position_id, (
+            f"两笔撞了同一个 id {a.position_id} —— 后一笔会覆盖前一笔"
+        )
+        ids = [p.position_id for p in vp.get_all_positions(status="OPEN")]
+        assert ids.count(a.position_id) == 1 and b.position_id in ids, (
+            f"两笔没能都留下：{ids}"
+        )
+        total = sum(
+            p.quantity for p in vp.get_all_positions(status="OPEN")
+            if p.stock_code == "588200"
+        )
+        assert abs(total - 300.0) < 1e-6, (
+            f"份额被覆盖：应共 300 份，实际 {total:.0f}（少了 100 份的那笔）"
+        )
+    finally:
+        vpm.time.time = real_time
+    print(
+        f"9b) 同毫秒双开 OK —— {a.position_id} + {b.position_id}，共 300 份都在"
+    )
+
+
 def check_cross_session_buyback():
     """9) ★跨会话回购：昨天卖飞没买回的份额，今天开盘必须补回来。
 
@@ -1035,6 +1098,7 @@ CHECKS = [
     check_off_hours_no_feed,
     check_flat_day_suspension,
     check_minutes_to_close,
+    check_position_id_no_collision,
     check_cross_session_buyback,
     check_no_core_no_reverse_t,
     check_status_exposes_degraded,

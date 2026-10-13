@@ -27,6 +27,15 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
+# ★ 必须早于任何 deva 导入：本守卫会用 VirtualPortfolio 建/删持仓，
+# 不隔离就会把假标的价格写进生产库 ~/.deva/nb.sqlite。
+VERIFY_DIR = os.path.join(ROOT, "scripts", "verify")
+if VERIFY_DIR not in sys.path:
+    sys.path.insert(0, VERIFY_DIR)
+from guard_sandbox import isolate_guard_db  # noqa: E402
+
+isolate_guard_db()
+
 BANDIT_DIR = os.path.join(ROOT, "deva", "naja", "bandit")
 TR_FILE = os.path.join(BANDIT_DIR, "t_rotation.py")
 VP_FILE = os.path.join(BANDIT_DIR, "virtual_portfolio.py")
