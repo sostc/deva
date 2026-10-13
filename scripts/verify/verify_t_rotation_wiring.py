@@ -35,6 +35,7 @@
 """
 
 import ast
+import logging
 import os
 import sys
 import time
@@ -487,6 +488,75 @@ def check_auto_establish_40pct():
     fill_txt = " → ".join(f"{v/10000:.0f}万" for v, _t in fill_log)
     print(f"3b) 自动建仓 OK —— 目标 {plan_target:.0f} 份（总资产 100 万 × 40%），"
           f"分 {len(fill_log)} 笔：{fill_txt}")
+
+
+def check_budget_headroom_shared_with_other_strategies():
+    """3c) 总持仓额度被其它策略占用时，底仓按剩余空间买且不刷错误瀑布。
+
+    真实账户上就撞过：已有持仓占 41 万（其中 40 万是 TEST001/000001 这类
+    测试残留），总上限 80 万 → 留给 40 万底仓只剩 39 万。
+    若只看单笔限额，最后一笔会被 open_position 拒绝 →
+    「建仓失败」每 30 秒刷一条，把真正的故障淹没。
+    """
+    env = make_alloc_env()
+    vp, rnr, spec = env["vp"], env["runner"], env["spec"]
+
+    # 别的策略先占掉 42 万（→ 总额度只剩 38 万给底仓）。
+    # 占位本身也要分批：42 万同样会撞单笔限额。
+    total_other = 420_000.0
+    filled = 0.0
+    for chunk in (200_000.0, 200_000.0, 20_000.0):
+        pos = vp.open_position(
+            strategy_id="other", strategy_name="别的策略",
+            stock_code="600000", stock_name="占位",
+            price=10.0, quantity=chunk / 10.0,
+        )
+        assert pos is not None, f"占位持仓建立失败（{chunk:,.0f} 元）"
+        filled += chunk
+    assert abs(filled - total_other) < 1e-6, filled
+
+    err_lines = []
+    handler = logging.Handler()
+    handler.emit = lambda rec: err_lines.append(rec.getMessage())
+    root = logging.getLogger("deva.naja.bandit.t_rotation_runner")
+    handler.setLevel(logging.ERROR)
+    root.addHandler(handler)
+
+    try:
+        for i in range(20):
+            step(env)
+            push_quote(env, 1.0, prev_close=1.0, cum_volume=1_000_000 * (i + 1))
+            rnr.poll()
+    finally:
+        root.removeHandler(handler)
+
+    held = sum(
+        p.quantity for p in vp.get_all_positions(status="OPEN")
+        if p.stock_code == spec.code
+    )
+    headroom = vp.category_position_budget - 420_000.0
+    expect_floor = int(headroom / 1.0 / spec.round_lot) * spec.round_lot
+
+    assert held > 0, "额度被占用后一笔都没买 —— 应该是按剩余空间买，不是放弃"
+    assert held <= expect_floor + 1e-6, (
+        f"买超了：持有 {held:.0f} 份 vs 可用额度允许 {expect_floor:.0f} 份"
+    )
+    # 每一笔都没被 open_position 拒绝（否则日志里会有「建仓失败」）
+    fails = [m for m in err_lines if "建仓失败" in m]
+    assert not fails, f"仍撞到仓位限额被拒：{fails[:1]}"
+
+    # 额度不足属于配置冲突：必须说清楚，且**每天只说一次**
+    warned = [m for m in err_lines if "额度限制" in m]
+    assert warned, "额度不足却不告警 —— 用户会以为底仓已经到位"
+    assert len(warned) == 1, f"额度告警刷屏了 {len(warned)} 条（应每天 1 条）"
+    assert "总持仓额度只剩" in warned[0], warned[0]
+
+    st = rnr.get_status()["symbols"][0]
+    assert st["budget_warned"] == "2026-10-13", st["budget_warned"]
+    assert st["held_shares"] == held, (st["held_shares"], held)
+
+    print(f"3c) 额度被占用 OK —— 其它策略占 42 万，底仓按剩余 {headroom:,.0f} 元 "
+          f"买到 {held:.0f} 份，告警恰好 1 条且不刷屏")
 
 
 def check_bus_drives_engine():
@@ -958,6 +1028,7 @@ CHECKS = [
     check_alloc_pct_resolution,
     check_establish_default_on,
     check_auto_establish_40pct,
+    check_budget_headroom_shared_with_other_strategies,
     check_bus_drives_engine,
     check_real_day_makes_t_and_conserves,
     check_volume_delta_not_cumulative,
