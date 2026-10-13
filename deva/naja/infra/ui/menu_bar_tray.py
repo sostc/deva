@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from deva.naja.infra.autostart import is_login_item_enabled, toggle_login_item
+from deva.naja.infra.prefs import get_pref, set_pref
 from deva.naja.infra.runtime.daemon import (
     get_running_pid, get_running_tray_pid,
     save_tray_pid, clear_tray_pid, clear_pid
@@ -1910,6 +1911,15 @@ class MenuBarTray:
                 system_menu.add(autostart_item)
             except Exception as e:
                 logger.warning(f"添加登录启动项菜单失败: {e}")
+            try:
+                # 「启动时打开浏览器」开关：勾选状态直接从偏好文件读，改动只影响
+                # **下一次** Naja 启动（服务与托盘是独立进程，本次窗口不会自动关）。
+                open_browser_item = rumps.MenuItem("🌐 启动时打开浏览器")
+                open_browser_item.state = 1 if get_pref("open_browser_on_start", True) else 0
+                open_browser_item.set_callback(self._on_toggle_open_browser)
+                system_menu.add(open_browser_item)
+            except Exception as e:
+                logger.warning(f"添加「启动时打开浏览器」菜单失败: {e}")
             system_menu.add(rumps.MenuItem("☁️ 从服务器同步", callback=self._on_sync_from_server))
             system_menu.add(rumps.MenuItem("🔄 重启服务", callback=self._on_reload))
             system_menu.add(rumps.MenuItem("🚪 退出", callback=self._on_quit))
@@ -2121,6 +2131,61 @@ class MenuBarTray:
                 # 释放状态位（会重建菜单，勾选状态由 is_login_item_enabled() 重读，
                 # 不依赖已失效的旧 sender）
                 self._clear_op("autostart")
+
+            self._call_on_main_thread(apply)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_toggle_open_browser(self, sender):
+        """切换「启动时自动打开浏览器」（**不在主线程做文件 IO**）
+
+        与「登录时自动启动」同款模式：后台线程落盘，主线程只改勾选 + 弹通知。
+
+        生效范围：**下一次** Naja 启动。服务进程与托盘是两个独立进程，
+        勾选只写偏好文件（``~/.naja/prefs.json``），由服务启动时读取——
+        所以当前已经打开的浏览器窗口不会因此关掉。
+        """
+        import threading
+
+        new_state = 1 - sender.state
+        enabled = new_state == 1
+
+        if not self._begin_op("open_browser", "🌐 保存设置…"):
+            self._send_notification("⏳ 已有任务在进行", "请等待当前任务完成",
+                                    "同一时刻只允许一个长任务")
+            return
+
+        def work():
+            try:
+                success = set_pref("open_browser_on_start", enabled)
+            except Exception as e:
+                logger.error(f"保存「启动时打开浏览器」设置失败: {e}")
+                success = False
+
+            if success:
+                logger.info(f"「启动时打开浏览器」已{'开启' if enabled else '关闭'}")
+            else:
+                logger.error("「启动时打开浏览器」设置写入失败")
+
+            def apply():
+                import rumps
+                sender.state = new_state if success else 1 - new_state
+                if success:
+                    rumps.notification(
+                        title="🌐 启动时打开浏览器",
+                        subtitle="已开启" if enabled else "已关闭",
+                        message="下次启动 Naja 时生效",
+                    )
+                else:
+                    # 失败必须自证——否则用户以为勾上了，下次启动才发现没生效。
+                    rumps.notification(
+                        title="⚠️ 设置保存失败",
+                        subtitle="未能写入偏好文件",
+                        message="请检查 ~/.naja 目录权限，或查看托盘日志",
+                    )
+                # 释放状态位（会重建菜单，勾选状态由 get_pref 重读，
+                # 不依赖已失效的旧 sender）
+                self._clear_op("open_browser")
 
             self._call_on_main_thread(apply)
 

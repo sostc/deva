@@ -196,10 +196,16 @@ class StreamsConnection(SockJSConnection):
 
 # ---- PageServer (from server.py) ----
 class PageServer(object):
-    def __init__(self, name="default", host="127.0.0.1", port=9999, start=False, sockjs_prefix="/sockjs", **kwargs):
+    def __init__(self, name="default", host="127.0.0.1", port=9999, start=False,
+                 sockjs_prefix="/sockjs", open_browser=True, **kwargs):
         self.name = name
         self.port = port
         self.host = host
+        # 是否在 start() 时自动拉起系统浏览器。默认 True 保持历史行为；
+        # 调用方（如 naja）可传 open_browser=False 关闭——只关「自动打开」，
+        # 不影响服务本身的监听。它必须是**显式形参**，否则会被塞进 **kwargs
+        # 转给 tornado.web.Application（那里不认识这个键）。
+        self.open_browser = bool(open_browser)
         self.streams = defaultdict(list)
         self.sockjs_prefix = sockjs_prefix.rstrip('/') if sockjs_prefix else ""
         self.StreamRouter = SockJSRouter(StreamsConnection, self.sockjs_prefix)
@@ -213,7 +219,8 @@ class PageServer(object):
 
     def start(self):
         self.server = self.application.listen(self.port)
-        os.system(f"open http://{self.host}:{self.port}/")
+        if self.open_browser:
+            os.system(f"open http://{self.host}:{self.port}/")
 
     def stop(self):
         self.server.stop()
