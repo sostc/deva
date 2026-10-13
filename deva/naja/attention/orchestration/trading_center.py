@@ -746,7 +746,13 @@ class TradingCenter:
             fusion = self._full_decision_pipeline(market_state, snapshot)
 
             approval_threshold = get_min_approval_confidence()
-            approved = fusion.should_act and fusion.fused_confidence >= approval_threshold
+            # 否决有**两个独立原因**，必须分开：manas 闸门没放行 / 融合置信度不够。
+            # 此前 else 分支恒打印「confidence=X < 阈值」，于是日志里出现过
+            # 「confidence=0.500 < 0.4」这种**不可能成立**的表述 —— 真实原因是
+            # should_act=False，却被写成置信度不足。假理由会让排查彻底走偏。
+            gate_ok = bool(fusion.should_act)
+            conf_ok = fusion.fused_confidence >= approval_threshold
+            approved = gate_ok and conf_ok
 
             # 决策产物：一条 DecisionPlan（动什么 / 怎么动 / 为什么）。
             # size_hint 由 decision.sizing 单一口径产出（D2）；此处先留 0。
@@ -777,8 +783,15 @@ class TradingCenter:
                     'plan': plan.to_dict(),
                 }
             else:
-                log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} "
-                        f"(confidence={fusion.fused_confidence:.3f} < {approval_threshold})")
+                if not gate_ok:
+                    reason = (f"Manas 闸门未放行（档位={fusion.action_type}, "
+                              f"manas={fusion.manas_score:.3f}）")
+                else:
+                    reason = (f"置信度不足（{fusion.fused_confidence:.3f} "
+                              f"< {approval_threshold}）")
+                gate_reason = getattr(plan, "gate_reason", "") or ""
+                log.info(f"[TradingCenter] ❌ 信号否决: {stock_code} — {reason}"
+                         + (f" | 门理由: {gate_reason}" if gate_reason else ""))
                 self._record_plan(plan, approved=False)
                 return {
                     'approved': False,
