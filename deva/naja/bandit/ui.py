@@ -8,6 +8,13 @@ import threading
 from deva.naja.infra.ui.page_help import render_help_collapse
 from deva.naja.register import SR
 from deva import NB
+from deva.naja.bandit.data_freshness import (
+    get_freshness_tracker,
+    format_badge,
+    SOURCE_CN_PRICE,
+    SOURCE_US_PRICE,
+    SOURCE_FUTU_SYNC,
+)
 
 _auto_refresh_enabled = True
 
@@ -262,9 +269,23 @@ def _get_experiment_banner_html() -> str:
         return ""
 
 
+def _freshness_badges(*sources: str) -> str:
+    """渲染若干数据源的新鲜度徽章（贴在对应数据块标题旁）
+
+    页面上的数字是异步更新的，停推即冻结。这里如实标出「最后更新于
+    何时、成功还是失败」，避免用户把旧数字当新数字看。
+    出问题时只返回空串 —— 标注失败不该拖垮整个页面。
+    """
+    try:
+        tracker = get_freshness_tracker()
+        return "".join(format_badge(tracker.snapshot(source)) for source in sources)
+    except Exception:
+        return ""
+
+
 async def render_bandit_admin(ctx: dict):
     """渲染 Bandit 管理页面"""
-    
+
     from deva.naja.bandit import (
         get_bandit_optimizer,
         get_market_observer,
@@ -332,7 +353,7 @@ async def render_bandit_admin(ctx: dict):
     put_text("")
     
     with use_scope("bandit_portfolio"):
-        put_html("<h3>💰 A股虚拟持仓</h3>")
+        put_html(f"<h3>💰 A股虚拟持仓{_freshness_badges(SOURCE_CN_PRICE)}</h3>")
         put_row([
             put_column([
                 put_html("<b>资金状况</b>"),
@@ -453,7 +474,7 @@ async def render_bandit_admin(ctx: dict):
 
     try:
         put_text("")
-        put_html("<h3>🇺🇸 美股/港股持仓</h3>")
+        put_html(f"<h3>🇺🇸 美股/港股持仓{_freshness_badges(SOURCE_US_PRICE, SOURCE_FUTU_SYNC)}</h3>")
 
         us_account_names = []
         pm = None
