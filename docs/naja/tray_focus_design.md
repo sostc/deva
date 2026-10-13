@@ -166,36 +166,93 @@ NOTIFY_MIN_SCORE    = 0.7      # 分数线（沿用原逻辑）
 - 多候选聚合文案：`📰 N 条重要新闻` / 副标题=最重要那条 / 正文=`另有 N-1 条 · 点开菜单查看`；
 - **板块异动（cn/us event）永不进通知**（哪怕分数很高）。
 
+### 2.4 「一键总结」失效：启动期代理环境卫生
+
+> 典型「代码一点问题没有、坏的是继承来的环境」的静默失效。
+
+**症状**：点「✨ 一键总结当前时间线」立刻弹「❌ 总结失败 / Connection error.」，
+`~/.naja/logs/tray.log` 里是 `openai.APIConnectionError: Connection error.`。
+
+**根因**：httpx 堆栈显示请求是**走代理**出去的，而那个代理是
+`HTTP_PROXY=http://127.0.0.1:53631` —— 一个随集成终端（IDE / agent shell）
+会话生灭、当时**已无人监听**的沙箱代理。链条：
+
+1. 从带沙箱代理的终端执行 `-s start` → 当前环境含这个代理；
+2. `__main__` 里 `env = os.environ.copy()` 把它**整块复制**给 Naja 与托盘子进程；
+3. `openai` / `httpx` 默认 `trust_env=True`，把它当成唯一出口；
+4. 端口已死 → 所有大模型请求 `All connection attempts failed`。
+
+对比：**开机自启（launchd）启动的进程环境是干净的**，所以这条路径一直正常；
+只有「从集成终端手动 `-s start`」才会踩到。
+
+**修法**：`daemon.sanitize_proxy_env()` —— 剔除「回环地址 + 端口无人监听」的代理变量。
+
+```python
+# 判据很窄：只碰本机回环、且确证端口不通的
+for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", ...):
+    host, port = _proxy_url_target(env[name])
+    if host in {"127.0.0.1", "localhost", "::1"} and port is not None:
+        # 连不上 → 剔除 + 留一行 warning；连得上 → 视为真代理，保留
+```
+
+- 用户真实的梯度代理（Surge 6152 / Clash 7890 在监听）**一律保留**；
+- 非回环代理**不探测、不删**（尊重用户设置）；
+- 接入点是**所有启动路径的唯一入口**：`main()` 开头（覆盖 `-s start` 与直接跑服务）
+  与 `start_tray.py`（托盘进程不经过 `__main__`）；
+- **时序关键**：清洗必须早于 `handle_service_command()` 里的 `os.environ.copy()`，
+  否则"清洗了个寂寞"——守卫第 ③ 段专门守这条。
+
+同时让失败提示**自证**：`_summarize_error_hint()` 把连接类错误翻成
+「网络/代理不可达，请检查代理是否运行」，401 → API Key 无效，402 → 额度不足。
+原来只显示裸的 `Connection error.`，用户完全不知道该看哪里。
+
 ---
 
 ## 3. 改动清单
 
 | 文件 | 改动 |
 |---|---|
-| `market_hotspot/ui_components/timeline/market_24h_timeline.py` | 新增 `TRAY_TIMELINE_LIMITS` + `select_timeline_events`；`get_timeline_data_for_api` 增 `per_type_limits` 参数 |
-| `infra/ui/menu_bar_tray.py` | `_get_timeline_events` 传配额；`_build_menu` 结构重构；`_check_and_send_notifications` 聚合限流 + `_relevance_keywords` |
+| `market_hotspot/ui_components/timeline/market_24h_timeline.py` | 新增 `TRAY_TIMELINE_LIMITS` + `select_timeline_events` + `TRAY_MENU_MAX_EVENTS` + `format_change_percent`；`get_timeline_data_for_api` 增 `per_type_limits` 参数 |
+| `infra/ui/menu_bar_tray.py` | `_get_timeline_events` 传配额；`_build_menu` 纯时间倒序 + 结构重构；`_check_and_send_notifications` 聚合限流 + `_relevance_keywords`；新增 `_summarize_error_hint` |
 | `web_ui/routes.py` | `TrayDataHandler._fetch_timeline` 传 `per_type_limits=TRAY_TIMELINE_LIMITS` |
-| `tests/test_tray_focus.py`（新） | 15 条：配额 7 + 通知 8 |
-| `scripts/verify/verify_tray_focus.py`（新） | 5 组：配额行为 / 托盘取数口径 / 菜单结构静态守卫 / 通知聚合 / 冷启动 |
+| `infra/runtime/daemon.py` | 新增 `sanitize_proxy_env` / `_proxy_url_target`（回环 + 死端口 → 剔除） |
+| `__main__.py` | `main()` 开头调用 `sanitize_proxy_env()`（所有启动路径唯一入口） |
+| `scripts/start_tray.py` | 启动托盘前调用 `sanitize_proxy_env()`（托盘不经 `__main__`） |
+| `tests/test_tray_focus.py`（新） | 23 条：配额/去重/哨兵渲染 15 + 通知 8 |
+| `tests/test_proxy_sanitize.py`（新） | 14 条：URL 解析 7 + 清洗行为 5 + 失败提示 2 |
+| `scripts/verify/verify_tray_focus.py`（新） | 7 段：配额行为 / 托盘取数口径 / 菜单结构静态守卫 / 频率→配额 / 哨兵渲染 / 通知聚合 / 冷启动 |
+| `scripts/verify/verify_proxy_sanitize.py`（新） | 5 段：清洗行为 / 启动接入 / 时序 / 提示自证 / 环境体检 |
 
 ---
 
 ## 4. 验证
 
-`scripts/verify/verify_tray_focus.py --strict`（5 组）：
+`scripts/verify/verify_tray_focus.py --strict`（7 段）：
 
-1. **配额行为**：不传配额=旧 `[:15]`；配额后新闻必现；板块异动限流；输出仍时间降序；空输入返回空
+1. **配额行为**：不传配额=旧 `[:15]`；配额后新闻必现；板块异动限流；同类按标的去重；输出仍时间降序；空输入返回空
 2. **托盘取数口径**：托盘侧与数据接口都传了配额；无残留 `all_events[:15]`
 3. **菜单结构静态守卫**：`/focusadmin` 有入口；「打开日志」不重复；低频页在「系统」子菜单；
-   **新闻流仍在一级菜单**（用户硬要求）；旧裸数字行/日期分隔行已删
-4. **通知聚合**：限流常量存在 + 多候选只发一条 + 板块异动不弹 + 窗口内不重复
-5. **冷启动**：托盘与时间线模块可独立导入
+   **新闻流仍在一级菜单**（用户硬要求）；列表**按时间倒序**；旧裸数字行/日期分隔行已删
+4. **频率与配额匹配**：模块内记录实测速率；板块异动配额显著少于新闻配额
+5. **哨兵值渲染**：`change_percent` 的 999 不再打成「+999.0%」
+6. **通知聚合**：限流常量存在 + 多候选只发一条 + 板块异动不弹 + 窗口内不重复
+7. **冷启动**：托盘与时间线模块可独立导入
 
-单测：`deva/naja/tests/test_tray_focus.py` 15 条。
+单测：`deva/naja/tests/test_tray_focus.py` 23 条。
 
 > 静态守卫必须**限定在 `_build_menu` 内**：`_build_simple_menu()`（启动中的简化菜单）
 > 是另一个方法，它有自己的 3 行状态（含 `📍 端口`），不该被菜单守卫误伤——
-> 否则会报**假警报**（本项目铁律：假警报比不报警更伤）。
+> 否则会报**假警报**（本项目铁律：假报警比不报警更伤）。
+
+`scripts/verify/verify_proxy_sanitize.py --strict`（5 段）：
+
+1. **清洗行为**：死代理（回环 + 端口不通）剔除；活代理保留；非回环不动；幂等
+2. **启动接入**：`main()` 与 `start_tray.py` 都调用 `sanitize_proxy_env()`
+3. **时序**：`main()` 内清洗早于 `handle_service_command()`（后者才 `os.environ.copy()`）
+4. **失败提示自证**：连接类错误指向网络/代理；401 → API Key
+5. **本机环境体检**：当前进程是否带死代理（**环境条件，不计违约**——数据依赖项要能如实跳过）
+
+单测：`deva/naja/tests/test_proxy_sanitize.py` 14 条。
 
 ---
 
@@ -206,3 +263,6 @@ NOTIFY_MIN_SCORE    = 0.7      # 分数线（沿用原逻辑）
   本次**未深挖**——它只影响观感，不影响"新闻能否进列表"这条主线。
 - 托盘菜单是原生 macOS 菜单，无法像网页那样截图验收；本轮以
   **静态守卫 + `/api/tray/data` 实测**替代。
+- 代理卫生只处理「回环 + 死端口」：若沙箱代理端口**恰好还活着**，
+  环境上就与真代理无法区分（这类只能在源头不注入）。
+
