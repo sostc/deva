@@ -6,25 +6,31 @@
 这是本仓库最经典的「静默失效」形态：代码是对的、守卫是绿的、
 但没有任何一行行情会流进它。本模块就是那个缺失的调用方。
 
-用户拍板的数据源：**MarketDataBus**（统一行情总线），
-标的：**科创芯片 ETF 588200**（见 :mod:`core_holdings`）。
+用户拍板的数据源（2026-10-14 更新）：**富途统一行情**（:mod:`futu_quote_source`）。
+标的见 :mod:`core_holdings`：A 股 588200 科创芯片ETF / 美股 QQQ / 港股 00700。
+
+❗为什么不再走 MarketDataBus（新浪）
+--------------------------------
+实测两处**静默失效**，数据到了、链路绿着、结果却是空的：
+
+* **港股**：总线里根本没有 ``hk`` 分支，``hk00700`` 取回来永远是 ``{}``。
+* **美股**：新浪明明返回了实时价（``gb_qqq`` 743.10，与富途 743.095 一致），
+  但 ``_parse_response`` 只解析 BlockDictionary 活跃美股池里的代码
+  （启动日志「美股Block=15」，全是股票，**ETF 不在池里**）→ 判空丢弃。
 
 它负责的事
 ----------
-1. **订阅 + 轮询双路取行情**，把 ``MarketQuote`` 翻译成引擎要的 tick
-2. **交易时段 / 会话管理**：每天首个 tick 开新会话（带昨收），
-   收盘前 forced-settle，跨会话兜底买回
-3. **单位换算**：新浪给的是**累计**成交量，而 VWAP 要的是**增量**。
+1. **轮询取行情**，把 ``FutuQuote`` 翻译成引擎要的 tick
+2. **交易时段 / 会话管理**：**按市场各自判断**（见 :mod:`market_session`）——
+   每天首个 tick 开新会话（带昨收），收盘前 forced-settle，跨会话兜底买回
+3. **单位换算**：富途给的是**累计**成交量，而 VWAP 要的是**增量**。
    直接把累计量喂进去会把 VWAP 压成一条越走越平的曲线
 4. **死水检测**：连续 N 次「价格与成交量都没动」就停喂并告警 ——
-   节假日的报纸会以「昨收价」反复出现，纯粹制造幻觉
+   节假日的报价会以「昨收价」反复出现，纯粹制造幻觉
 
 刻意不做的事
 ------------
-* **不在自己的线程里调用 ``get_price_async`` / ``write_quotes``**。
-  它们内部走 ``asyncio.create_task``，在没有事件循环的普通线程里会直接抛
-  ``RuntimeError``。这里统一走同步 ``bus.fetch()``（它内部用
-  ``ThreadPoolExecutor`` + ``asyncio.run`` 包好了）。
+* **不做节假日日历**。休市日的报价会被死水检测拦下，比维护一份会过期的日历可靠。
 * **不自动补足底仓**，除非显式打开 ``NAJA_T_ROTATION_ESTABLISH=1``。
   动用多少资金建仓必须由人决定，代码不该替用户拍板。
 """
@@ -34,6 +40,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -43,52 +50,16 @@ from .core_holdings import (
     env_float,
     load_core_holdings,
 )
+from .market_session import (
+    is_trading,
+    market_phase,
+    minutes_to_close,
+    session_date,
+    session_open_ts,
+)
+from .t_rotation import TRotationConfig
 
 log = logging.getLogger(__name__)
-
-# ── A 股交易时段（本地时间）。只认星期，不做节假日日历。
-PHASE_MORNING = "morning"
-PHASE_LUNCH = "lunch"
-PHASE_AFTERNOON = "afternoon"
-PHASE_CLOSED = "closed"
-_TRADING_PHASES = (PHASE_MORNING, PHASE_AFTERNOON)
-
-_MORNING = (9 * 60 + 30, 11 * 60 + 30)
-_AFTERNOON = (13 * 60, 15 * 60)
-_CLOSE_MIN = 15 * 60
-
-
-def cn_phase(dt: datetime) -> str:
-    """纯本地计算当前处于 A 股哪个时段。
-
-    刻意**不依赖** trading_clock 单例：那个要过 AppContainer，
-    在本线程里既慢又可能拿不到，而这里需要的只是「现在几点、周几」。
-    """
-    if dt.weekday() >= 5:
-        return PHASE_CLOSED
-    minute = dt.hour * 60 + dt.minute
-    if _MORNING[0] <= minute < _MORNING[1]:
-        return PHASE_MORNING
-    if _MORNING[1] <= minute < _AFTERNOON[0]:
-        return PHASE_LUNCH
-    if _AFTERNOON[0] <= minute < _CLOSE_MIN:
-        return PHASE_AFTERNOON
-    return PHASE_CLOSED
-
-
-def minutes_to_close(dt: datetime) -> Optional[float]:
-    """距 15:00 收盘还有多少分钟。非交易日/已收盘返回 None。"""
-    if dt.weekday() >= 5:
-        return None
-    minute = dt.hour * 60 + dt.minute + dt.second / 60.0
-    if minute >= _CLOSE_MIN:
-        return None
-    return _CLOSE_MIN - minute
-
-
-def session_open_ts(dt: datetime) -> float:
-    """当日 09:30 的时间戳。T+1 判断「哪些份额是昨天买的」要靠它。"""
-    return datetime(dt.year, dt.month, dt.day, 9, 30).timestamp()
 
 
 class TRotationRunner:
@@ -100,7 +71,7 @@ class TRotationRunner:
     def __init__(
         self,
         portfolio=None,
-        bus=None,
+        quotes=None,
         engine=None,
         ledger=None,
         specs: Optional[List[CoreHoldingSpec]] = None,
@@ -132,7 +103,7 @@ class TRotationRunner:
 
         self._clock = clock or time.time
         self._portfolio = portfolio
-        self._bus = bus
+        self._quotes = quotes
         self._engine = engine
         self._ledger = ledger
 
@@ -234,15 +205,16 @@ class TRotationRunner:
             log.error("[TRotationRunner] 虚拟盘为 None，运行器不启动")
             return False
 
-        # 行情总线
-        if self._bus is None:
+        # 行情源 —— 富途（三市场统一实时）。见模块 docstring：新浪链路
+        # 在港股/美股 ETF 上是静默失效的，不能再当数据源用。
+        if self._quotes is None:
             try:
-                from .market_data_bus import get_market_data_bus
+                from .futu_quote_source import get_futu_quote_source
 
-                self._bus = get_market_data_bus()
+                self._quotes = get_futu_quote_source()
             except Exception as e:  # pragma: no cover
-                self._errors["bus"] = str(e)
-                log.error(f"[TRotationRunner] 取不到行情总线: {e}")
+                self._errors["quotes"] = str(e)
+                log.error(f"[TRotationRunner] 取不到富途行情源: {e}")
                 return False
 
         # 账本 + 引擎
@@ -258,6 +230,22 @@ class TRotationRunner:
             )
 
         for spec in self._specs:
+            # ❗每个标的挂上**它自己市场**的参数档：判据按波动尺度标定，
+            # 拿 A 股那套去套 QQQ 会永不触发（实测 QQQ 振幅 0.72% < 闸门 1.0%）。
+            prof = spec.profile
+            self._engine.set_symbol_profile(
+                spec.code,
+                thresholds=prof.thresholds,
+                config=replace(
+                    TRotationConfig(),
+                    max_round_amount=prof.max_round_amount,
+                    round_lot=spec.round_lot,
+                    # 最少做**一手**：A股/港股 100 份，美股 1 股。
+                    # 沿用 100 会让美股「一手」变成 7 万多美元。
+                    min_round_shares=spec.round_lot,
+                ),
+                round_lot=spec.round_lot,
+            )
             # 只有**显式指定了份额**才能在此时登记；按比例折算的必须等有价格，
             # 交给 _ensure_plan()（详见那里的注释）。
             if spec.explicit:
@@ -265,28 +253,7 @@ class TRotationRunner:
                     spec.code, spec.target_shares, name=spec.name, note=spec.note
                 )
 
-        # 订阅 —— 既让总线知道有人要这只票，也用来观测「推送链路是否活着」。
-        # 真正的喂数统一由轮询线程做（见模块 docstring：避免 async 陷阱）。
-        try:
-            codes = [s.bus_code for s in self._specs]
-            self._bus.subscribe(codes, self._on_bus_quote)
-            self._bus.register_priority_codes(codes, self._bus.PRIORITY_HIGH)
-        except Exception as e:  # pragma: no cover
-            self._errors["subscribe"] = str(e)
-            log.warning(f"[TRotationRunner] 订阅行情失败（仍可轮询）: {e}")
-
         return True
-
-    def _on_bus_quote(self, code: str, price: float):
-        """总线推送回调。只计数，不喂引擎（喂数统一在轮询线程，避免重复进 bar）。"""
-        try:
-            from .market_data_bus import _normalize_code
-
-            key = _normalize_code(str(code))
-        except Exception:
-            key = str(code)
-        if key in self._by_code:
-            self._stats["pushed_ticks"] += 1
 
     # ------------------------------------------------------------------
     # 主循环
@@ -308,13 +275,14 @@ class TRotationRunner:
         dt = datetime.fromtimestamp(now)
         results: List[Dict[str, Any]] = []
 
-        phase = cn_phase(dt)
-        if phase not in _TRADING_PHASES:
-            self._stats["off_hours_skips"] += 1
-            return results
-
         self._stats["polls"] += 1
         for spec in self._specs:
+            # ❗时段必须**按市场各自判断**：三个市场的开盘时间互不重叠
+            # （A股 09:30–15:00 / 港股 09:30–16:00 / 美股 21:30–04:00 北京时间）。
+            # 写死成 A 股时段的话，美股一整场都不会被喂一根 tick。
+            if not is_trading(spec.market, dt):
+                self._stats["off_hours_skips"] += 1
+                continue
             try:
                 results.append(self._pump(spec, dt, now))
             except Exception as e:
@@ -325,28 +293,34 @@ class TRotationRunner:
     # ------------------------------------------------------------------
     # 单个标的
     # ------------------------------------------------------------------
-    def _read_quote(self, bus_code: str):
-        """同步取最新行情。只走 ``bus.fetch`` —— 见模块 docstring。"""
-        bus = self._bus
-        if bus is None:
+    def _read_quote(self, spec: CoreHoldingSpec):
+        """同步取最新行情（富途）。连不上/无此标的返回 None。"""
+        src = self._quotes
+        if src is None:
             return None
         try:
-            bus.fetch([bus_code])
+            quote = src.get(spec.code, spec.market)
         except Exception as e:
             self._stats["fetch_errors"] += 1
-            log.debug(f"[TRotationRunner] fetch {bus_code} 失败: {e}")
+            log.debug(f"[TRotationRunner] 取 {spec.code} 行情失败: {e}")
             return None
-        try:
-            return bus.get_quote(bus_code)
-        except Exception as e:  # get_quote 缺数据时会尝试 asyncio.create_task
+        if quote is None or not quote.ok:
             self._stats["fetch_errors"] += 1
-            log.debug(f"[TRotationRunner] get_quote {bus_code} 失败: {e}")
+            log.debug(
+                f"[TRotationRunner] {spec.code} 行情不可用: "
+                f"{getattr(quote, 'error', '无返回')}"
+            )
             return None
+        return quote
 
     def _pump(self, spec: CoreHoldingSpec, dt: datetime, now: float) -> Dict[str, Any]:
         code = spec.code
-        open_ts = session_open_ts(dt)
-        date = dt.strftime("%Y-%m-%d")
+        market = spec.market
+        # ❗会话锚点用**市场自己的交易日**：北京时间周三 03:35 属于美东周二
+        # 那个交易日。用北京日期会让美股在 04:00 和 21:30 各开一次会话，
+        # 昨收基准被重置两次，日内序列直接废掉。
+        open_ts = session_open_ts(market, dt)
+        date = session_date(market, dt)
 
         suspended = self._suspended.get(code)
         if suspended:
@@ -357,10 +331,13 @@ class TRotationRunner:
             else:
                 return {"code": code, "action": "NONE", "reason": suspended}
 
-        quote = self._read_quote(spec.bus_code)
+        quote = self._read_quote(spec)
         if quote is None or quote.current <= 0 or quote.prev_close <= 0:
             self._stats["quote_miss"] += 1
-            return {"code": code, "action": "NONE", "reason": "行情缺失（无报价或缺昨收）"}
+            return {
+                "code": code, "action": "NONE", "market": market,
+                "reason": "行情缺失（无报价或缺昨收）",
+            }
         age = getattr(quote, "age", 0.0) or 0.0
         if age > self._max_quote_age:
             self._stats["stale_quote"] += 1
@@ -372,7 +349,7 @@ class TRotationRunner:
         self._maybe_start_session(spec, quote, now, dt, open_ts, date)
 
         price = float(quote.current)
-        # 新浪给的是**当日累计**成交量，VWAP 要的是每根 bar 的增量
+        # 富途给的也是**当日累计**成交量，VWAP 要的是每根 bar 的增量
         cum_vol = float(getattr(quote, "volume", 0.0) or 0.0)
         prev_cum = self._last_cum_vol.get(code)
         dvol = 0.0
@@ -380,10 +357,10 @@ class TRotationRunner:
             dvol = cum_vol - prev_cum
         self._last_cum_vol[code] = cum_vol
 
-        mtc = minutes_to_close(dt)
+        mtc = minutes_to_close(market, dt)
 
         # 收盘前：先把没买回的买回来，再谈别的
-        force_min = getattr(self._engine._config, "force_close_minutes", 10.0)
+        force_min = self._engine.config_for(code).force_close_minutes
         if mtc is not None and mtc <= force_min:
             if (code, date) in self._settled:
                 return {"code": code, "action": "NONE", "reason": "当日已结算"}
@@ -689,7 +666,7 @@ class TRotationRunner:
                 try:
                     ledger_view = self._ledger.get_summary(
                         spec.code, self._portfolio,
-                        now=now, session_open_ts=session_open_ts(dt),
+                        now=now, session_open_ts=session_open_ts(spec.market, dt),
                     )
                 except Exception as e:  # pragma: no cover
                     ledger_view = {"error": str(e)}
@@ -697,6 +674,8 @@ class TRotationRunner:
                 "code": spec.code,
                 "bus_code": spec.bus_code,
                 "name": spec.name,
+                "market": spec.market,
+                "currency": spec.currency,
                 # 折算后的才是真实目标；spec.target_shares 为 0 仅表示"按比例折算"。
                 # 尚未折算过（还没见到行情）就如实给 0，并给出 budget 让人能核对。
                 "target_shares": self._plan_targets.get(spec.code, 0.0),
@@ -711,7 +690,9 @@ class TRotationRunner:
                     self._ledger.effective_shares(spec.code, self._portfolio)
                 ),
                 "session_date": self._session_date.get(spec.code),
-                "settled_today": (spec.code, dt.strftime("%Y-%m-%d")) in self._settled,
+                "settled_today": (
+                    spec.code, session_date(spec.market, dt)
+                ) in self._settled,
                 "last_price": self._last_price.get(spec.code, 0.0),
                 "suspended": self._suspended.get(spec.code, ""),
                 "last_diag": diag,
@@ -724,8 +705,16 @@ class TRotationRunner:
             "total_assets": self.total_assets(),
             "alloc_pct": self._specs[0].alloc_pct if self._specs else 0.0,
             "poll_seconds": self._poll_seconds,
-            "phase": cn_phase(dt),
-            "minutes_to_close": minutes_to_close(dt),
+            # 三个市场时段不同，这里**逐市场**给出，不再只有一个 A 股 phase
+            "phases": {
+                spec.code: {
+                    "market": spec.market,
+                    "phase": market_phase(spec.market, dt),
+                    "minutes_to_close": minutes_to_close(spec.market, dt),
+                    "session_date": session_date(spec.market, dt),
+                }
+                for spec in self._specs
+            },
             "now": datetime.fromtimestamp(now).strftime("%Y-%m-%d %H:%M:%S"),
             "errors": dict(self._errors),
             "stats": dict(self._stats),
@@ -750,11 +739,4 @@ def get_t_rotation_runner() -> TRotationRunner:
 __all__ = [
     "TRotationRunner",
     "get_t_rotation_runner",
-    "cn_phase",
-    "minutes_to_close",
-    "session_open_ts",
-    "PHASE_MORNING",
-    "PHASE_LUNCH",
-    "PHASE_AFTERNOON",
-    "PHASE_CLOSED",
 ]
