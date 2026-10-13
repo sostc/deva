@@ -40,7 +40,8 @@ from .application import AppRuntimeConfig, run_web_application
 from .infra.runtime.daemon import (
     is_running, get_status,
     stop_service, reload_service, restart_service, stop_tray, is_tray_running,
-    setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE, save_pid, save_tray_pid
+    setup_reload_handler, PID_FILE, LOG_FILE, TRAY_PID_FILE, save_pid, save_tray_pid,
+    sanitize_proxy_env,
 )
 
 
@@ -396,6 +397,13 @@ def handle_service_command():
 def main():
     import argparse
     import logging
+
+    # 所有启动路径的唯一入口：先做一次代理环境清洗。
+    # 「os.environ.copy()」会把当前环境整块复制给 Naja 主进程与托盘子进程。
+    # 若当前 shell 带着一个已失效的本地代理（集成终端 / 沙箱常见），
+    # openai/httpx 的 trust_env 会把它当成唯一出口 → 「一键总结」等
+    # 大模型功能全部 APIConnectionError。详见 sanitize_proxy_env。
+    sanitize_proxy_env()
 
     parser = argparse.ArgumentParser(description="Naja - 实时数据流与策略系统")
 
