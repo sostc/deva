@@ -116,6 +116,7 @@ class RealtimeDataFetcher:
         self._save_snapshot_enabled: bool = True
         self._last_snapshot_save_time: float = 0.0
         self._snapshot_save_count: int = 0
+        self._last_snapshot_prune_ts: float = 0.0   # 快照历史轮转的节流时间戳
 
         self._load_snapshot_config()
 
@@ -1398,10 +1399,35 @@ class RealtimeDataFetcher:
             snapshot_db.append(records)
             self._last_snapshot_save_time = timestamp
             self._snapshot_save_count += 1
+            self._prune_snapshot_history(snapshot_db, timestamp)
             log.debug(f"[RealtimeDataFetcher] 保存快照 {len(records)} 条到 quant_snapshot_5min_window")
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 保存快照失败: {e}")
+
+    def _prune_snapshot_history(self, snapshot_db, now_ts: float):
+        """小时级节流：按时间轮转清理超期的行情快照（默认保留 5 天）。
+
+        背景：quant_snapshot_5min_window 原先只增不减（实测 20929 行 / 644MB，
+        占库 78%），唯一清理手段 naja/scripts/cleanup_snapshots.py 是 input()
+        交互式脚本，永远不会自动执行。改为在写入路径上顺带轮转。
+        保留期可用 NAJA_SNAPSHOT_KEEP_DAYS 覆盖。
+        """
+        try:
+            keep_days = float(os.getenv("NAJA_SNAPSHOT_KEEP_DAYS", "5") or 5)
+        except Exception:
+            keep_days = 5.0
+        if now_ts - self._last_snapshot_prune_ts < 3600.0:
+            return
+        self._last_snapshot_prune_ts = now_ts
+        try:
+            removed = snapshot_db.prune_older_than(now_ts - keep_days * 86400.0)
+            if removed:
+                log.info(
+                    f"[RealtimeDataFetcher] 行情快照轮转：清理 {removed} 条（保留 {keep_days:g} 天）"
+                )
+        except Exception as e:
+            log.debug(f"[RealtimeDataFetcher] 行情快照轮转失败: {e}")
 
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
