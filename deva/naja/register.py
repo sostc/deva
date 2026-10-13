@@ -92,6 +92,10 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("bandit_tuner",           ".bandit.tuner",                     "BanditTuner",         ["market_data_bus"]),
     ("bandit_attribution",     ".bandit.attribution",               "BanditAttribution",   ["strategy_result_store"]),
     ("virtual_portfolio",      ".bandit.virtual_portfolio",         "VirtualPortfolio",    []),
+    # 做 T 降本运行器：把 core_holdings 里登记的长期底仓接到行情总线上。
+    # 注意它只是「注册」，真正启动在 AppContainer._start_schedulers()，
+    # 别指望懒加载会自己跑起来。
+    ("t_rotation_runner",      ".bandit.t_rotation_runner",         "TRotationRunner",     ["market_data_bus", "virtual_portfolio"]),
 
     # ── 基础设施 ──
     ("thread_pool",            ".infra.runtime.thread_pool",        "ThreadPoolManager",        []),
