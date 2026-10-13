@@ -17,7 +17,7 @@ from .virtual_portfolio import VirtualPortfolio, VirtualPosition
 from .market_observer import MarketDataObserver, get_market_observer
 from .optimizer import get_bandit_optimizer
 from .data_freshness import get_freshness_tracker, SOURCE_CN_PRICE
-from .execution import resolve_backend
+from .execution import resolve_backend, selected_backend_name
 from deva.naja.register import SR
 from deva.naja.decision import compute_order_amount, manas_sizing_enabled
 
@@ -322,6 +322,21 @@ class AdaptiveCycle:
         self._callbacks_registered = True
         log.debug("[AdaptiveCycle] 回调注册完成")
     
+    def _execution_backend(self):
+        """取本次要用的执行后端（进程内复用）。
+
+        每个信号都重新装配后端的话，``FutuSimBackend`` 每次都会重建一个
+        同步器并把 7 个品牌的账户列表重新探测一遍 —— 纯浪费，而且丢掉
+        上一次连接缓存。后端名变了（环境变量被改）才重新装配。
+        """
+        name = selected_backend_name()
+        cached = getattr(self, "_exec_backend", None)
+        if cached is None or getattr(cached, "name", None) != name:
+            cached = resolve_backend(portfolio=self._portfolio)
+            self._exec_backend = cached
+            log.info(f"[AdaptiveCycle] 执行后端 = {cached.name}")
+        return cached
+
     def _on_new_signal(self, signal: DetectedSignal):
         """处理新信号"""
         log.debug(f"[AdaptiveCycle] 收到信号: {signal.stock_code} {signal.stock_name} 价格={signal.price} 置信度={signal.confidence}")
@@ -388,7 +403,7 @@ class AdaptiveCycle:
 
         # 执行后端：默认 ``virtual``（写虚拟仓，与改造前完全一致）；
         # 设 ``NAJA_EXEC_BACKEND=futu_sim`` 才改报到富途模拟账户。
-        outcome = resolve_backend(portfolio=self._portfolio).submit(
+        outcome = self._execution_backend().submit(
             signal=signal,
             plan=decision.get("plan"),
             side="buy",                     # 上面已确认是买入信号
