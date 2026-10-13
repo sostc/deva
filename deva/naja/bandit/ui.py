@@ -794,27 +794,46 @@ def _do_reset(optimizer):
 
 def _do_sync_futu():
     try:
-        from deva.naja.bandit.futu_portfolio_syncer import get_futu_syncer
+        from deva.naja.bandit.futu_portfolio_syncer import (
+            FutuPortfolioSyncer, get_futu_syncer,
+        )
         from pywebio.session import run_js
 
-        result = get_futu_syncer().sync()
+        # 真实 + 模拟各同步一份。
+        # 为什么模拟要单独再跑一次：模拟账户是**全局共享、不分品牌**的，
+        # 直接混进真实那轮会被 7 个品牌各返回一遍。两轮的账户块靠
+        # FutuSim 前缀区分（清理规则也各清各的），不会互相覆盖或误删。
+        jobs = [("真实", get_futu_syncer())]
+        try:
+            jobs.append(("模拟", FutuPortfolioSyncer(trd_env="SIMULATE")))
+        except Exception as e:
+            put_text(f"  ⚠️ 模拟账户同步器不可用: {e}")
 
-        # 逐个账户如实交代 —— 富途香港成功、moomoo 失败这种「半成功」必须能看出来
-        for acc in result.accounts:
-            if acc.ok:
-                put_text(f"  ✅ {acc.name}（{acc.firm}）{acc.positions} 只持仓")
-            else:
-                put_text(f"  ❌ {acc.name}（{acc.firm}）失败: {acc.error}")
-        for err in result.probe_errors:
-            put_text(f"  ❌ {err}")
-        if result.stale_removed:
-            put_text(f"  🧹 已清理过期账户: {'、'.join(result.stale_removed)}")
+        results = []
+        for env_label, syncer in jobs:
+            try:
+                results.append((env_label, syncer.sync()))
+            except Exception as e:
+                put_text(f"  ❌ [{env_label}] 同步异常: {e}")
 
-        if not result.accounts:
+        for env_label, result in results:
+            # 逐个账户如实交代 —— 富途香港成功、moomoo 失败这种「半成功」必须能看出来
+            for acc in result.accounts:
+                if acc.ok:
+                    put_text(f"  ✅ [{env_label}] {acc.name}（{acc.firm}）{acc.positions} 只持仓")
+                else:
+                    put_text(f"  ❌ [{env_label}] {acc.name}（{acc.firm}）失败: {acc.error}")
+            for err in result.probe_errors:
+                put_text(f"  ❌ [{env_label}] {err}")
+            if result.stale_removed:
+                put_text(f"  🧹 [{env_label}] 已清理过期账户: {'、'.join(result.stale_removed)}")
+
+        real_results = [r for label, r in results if label == "真实"]
+        if real_results and not real_results[0].accounts:
             put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行/已登录")
             return
 
-        if result.ok:
+        if results and all(r.ok for _, r in results):
             put_text("✅ 富途持仓同步成功，正在刷新页面...")
         else:
             put_text("⚠️ 部分账户同步失败（见上方），已更新的数据仍会刷新")
