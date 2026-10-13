@@ -916,8 +916,15 @@ class TrayDataHandler(RequestHandler):
 
 
 def create_handlers(cdn: str = None):
-    """创建路由处理器"""
-    cdn_url = cdn if cdn is not None else False
+    """创建路由处理器
+
+    cdn 默认 '/'（而非 False）：pywebio 在 cdn=False 时 base_url 为空串，模板会输出
+    **相对路径**（`js/pywebio.min.js`），浏览器按当前 URL 目录解析 —— 单段路径（如 /health）
+    恰好落到根 /js/ 下，但多段路径（如 /learning/list）会变成 /learning/js/... 而 404，
+    导致 pywebio.min.js 加载失败、整页无法渲染。传 '/' 时 render_page 走自定义 CDN 分支
+    （base_url = cdn.rstrip('/') + '/' = '/'），资源统一为根路径绝对地址。
+    """
+    cdn_url = cdn if cdn is not None else '/'
 
     page_routes = [
         (r'/', webio_handler(main, cdn=cdn_url)),
