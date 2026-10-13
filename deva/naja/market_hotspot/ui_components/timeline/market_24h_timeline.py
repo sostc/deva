@@ -1100,9 +1100,55 @@ def get_raw_events_for_sync(hours: int = 24) -> Dict[str, List[Dict]]:
     }
 
 
-def get_timeline_data_for_api(hours: int = 24) -> dict:
+# 托盘一级菜单的事件配额：新闻优先，板块异动限量。
+# 合计 12 条——保证「一点开就能看到新闻」，又不会把菜单撑到要滚动。
+TRAY_TIMELINE_LIMITS = {
+    "high_score_news": 4,
+    "jin10_news": 4,
+    "cn_event": 2,
+    "us_event": 2,
+}
+
+
+def select_timeline_events(all_events, per_type_limits=None):
+    """按「类型配额」挑选时间线事件——**全仓唯一的截断口径**，托盘与页面共用。
+
+    背景（2026-10-13 修）：原先直接 ``all_events[:15]``（只按时间降序硬截断），
+    而 cn/us 板块异动是秒级持续更新的，时间戳永远最新 → 永远霸占全部 15 个名额
+    → ``high_score_news`` / ``jin10_news`` 几乎永不进列表。连带
+    ``_check_and_send_notifications``（只认这两类且 score≥0.7，遍历同一列表）
+    **实际永不触发**——典型「链路写了、数据不在同一条路上」的静默失效。
+
+    改为按类型给配额，每类取最新 N 条，保证新闻类一定有机会出现。
+
+    Args:
+        all_events: 已按时间降序排好的事件列表。
+        per_type_limits: ``{"high_score_news": 4, "jin10_news": 4, ...}``；
+            传 ``None`` 或空则退化为旧行为 ``all_events[:15]``，
+            以此保证 ``/market`` 等既有调用方行为完全不变。
+
+    Returns:
+        挑选后的事件列表（仍按时间降序）。
+    """
+    if not per_type_limits:
+        return list(all_events[:15])
+
+    picked = []
+    for etype, limit in per_type_limits.items():
+        if limit <= 0:
+            continue
+        picked.extend([e for e in all_events if e.get("type") == etype][:limit])
+    picked.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+    return picked
+
+
+def get_timeline_data_for_api(hours: int = 24, per_type_limits=None) -> dict:
     """
     获取时间线数据，供 API 使用（TrayDataHandler 和 MarketTimelineHandler 共享）
+
+    per_type_limits:
+        见 :func:`select_timeline_events`。托盘传 ``TRAY_TIMELINE_LIMITS``
+        以保证新闻类必现；不传 / 传 None 则维持旧的 ``[:15]`` 行为。
     
     Returns:
         dict: 包含:
@@ -1126,7 +1172,7 @@ def get_timeline_data_for_api(hours: int = 24) -> dict:
     all_events = [e for e in all_events if e.get('timestamp', 0) >= cutoff]
     
     timeline_items = []
-    for event in all_events[:15]:
+    for event in select_timeline_events(all_events, per_type_limits):
         ts = event.get('timestamp', 0)
         dt = datetime.fromtimestamp(ts)
         event_type = event.get('type', '')
