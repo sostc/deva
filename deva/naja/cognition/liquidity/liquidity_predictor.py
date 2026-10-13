@@ -22,6 +22,27 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+_MarketStatusCache = None
+
+
+def _market_status_enum():
+    """惰性取 ``radar.global_market_config.MarketStatus``。
+
+    ❗不能写成模块级 `from deva.naja.radar.global_market_config import MarketStatus`：
+    导入该子模块会先执行 `deva/naja/radar/__init__.py`，而它又反向
+    `from deva.naja.cognition.openrouter_monitor import ...` —— 与本模块构成
+    import cycle（`cognition/liquidity/__init__.py` → liquidity_predictor）。
+    下面 `session_manager` 用函数内导入也是同一个原因。
+
+    此前这段代码**根本没导入过 MarketStatus**，两处枚举比较必然 NameError
+    （`_get_dynamic_valid_until` / `_check_if_priced` 都是预测主路径）。
+    """
+    global _MarketStatusCache
+    if _MarketStatusCache is None:
+        from deva.naja.radar.global_market_config import MarketStatus
+        _MarketStatusCache = MarketStatus
+    return _MarketStatusCache
+
 
 class LiquiditySignalType(Enum):
     """
@@ -192,6 +213,7 @@ class LiquidityPredictor:
         if not market_id:
             return time.time() + 3600
 
+        MarketStatus = _market_status_enum()
         market_status = self.session_manager.get_market_status(market_id)
 
         if market_status == MarketStatus.OPEN:
@@ -235,7 +257,7 @@ class LiquidityPredictor:
         if not market_id:
             return (False, "", False)
 
-        if self.session_manager.get_market_status(market_id) == MarketStatus.CLOSED:
+        if self.session_manager.get_market_status(market_id) == _market_status_enum().CLOSED:
             return (False, "市场已收盘，等待下一交易日", False)
 
         recent_data = self._get_latest_market_data(market_id)

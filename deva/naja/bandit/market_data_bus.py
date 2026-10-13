@@ -41,9 +41,14 @@ import threading
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, TYPE_CHECKING
 
 from deva import NB, NS
+
+if TYPE_CHECKING:
+    # 仅用于 `from_market_data(md: "MarketData")` 的注解；
+    # 运行时不需要（该入口只读属性，不依赖类型本身）。
+    from deva.naja.market_hotspot.data import MarketData
 
 log = logging.getLogger(__name__)
 

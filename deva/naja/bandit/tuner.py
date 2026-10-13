@@ -22,6 +22,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from deva.naja.register import SR
+
 log = logging.getLogger(__name__)
 
 
@@ -190,7 +192,6 @@ class BanditTuner:
     def _init_portfolio(self):
         """初始化虚拟持仓组合"""
         try:
-            from deva.naja.register import SR
             if self._portfolio is None:
                 self._portfolio = SR('virtual_portfolio')
             if self._tracker is None:

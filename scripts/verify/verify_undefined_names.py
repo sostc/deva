@@ -212,6 +212,9 @@ def update_baseline() -> int:
             "未定义名字（F821）历史存量。守卫只允许这份清单变短："
             "出现新组合即失败；修好一处就重跑 --update-baseline。"
             "web_ui/ 不在此列 —— 那一层要求硬零。"
+            "2026-10-14：原有 44 处存量已全部清零（含 12 处「缺失 import」、"
+            "7 处「函数内 import 但别处也在用」、3 处真·引用了不存在的东西），"
+            "本清单现为空 —— 请勿再让它长出内容。"
         ),
         "hard_zero_dirs": list(HARD_ZERO_DIRS),
         "known": remain,

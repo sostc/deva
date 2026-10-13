@@ -5,7 +5,6 @@ Philosophy Configurator - 理念配置生成器
 
 使用方式：
     from scripts.generate_philosophy_config import PhilosophyConfigurator
-from deva.naja.register import SR
 
     configurator = PhilosophyConfigurator()
 
@@ -36,6 +35,8 @@ import time
 import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
+
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 

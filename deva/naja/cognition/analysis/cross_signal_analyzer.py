@@ -1189,24 +1189,22 @@ class CrossSignalAnalyzer:
             # 发布到 NajaEventBus
             from deva.naja.events import ResonanceDetectedEvent
 
+            # ❗此前这里传的是 `event_type=` / `resonance_score=` / `symbol=` / `importance=`：
+            #   * `event_type` 在 BaseCognitiveEvent 上是 **property**（不是字段）；
+            #   * 字段名是 `symbols`（List）而不是 `symbol`；
+            #   * `resonance_score` / `importance` 这两个名字在本作用域**从未定义**。
+            # 于是**每一次共振**都在这里抛 NameError/TypeError，被外层
+            # `except Exception` 吞成一句 debug 日志 —— 「共振事件发布到认知总线」
+            # 这条链路实际上从未成功过一次（ManasEngine 收不到 RESONANCE_DETECTED）。
+            # 字段名以 `cognition_events.ResonanceDetectedEvent` 的真实定义为准。
             event = ResonanceDetectedEvent(
-
                 source="CrossSignalAnalyzer",
-
-                event_type="resonance_detected",
-
-                narrative_id=f"cross_signal_1776069304",
-
-                signal_id="resonance_detected",
-
-                resonance_score=resonance_score,
-
-                symbol=signal_data.get("symbol") if isinstance(signal_data, dict) else None,
-
-                block=None,
-
-                importance=importance,
-
+                resonance_id=f"cross_signal_{resonance.block_id}_{int(resonance.timestamp)}",
+                resonance_type=resonance.resonance_type.value,
+                symbols=[resonance.block_id] if resonance.block_id else [],
+                strength=resonance.resonance_score,
+                importance=resonance.resonance_score,
+                metadata=event_data,
             )
 
             bus.publish(event)

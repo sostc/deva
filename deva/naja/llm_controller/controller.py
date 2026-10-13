@@ -14,6 +14,7 @@ from ..radar import get_radar_engine
 from ..strategy import get_strategy_manager
 from ..strategy.result_store import get_result_store
 from ..config import get_llm_config
+from deva.naja.register import SR
 
 
 LLM_DECISIONS_TABLE = "naja_llm_decisions"
@@ -326,8 +327,9 @@ class LLMController:
 
 
 def get_llm_controller() -> LLMController:
-    from deva.naja.register import SR
     return SR('llm_controller')
+
+
 def _build_auto_adjust_task_code() -> str:
     return (
         "from deva.naja.config import get_llm_config\n"

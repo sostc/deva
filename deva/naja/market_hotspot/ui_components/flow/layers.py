@@ -1,11 +1,13 @@
 """热点系统流式 UI - 层次详情与数据频率"""
 
 import logging
+import time
 from typing import Dict, Any
 
 log = logging.getLogger(__name__)
 
 from ._helpers import _fmt_ts
+from .hotspot_flow import _get_friendly_name
 
 
 def render_hotspot_layers_detail() -> str:

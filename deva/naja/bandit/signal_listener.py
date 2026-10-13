@@ -28,6 +28,10 @@ from ..strategy.result_store import StrategyResult
 from ..radar.trading_clock import TRADING_CLOCK_STREAM
 from deva.naja.register import SR
 
+# ❗logger 必须先于下面的 try 块定义：`except ImportError` 降级分支里要用它，
+# 若放在 try 之后，降级路径**自己就会抛 NameError**（降级分支等于从未跑通）。
+log = logging.getLogger(__name__)
+
 # 新架构：Bandit 订阅交易总线
 try:
     from deva.naja.events import get_trading_bus, TradeDecisionEvent
@@ -37,8 +41,6 @@ except ImportError:
     log.warning("[SignalListener] 交易总线不可用，Bandit 将无法接收交易决策事件")
     _EVENT_BUS_AVAILABLE = False
     _USE_TRADING_BUS = False
-
-log = logging.getLogger(__name__)
 
 SIGNAL_CONFIG_TABLE = "naja_bandit_signal_config"
 

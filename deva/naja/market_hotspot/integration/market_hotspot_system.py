@@ -17,7 +17,7 @@ from ..scheduling import FrequencyScheduler, FrequencyLevel, FrequencyConfig, Ad
 from ..core import GlobalHotspotEngine, MarketSnapshot, BlockHotspotEngine, BlockConfig, WeightPool, WeightPoolView, MarketContext
 from .system_config import MarketHotspotSystemConfig, StepResult, FallbackConfig
 import numpy as np
-from typing import Dict, List, Optional, Any, Tuple, Callable
+from typing import Dict, List, Optional, Any, Tuple, Callable, TYPE_CHECKING
 import time
 import asyncio
 import logging
@@ -26,6 +26,10 @@ from datetime import datetime
 from deva.naja.register import SR
 from deva.naja.market import normalize_market
 import pandas as pd
+
+if TYPE_CHECKING:
+    # 仅供 `-> 'NoiseFilterConfig'` 注解；运行时在函数内按需导入
+    from ..processing.noise_filter import NoiseFilterConfig
 
 # 解决 FutureWarning: Downcasting object dtype arrays on .fillna, .ffill, .bfill is deprecated
 pd.set_option('future.no_silent_downcasting', True)
@@ -485,6 +489,11 @@ class MarketHotspotSystem:
     @property
     def noise_filter(self):
         """获取噪音过滤器实例（供 UI 层使用）"""
+        # ❗此处原先漏了 import：同族的 `_apply_noise_filter` 在函数内导入了
+        # `NoiseFilter`，而本 property **没有** → 属性一被访问就 NameError。
+        # 它又正好是「供 UI 层使用」的入口，所以页面点开即崩（无 traceback 的坑）。
+        from ..processing.noise_filter import NoiseFilter
+
         if not hasattr(self, '_noise_filter') or self._noise_filter is None:
             nf_config = self._get_noise_filter_config()
             self._noise_filter = NoiseFilter(config=nf_config)

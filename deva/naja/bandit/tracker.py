@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -15,6 +16,8 @@ from deva import NB
 
 from .optimizer import get_bandit_optimizer, StrategyReward
 from deva.naja.register import SR
+
+log = logging.getLogger(__name__)
 
 POSITION_REWARD_TABLE = "naja_bandit_position_rewards"
 

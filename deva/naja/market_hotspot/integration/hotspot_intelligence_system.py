@@ -22,6 +22,7 @@ snapshot → Core (GlobalHotspot/Block/Weight) →
 import numpy as np
 from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
+import logging
 import time
 
 from .market_hotspot_system import (
@@ -38,6 +39,8 @@ from deva.naja.market_hotspot.intelligence import (
     HotspotPropagation,
     StrategyLearning
 )
+
+log = logging.getLogger(__name__)
 
 
 @dataclass

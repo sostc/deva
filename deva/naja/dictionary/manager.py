@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -12,6 +13,7 @@ from ..infra.runtime.recoverable import (
     RecoverableUnit,
     UnitStatus,
 )
+from ..scheduler import daily_time_to_cron
 from .models import (
     DICT_ENTRY_TABLE,
     DICT_PAYLOAD_TABLE,
@@ -25,6 +27,8 @@ from .helpers import (
     _build_refresh_task_code,
 )
 from deva.naja.register import SR
+
+log = logging.getLogger(__name__)
 
 
 class DictionaryManager:
@@ -202,9 +206,14 @@ class DictionaryManager:
             try:
                 execution_mode = "scheduler"
                 scheduler_trigger = "cron"
-                cron_expr = _daily_time_to_cron(daily_time)
-            except Exception:
-                pass
+                cron_expr = daily_time_to_cron(daily_time)
+            except Exception as e:
+                # ❗以前这里是 `pass` + 调用一个**从未存在**的 `_daily_time_to_cron`
+                # → NameError 被吞掉，任务落库时 cron_expr 直接是空的（连 03:00 兜底都没有）。
+                log.warning(
+                    f"[DictionaryManager] daily_time={daily_time!r} 转 cron 失败，"
+                    f"该任务将没有 cron 表达式: {e}"
+                )
 
         has_upload = uploaded_data is not None
         has_code = bool(str(func_code or "").strip())

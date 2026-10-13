@@ -1086,6 +1086,10 @@ class MarketHotspotHistoryTracker:
             shift_types.append('个股')
         shift_type_str = "+".join(shift_types) if shift_types else "综合"
 
+        # ❗此前这里直接用了未定义的 `added_symbols` → NameError：只要真的发生
+        # 一次热点转移（has_shift 为真），本方法必炸，且是**在返回 report 之前**炸
+        # —— 等于「热点转移洞察」这条链路从未真正推送成功过。数据本来就在 report 里。
+        added_symbols = report.get('added_symbols', [])
         score = min(1.0, 0.5 + len(added_symbols) * 0.1)
 
         payload = {
