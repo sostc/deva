@@ -17,6 +17,7 @@ from dataclasses import dataclass, asdict
 
 from deva import NB
 from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_US_PRICE
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +78,6 @@ class USStockPriceManager:
     def _get_market_phase(self) -> str:
         """获取美股市场阶段"""
         try:
-            from deva.naja.register import SR
             mgr = self._market_session_manager or SR('market_session_manager')
             return mgr.get_us_trading_phase()
         except:

@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +29,6 @@ log = logging.getLogger(__name__)
 def _get_replay_scheduler():
     """ReplayScheduler 已下线时返回 None，避免调优日志持续报警。"""
     try:
-        from deva.naja.register import SR
         return SR('replay_scheduler')
     except Exception as e:
         log.debug(f"[AutoTuner] ReplayScheduler 不可用: {e}")
@@ -1136,7 +1136,6 @@ def _init_help_to_db():
 
 
 def get_auto_tuner() -> AutoTuner:
-    from deva.naja.register import SR
     return SR('auto_tuner')
 
 

@@ -6,6 +6,9 @@ from pywebio.output import put_html
 
 from deva.naja.register import SR
 from deva.naja.infra.ui.ui_style import render_status_badge
+# ❗`_handle_strategy_action` 定义在 .actions，之前用而未 import（点击「详情/编辑/开关/看板」
+# 一律 NameError）。actions 不在模块级反向引用 table，无环。
+from .actions import _handle_strategy_action
 
 
 def _get_render_strategy_content():

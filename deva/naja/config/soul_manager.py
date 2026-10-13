@@ -9,7 +9,6 @@ SoulManager - 多灵魂管理系统
 
 使用方式：
     from deva.naja.config.soul_manager import SoulManager
-from deva.naja.register import SR
 
     manager = SoulManager()
     souls = manager.list_souls()
@@ -27,6 +26,7 @@ from typing import Dict, List, Any, Optional
 
 from .soul_config_loader import SoulConfigLoader
 from .soul_generator import SoulGenerator
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 

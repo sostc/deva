@@ -72,21 +72,21 @@ class RiverEarlyBullAdapter(HotspotStrategyBase):
         self._core.on_data({"data": data})
         core_signal = self._core.get_signal()
         if not core_signal:
-            log.debug(f"[{self.name}] 核心策略返回空信号, history_count={len(self._core._score_history) if hasattr(self._core, '_score_history') else 'N/A'}")
+            logger.debug(f"[{self.name}] 核心策略返回空信号, history_count={len(self._core._score_history) if hasattr(self._core, '_score_history') else 'N/A'}")
             return signals
         
         candidates = core_signal.get("candidates", [])
-        log.debug(f"[{self.name}] 核心策略返回 {len(candidates)} 个候选: {candidates[:3]}")
+        logger.debug(f"[{self.name}] 核心策略返回 {len(candidates)} 个候选: {candidates[:3]}")
         for c in candidates[:5]:  # 放宽: 每次最多5个 (原3个)
             code = c.get("stock_code", "")
             weight = self.get_symbol_weight(code)
             
             if weight >= self.max_symbol_weight:
-                log.debug(f"[{self.name}] {code} 跳过: weight={weight} >= max={self.max_symbol_weight}")
+                logger.debug(f"[{self.name}] {code} 跳过: weight={weight} >= max={self.max_symbol_weight}")
                 continue
             
             if not self.can_emit_signal(code):
-                log.debug(f"[{self.name}] {code} 跳过: 冷却中")
+                logger.debug(f"[{self.name}] {code} 跳过: 冷却中")
                 continue
             
             signal = Signal(
@@ -101,7 +101,7 @@ class RiverEarlyBullAdapter(HotspotStrategyBase):
             )
             self.emit_signal(signal)
             signals.append(signal)
-            log.info(f"[{self.name}] 产生信号: {code} | {signal.reason}")
+            logger.info(f"[{self.name}] 产生信号: {code} | {signal.reason}")
         
         return signals
 
