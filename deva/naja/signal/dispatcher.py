@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, TYPE_CHECKING
 
+from deva.naja.register import SR
+
 if TYPE_CHECKING:
     from ..strategy.result_store import StrategyResult
 
@@ -186,7 +188,6 @@ _dispatcher: SignalDispatcher | None = None
 
 def get_dispatcher() -> SignalDispatcher:
     """获取分发器单例"""
-    from deva.naja.register import SR
     global _dispatcher
     if _dispatcher is None:
         _dispatcher = SignalDispatcher()

@@ -1,5 +1,6 @@
 """热点系统 UI 时间线组件"""
 
+import time
 from datetime import datetime
 from typing import List, Dict, Any
 

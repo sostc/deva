@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +29,8 @@ from .helpers import (
     _build_refresh_task_code,
 )
 from deva.naja.register import SR
+
+log = logging.getLogger(__name__)
 
 
 class DictionaryEntry(RecoverableUnit):
@@ -314,8 +317,15 @@ class DictionaryEntry(RecoverableUnit):
                 scheduler_trigger = "cron"
                 if not cron_expr:
                     try:
-                        cron_expr = _daily_time_to_cron(daily_time)
-                    except Exception:
+                        cron_expr = daily_time_to_cron(daily_time)
+                    except Exception as e:
+                        # ❗这里以前是「静默兜底」：被调用的 `_daily_time_to_cron`
+                        # 从未存在过 → NameError 被这句 except 吞掉 → 用户填的
+                        # daily_time 从来没生效，一律悄悄变成 03:00。现在留痕。
+                        log.warning(
+                            f"[DictionaryEntry] daily_time={daily_time!r} 转 cron 失败，"
+                            f"回落 03:00: {e}"
+                        )
                         cron_expr = "0 3 * * *"
             else:
                 execution_mode = "timer"

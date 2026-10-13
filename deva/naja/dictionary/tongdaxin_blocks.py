@@ -3,7 +3,10 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Generator, List, Set
+from typing import TYPE_CHECKING, Dict, Generator, List, Set
+
+if TYPE_CHECKING:  # 仅给注解用；pandas 是重依赖，运行时仍在函数内按需导入
+    import pandas as pd
 
 _blocks_data = None
 _stock_to_blocks = None

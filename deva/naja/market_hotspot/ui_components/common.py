@@ -6,6 +6,7 @@ import os
 import logging
 from deva.naja.register import SR
 from deva.naja.market import normalize_market
+from deva.naja.market_hotspot.tracking.history_tracker import get_history_tracker
 
 def _lab_debug_log(msg: str):
     """实验室模式调试日志"""

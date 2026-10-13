@@ -315,7 +315,10 @@ class TaskManager:
                     file_entry = self._create_entry_from_file_config(file_item)
                     if file_entry:
                         # YAML only 新任务：非 manual 模式默认启用（was_running=True）
-                        exec_mode = file_config.get('execution_mode', '') if 'file_config' in dir() else ''
+                        # ❗原有一行 `exec_mode = file_config.get(...) if 'file_config' in dir() else ''`
+                        # 是**死代码**：`exec_mode` 赋值后从未被使用，且 `file_config` 在本作用域
+                        # 根本不存在（真正的配置在下面 `_cfg = file_item.config`）。
+                        # `'file_config' in dir()` 恒为 False，所以它只是每次白算一遍。
                         try:
                             _cfg = file_item.config
                             if _cfg.get('execution_mode') != 'manual' and _cfg.get('task_type') != 'manual':

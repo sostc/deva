@@ -82,6 +82,7 @@ log = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from deva.naja.attention.portfolio import Portfolio, PortfolioSummary
     from deva.naja.attention.discovery import ConvictionValidator, ValidationResult, NarrativeBlockLinker
+    from deva.naja.attention.discovery import BatchInvestigationResult
     from deva.naja.attention.block_registry import BlockRegistry
 
 

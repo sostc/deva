@@ -30,12 +30,17 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
-from typing import Any, Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, TYPE_CHECKING
 
 from deva import NB
 
 from ..config import get_radar_config
 from ..register import SR
+
+if TYPE_CHECKING:
+    # 仅供本文件里 `Optional["GlobalMarketScanner"]` / `alert: "MarketAlert"` 注解使用
+    # （两个类都在 global_market_scanner 里，运行时按需导入以免环依赖）
+    from .global_market_scanner import GlobalMarketScanner, MarketAlert
 
 try:
     from river import drift

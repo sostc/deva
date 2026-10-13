@@ -641,9 +641,10 @@ def generate_html_report(stats, records):
         
         // 主要疾病趋势
         const diseaseLabels = {json.dumps(disease_names[:10])};
+        const diseaseData = {json.dumps([disease_trends.get(n, []) for n in disease_names[:10]])};
         const diseaseDatasets = diseaseLabels.map((name, i) => ({{
             label: name,
-            data: {json.dumps(disease_trends.get(name, []))},
+            data: diseaseData[i],
             borderColor: colors[i],
             backgroundColor: 'transparent',
             tension: 0.3

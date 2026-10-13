@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Callable
 from collections import deque
 
 from deva import NB
+from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 

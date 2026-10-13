@@ -223,13 +223,11 @@ async def render_llm_admin(ctx: dict):
 
     ctx["put_html"](rules_html, scope="llm_content")
 
-    async def handle_manual_tune():
-        try:
-            from deva.naja.infra.observability.auto_tuner import manual_llm_tune
-            result = manual_llm_tune(requirement)
-            ctx["toast"](result.get('status', '调优已提交'), color="success")
-        except Exception as e:
-            ctx["toast"](f"调优失败: {str(e)}", color="error")
+    # ❗此处原有一个 `async def handle_manual_tune()`：它引用了一个**不存在的**
+    # `requirement`（既不是参数也不是闭包变量），且全仓无人调用 —— 是
+    # 被 `do_manual_tune(requirement)` 取代后遗留的孤儿副本（真正路径是
+    # 按钮 → show_tune_dialog() → do_manual_tune(form["requirement"])）。
+    # 留着它只会让「未定义名字」常年挂在静态报告里，故删除。
 
     async def do_manual_tune(requirement: str):
         try:
@@ -271,7 +269,7 @@ async def render_llm_admin(ctx: dict):
     )
 
     ctx["put_buttons"](
-        [{"label": "� 输入调优要求", "value": "tune", "color": "primary"}],
+        [{"label": "🎯 输入调优要求", "value": "tune", "color": "primary"}],
         onclick=lambda v: run_async(show_tune_dialog()),
         scope="llm_content"
     )

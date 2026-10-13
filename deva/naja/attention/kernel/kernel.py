@@ -752,6 +752,10 @@ class AttentionKernel:
         rescue_filter = self._get_liquidity_rescue_filter()
         panic_analyzer = self._get_panic_analyzer()
         rescue_orchestrator = self._get_rescue_orchestrator()
+        # ❗`vs` 在本方法里从未定义（同族的 process_with_feedback / process_liquidity_rescue
+        # 都在开头取了一次），于是下面 4 处 `vs.*` 必然 NameError —— 而且是在
+        # 「有事件通过漏斗」这条**主成功路径**上炸，等于救援漏斗从未产出过结果。
+        vs = self._get_value_system()
 
         passed_events = []
         rescue_state = {"state": "normal", "action": "watch"}

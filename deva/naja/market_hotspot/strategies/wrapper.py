@@ -5,12 +5,16 @@
 """
 
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from deva.naja.strategy import StrategyEntry, StrategyMetadata, StrategyState
 from deva.naja.infra.runtime.recoverable import UnitStatus
 from .base import HotspotStrategyBase, Signal
 from .strategy_manager import get_hotspot_manager, HotspotStrategyManager
+
+if TYPE_CHECKING:
+    # 仅供 `strategy_mgr: "StrategyManager"` 注解使用
+    from deva.naja.strategy import StrategyManager
 
 
 HOTSPOT_STRATEGY_DIAGRAM_INFO = {

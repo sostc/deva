@@ -9,6 +9,11 @@ from pywebio.session import run_async
 from deva.naja.register import SR
 from deva.naja.infra.ui.ui_style import render_detail_section, format_timestamp
 from .diagrams import _render_strategy_diagram_section
+# ❗这两个名字以前是「拿来就用、从没 import」：
+#   `_get_strategy_func_code_file` 定义在 .table，`_handle_strategy_action` 定义在 .actions。
+#   （table / actions 都不在模块级反向引用 detail，故此处模块级导入无环。）
+from .actions import _handle_strategy_action
+from .table import _get_strategy_func_code_file
 
 
 def _render_recent_results(ctx, entries, store, limit: int = 10):
@@ -137,21 +142,27 @@ def _handle_result_action(ctx, entry, result_id: str, action: str):
 def _delete_result_with_confirm(ctx, entry, result_id: str):
     """删除执行结果（带确认）"""
     from ..result_store import get_result_store
-    from . import get_strategy_manager
+    # ❗原来是 `from . import get_strategy_manager` —— ui 包的 __init__ 并没有
+    # 导出这个名字，实测直接 ImportError。改成包外绝对导入（与 ui/__init__.py 一致）。
+    from deva.naja.strategy import get_strategy_manager
     from pywebio.output import clear, use_scope
-    
+
     store = get_result_store()
-    
+
     try:
         store.delete(result_id)
         ctx["toast"]("删除成功", color="success")
         ctx["close_popup"]()
-        
+
         # 刷新信号流
+        # ❗原来调的是 `_render_signal_stream_content(...)`：这个函数**全仓不存在**，
+        # NameError 会被下面的 except 吞成「删除失败」——结果是「库里其实删成功了、
+        # 界面却报失败」。本文件里真正干这件事的就是 `_render_recent_results`，
+        # 签名同为 (ctx, entries, store)，直接复用。
         mgr = get_strategy_manager()
         entries = list(mgr.list_all())
         with use_scope("signal_stream", clear=True):
-            _render_signal_stream_content(ctx, entries, store)
+            _render_recent_results(ctx, entries, store)
     except Exception as e:
         ctx["toast"](f"删除失败: {e}", color="error")
 
