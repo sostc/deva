@@ -460,6 +460,7 @@ class PredictionTracker:
         prediction_id: str,
         actual_direction: str,
         actual_change: float,
+        observed_at: Optional[float] = None,
     ) -> bool:
         """
         验证预测是否正确
@@ -468,6 +469,7 @@ class PredictionTracker:
             prediction_id: 预测ID
             actual_direction: 实际方向 "up" 或 "down"
             actual_change: 实际变化幅度
+            observed_at: 这份 observed 快照的产生时间，透传给通知以便标注数据年龄
 
         Returns:
             预测是否验证通过
@@ -505,6 +507,7 @@ class PredictionTracker:
                     direction=prediction.direction,
                     probability=prediction.probability,
                     actual_change=actual_change,
+                    observed_at=observed_at,
                 )
         else:
             prediction.status = PredictionStatus.DENIED
@@ -893,6 +896,7 @@ class LiquidityCognition:
                 prediction.id,
                 actual_direction,
                 actual_change,
+                observed_at=snapshot_ts or None,
             )
 
             # 重新计算统计

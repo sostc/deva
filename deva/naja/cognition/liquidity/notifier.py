@@ -37,7 +37,12 @@ DEFAULT_BURST_LIMIT = 4          # 同一 notification_type 在 burst 窗口内�
 DEFAULT_BURST_WINDOW = 600.0     # 突发窗口（秒）
 
 # 不参与指纹计算的可变字段（时间戳类、倒计时类），否则同内容会因微小差异穿透去重
-_FINGERPRINT_EXCLUDE = frozenset({"verify_minutes"})
+# 排除项必须是"不影响语义"的字段。dry_run 尤其要注意：它是在 _send_to_dtalk
+# 里事后写回 data 的，若参与指纹，同一条内容会因为它只在第二次出现而被判成
+# 不同内容，去重当场失效。
+_FINGERPRINT_EXCLUDE = frozenset(
+    {"verify_minutes", "observed_at", "snapshot_age", "dry_run"}
+)
 
 # 市场显示名：静态表优先，回退到 global_market_config 的中文名，
 # 避免像 "nasdaq" 这类未在表中的 market_id 直接以英文 id 出现在钉钉文案里。
@@ -144,9 +149,11 @@ class LiquidityNotifier:
         min_interval: float = DEFAULT_MIN_INTERVAL,
         burst_limit: int = DEFAULT_BURST_LIMIT,
         burst_window: float = DEFAULT_BURST_WINDOW,
+        dry_run: bool = False,
     ):
         self._notifications: deque = deque(maxlen=max_history)
         self._enabled = True
+        self._dry_run = dry_run
         self._stats = {
             "total_sent": 0,
             "total_failed": 0,
@@ -154,6 +161,7 @@ class LiquidityNotifier:
             "suppressed_duplicate": 0,
             "suppressed_burst": 0,
             "suppressed_interval": 0,
+            "total_dry_run": 0,
             "by_type": {},
         }
 
@@ -232,6 +240,7 @@ class LiquidityNotifier:
         direction: str,
         probability: float,
         actual_change: float,
+        observed_at: Optional[float] = None,
     ):
         """
         发送预测验证成功通知
@@ -241,19 +250,26 @@ class LiquidityNotifier:
             to_market: 目标市场
             direction: 预测方向
             probability: 原预测置信度
-            actual_change: 实际变化幅度
+            actual_change: 实际变化幅度（目标市场当时的涨跌幅快照）
+            observed_at: 这份快照的产生时间。不传时无法说明数据新鲜度；
+                随时点数 differing 会让"同一个数被反复引用"这件事不可观测，
+                所以文案里会显式印出快照年龄。
         """
         from_name = market_display_name(from_market)
         to_name = market_display_name(to_market)
         direction_icon = "📈" if direction == "up" else "📉"
 
+        age_line = ""
+        snapshot_age = None
+        if observed_at:
+            snapshot_age = max(0.0, time.time() - observed_at)
+            age_line = f"\n🕐 **数据快照**: {snapshot_age / 60:.0f} 分钟前\n"
+
         title = f"✅ 预测验证成功 | {from_name} → {to_name}"
-        message = f"""
-{direction_icon} **预测方向**: {direction.upper()} ✓
+        message = f"""{direction_icon} **预测方向**: {direction.upper()} ✓
 📊 **原置信度**: {probability:.1%}
 💹 **实际变化**: {actual_change:+.2f}%
-🎯 **预判准确**: 市场走势符合预期
-
+🎯 **预判准确**: 市场走势符合预期{age_line}
 > 流动性传导模型验证有效
 """
 
@@ -270,6 +286,8 @@ class LiquidityNotifier:
                 "direction": direction,
                 "probability": probability,
                 "actual_change": actual_change,
+                "observed_at": observed_at,
+                "snapshot_age": snapshot_age,
             },
         )
 
@@ -543,6 +561,17 @@ class LiquidityNotifier:
             )
             return
 
+        # dry-run：走完去重/限流/历史的全部逻辑，唯独不真的 outbound。
+        # 目的是让演示脚本、单测、手动排障脚本可以安全地跑一遍真实链路
+        # （历史上 test_notifier.py 直接 get_notifier() 就往钉钉群灌了 5 条）。
+        if self._dry_run:
+            notification.sent = True
+            notification.data["dry_run"] = True
+            self._stats["total_dry_run"] += 1
+            self._mark_sent(notification)
+            log.info(f"[LiquidityNotifier] dry-run，未真实发送：{notification.title}")
+            return
+
         try:
             from deva.endpoints import Dtalk
 
@@ -563,6 +592,21 @@ class LiquidityNotifier:
             log.error(f"[LiquidityNotifier] 发送通知失败：{e}")
             notification.sent = False
             self._stats["total_failed"] += 1
+
+    def set_dry_run(self, enabled: bool = True):
+        """开关 dry-run：关掉真实 outbound，其余链路（去重/限流/历史）照跑"""
+        self._dry_run = bool(enabled)
+
+    def is_dry_run(self) -> bool:
+        return self._dry_run
+
+    def disable(self):
+        """禁用通知（不发钉钉）"""
+        self._enabled = False
+
+    def enable(self):
+        """启用通知"""
+        self._enabled = True
 
     def get_recent_notifications(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近的通知历史"""
