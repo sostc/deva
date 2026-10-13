@@ -16,19 +16,37 @@
 默认**必须**是 ``virtual``：换后端等于换掉"下单写到哪里"，不能让
 "装了新代码"就自动开始报单。要动手就显式设环境变量，回滚同一处。
 
-模拟报单的四道闸（缺一不可）
+模拟报单的五道闸（缺一不可）
 ----------------------------
-1. **市场白名单**（``NAJA_FUTU_SIM_MARKETS``，默认 ``HK``）。
-   目前 OpenD 只开了**港股**股票/期权模拟账户，没有美股模拟账户 ——
-   不设白名单就会拿美股信号去撞一个不存在的账户。
+1. **市场白名单**（``NAJA_FUTU_SIM_MARKETS``，默认 ``HK,US,CN``）。
+   三个市场的模拟账户都已在 OpenD 开通（实测：港股 1973930、A 股 1973932、
+   美股 10819487 ``STOCK_AND_OPTION``），故默认全放行；要收窄就显式改这个
+   环境变量。
+
+   ❗**枚举账户时必须显式传 ``filter_trdmarket``**：futu SDK 的
+   ``OpenSecTradeContext`` 默认 ``filter_trdmarket=TrdMarket.HK``，
+   不传就**只看得到港股账户** —— 美股 / A 股模拟账户被静默过滤，
+   不报错、不告警、日志里什么都没有。这是本模块最隐蔽的一个坑。
 2. **市场必须可判定**。信号里的 ``stock_code`` 是裸代码（``06666`` /
-   ``nvda``），**6 位数字既是港股也可能是 A 股**（``000001`` 两边都成立）。
-   判不出来就**如实跳过并说明原因**，绝不猜 —— 猜错市场等于把单下到
-   另一个盘口去。
-3. **每手股数必须实查**。港股每手 20 ~ 10000 股不等（实测
-   ``HK.06666``=500、``HK.00100``=20），下单必须是**整手整数**；
-   虚拟仓侧 ``qty`` 是小数（如 ``14378.145``），照搬必被拒单。
-4. **幂等**。信号可能被多条链路各推进一次（WakeSync 补作业 / 轮询 +
+   ``nvda`` / ``000001``），**6 位数字是 A 股、5 位数字是港股**，
+   裸字母只认**系统自有美股注册表**里有的那些。判不出来就**如实跳过并
+   说明原因**，绝不猜 —— 猜错市场等于把单下到另一个盘口去。
+
+   ❗信号事件里的 ``market`` 字段**不可信**：主生产者
+   （``market_hotspot/strategies/base.py``）根本不传它，于是恒为默认值
+   ``"CN"`` —— 拿它当权威会把 ``nvda`` 判成 A 股。故只在代码形态
+   「说不出话」（裸字母且不在注册表内）时，才把 ``market=US`` 当作
+   补充证据；形态能判定时以形态为准，并把分歧记进原因里。
+3. **每手股数必须实查**。三市场各不相同（实测：``US.NVDA``=1、
+   ``HK.06666``=500、``HK.00100``=20、``SH.600519``=100、
+   ``SH.688256``=1），下单必须是**整手整数**；虚拟仓侧 ``qty`` 是小数
+   （如 ``14378.145``），照搬必被拒单。
+4. **限价必须对齐最小价差**。富途会校验价格精度，填 ``227.325`` 报
+   ``US.NVDA``（tick=0.01）会被直接拒掉 —— ``下单接口价格参数精度
+   不符合规范``。tick 逐市场逐标的都不同（实测美股 0.01、港股 0.001、
+   A 股 0.01，港股还随价位分档），只能查、不能写死。取不到就跳过，
+   不回落到某个"看着合理"的默认精度。
+5. **幂等**。信号可能被多条链路各推进一次（WakeSync 补作业 / 轮询 +
    流式订阅并存），而``_on_new_signal`` 的"已有持仓就跳过"检查查的是
    **虚拟仓** —— 走模拟后端时虚拟仓并不更新，那道检查完全失效，
    同一个信号会被反复下单。故按 ``(日期, 市场, 标的, 方向)``
@@ -60,8 +78,8 @@ BACKEND_VIRTUAL = "virtual"
 BACKEND_FUTU_SIM = "futu_sim"
 BACKENDS = (BACKEND_VIRTUAL, BACKEND_FUTU_SIM)
 
-# 目前 OpenD 上真实存在的模拟账户只有港股（STOCK + OPTION），故默认只放行 HK。
-DEFAULT_SIM_MARKETS = "HK"
+# 三个市场的模拟账户都已在 OpenD 开通（港股/A股/美股），故默认全放行。
+DEFAULT_SIM_MARKETS = "HK,US,CN"
 
 
 def selected_backend_name() -> str:
@@ -102,10 +120,83 @@ def _journal_path() -> Path:
 
 # ---------------------------------------------------------------- 市场判定
 
+# 认得出来的市场标记（出现在代码前缀/后缀里，或信号字段里）。
+# ``SH`` / ``SZ`` 是富途对 A 股**代码**的写法，逻辑上都归 ``CN`` 一个市场：
+# 模拟账户是按 ``CN`` 授权的，但代码必须拼成 ``SH.600519`` / ``SZ.000001``。
+_KNOWN_MARKET_TOKENS = frozenset({"HK", "US", "CN", "SH", "SZ", "HKCC", "SG", "JP"})
+
+# 富途 ``Market`` 枚举里**没有 ``CN``**，A 股拆成 ``Market.SH`` / ``Market.SZ``。
+# 这一条专门用来防「拿 ``getattr(Market, "CN", Market.HK)`` 兜底」——
+# 那会静默把 A 股当成港股去查行情。
+_CN_EXCHANGE_BY_HEAD: Dict[str, str] = {
+    "5": "SH", "6": "SH", "9": "SH",     # 沪市：600/601/603/605/688/900、5xx 基金
+    "0": "SZ", "1": "SZ", "2": "SZ", "3": "SZ",  # 深市：000/001/002/003/300/301
+}
+
 # 裸数字代码 → 市场。**只认长度明确的两种**，其余一律判不出来：
 # 港股代码是 5 位（``06666``、``00100``），A 股是 6 位（``000001``）。
 # 中间地带（如 4 位、7 位）没有可靠依据，宁可跳过。
 _NUMERIC_MARKET: Dict[int, str] = {5: "HK", 6: "CN"}
+
+_US_SYMBOLS: Optional[frozenset] = None
+
+
+def cn_exchange(code: str) -> str:
+    """6 位 A 股代码 → 交易所前缀（``SH`` / ``SZ``）；认不出返回空串。"""
+    bare = str(code or "").strip()
+    return _CN_EXCHANGE_BY_HEAD.get(bare[:1], "") if bare.isdigit() and len(bare) == 6 else ""
+
+
+def us_symbols() -> frozenset:
+    """系统自有的**美股代码注册表**（``stock_block_map.US_STOCK_BLOCKS``）。
+
+    裸字母代码凭什么算美股？就凭它在这个系统自己维护的注册表里。
+    这是**可审计的显式归属**，不是「字母一律当美股」的猜测。
+
+    懒加载：``stock_block_map`` 会拉起 ``deva.NB``，不能放 import 期做。
+    注册表取不到时返回空集合 → 裸字母一律跳过（**绝不因为取不到就放宽**）。
+    """
+    global _US_SYMBOLS
+    if _US_SYMBOLS is None:
+        try:
+            from .stock_block_map import US_STOCK_BLOCKS
+            _US_SYMBOLS = frozenset(str(k).strip().lower() for k in US_STOCK_BLOCKS)
+        except Exception as e:  # pragma: no cover - 注册表损坏属异常情况
+            log.warning("[Execution] 美股代码注册表加载失败，裸字母代码将一律跳过: %s", e)
+            _US_SYMBOLS = frozenset()
+    return _US_SYMBOLS
+
+
+def _normalise_market(token: str) -> str:
+    """把市场标记归一成「逻辑市场」。``SH`` / ``SZ`` → ``CN``。"""
+    up = str(token or "").strip().upper()
+    return "CN" if up in ("SH", "SZ") else up
+
+
+def declared_market(raw_data: Optional[Dict[str, Any]]) -> str:
+    """从信号原始数据里读出**声称**的市场（可能是空串）。
+
+    ❗只当**补充证据**用，不能当权威：主信号生产者
+    （``market_hotspot/strategies/base.py``）压根不传 ``market``，
+    于是 ``StrategySignalEvent.market`` 恒为其默认值 ``"CN"`` ——
+    一个美股信号也会「声称」自己是 A 股。
+
+    两个位置都要看：顶层字段，以及 ``TradeDecisionEvent`` 里嵌的
+    ``signal_event``（Bandit 收到的 ``raw_data`` 正是后者的形态）。
+    """
+    data = raw_data or {}
+    sources: List[Dict[str, Any]] = [data]
+    nested = data.get("signal_event")
+    if isinstance(nested, dict):
+        sources.append(nested)
+    for src in sources:
+        for key in ("market", "sec_market", "trd_market", "exchange"):
+            value = src.get(key)
+            if value:
+                token = _normalise_market(value)
+                if token:
+                    return token
+    return ""
 
 
 def infer_market(code: str, raw_data: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
@@ -114,42 +205,116 @@ def infer_market(code: str, raw_data: Optional[Dict[str, Any]] = None) -> Tuple[
     Returns:
         ``(市场大写, 依据说明)``。判不出来时市场为空串，依据是原因 ——
         调用方必须据此**跳过**，不能拿空串当"随便哪个市场"。
+
+    判定优先级（前者压过后者）：
+      1. **代码自带的市场标记** —— 前缀式 ``US.NVDA``（富途写法）与
+         后缀式 ``NVDA.US``（本项目事件里的写法）**都认**。
+      2. **代码形态** —— 5 位数字→港股、6 位数字→A 股；
+         裸字母→查系统自有美股注册表，命中才是美股。
+      3. **信号声称的市场** —— 仅在形态「说不出话」时作补充证据，
+         且只接受 ``US``（裸字母不可能是 A 股或港股数字代码）。
     """
     text = str(code or "").strip()
     if not text:
         return "", "代码为空"
 
     if "." in text:
-        prefix, _, rest = text.partition(".")
-        if prefix.strip() and rest.strip():
-            return prefix.strip().upper(), f"代码前缀（{text}）"
+        head, _, tail = text.partition(".")
+        head_u, tail_u = head.strip().upper(), tail.strip().upper()
+        head_ok, tail_ok = head_u in _KNOWN_MARKET_TOKENS, tail_u in _KNOWN_MARKET_TOKENS
+        if head_ok and tail_ok:
+            return "", f"代码 {text!r} 前后缀都是市场标记，无法判定"
+        if head_ok:
+            return _normalise_market(head_u), f"代码前缀（{text}）"
+        if tail_ok:
+            # ❗后缀式（``NVDA.US``）必须认出来：老实现把它当成
+            # 「前缀 = NVDA」→ 市场判成 ``NVDA``，必然被白名单挡掉。
+            return _normalise_market(tail_u), f"代码后缀（{text}）"
+        return "", f"带点代码 {text!r} 的市场标记认不出来（前缀/后缀都不是已知市场）"
 
-    for key in ("market", "sec_market", "trd_market", "exchange"):
-        value = (raw_data or {}).get(key)
-        if value:
-            return str(value).strip().upper(), f"信号字段 {key}"
+    said = declared_market(raw_data)
 
     if text.isdigit():
         market = _NUMERIC_MARKET.get(len(text))
-        if market:
-            return market, f"{len(text)} 位数字代码"
-        return "", f"数字代码位数 {len(text)} 无法判定市场（港股 5 位 / A 股 6 位）"
+        if not market:
+            return "", f"数字代码位数 {len(text)} 无法判定市场（港股 5 位 / A 股 6 位）"
+        note = f"{len(text)} 位数字代码"
+        if said and said != market:
+            note += f"（信号声称 {said}，按代码形态取 {market}）"
+        return market, note
 
-    # 字母代码：港股也有字母代码但极罕见，不猜；美股是主流。
-    return "", f"裸字母代码 {text!r} 无法判定市场（请带 HK./US. 前缀）"
+    low = text.lower()
+    if low in us_symbols():
+        note = f"命中美股注册表（{text}）"
+        if said and said != "US":
+            note += f"（信号声称 {said}，以注册表为准）"
+        return "US", note
+
+    # 形态说不出话：裸字母、且不在注册表里。只在信号**明确声称 US** 时采信。
+    if said == "US":
+        return "US", f"裸字母代码 {text!r} + 信号声称 market=US"
+    return "", (f"裸字母代码 {text!r} 不在美股注册表内，无法判定市场"
+                f"（请带 US. 前缀）")
 
 
 def futu_code(market: str, code: str) -> str:
-    """把裸代码拼成富途要求的 ``MARKET.CODE``。
+    """把裸代码拼成富途要求的 ``MARKET.CODE``。认不出来返回空串。
 
-    港股代码必须**补零到 5 位**（``6666`` → ``HK.06666``），否则查不到标的。
+    * 港股补零到 5 位：``6666`` → ``HK.06666``，否则查不到标的。
+    * A 股按首位定交易所：``600519`` → ``SH.600519``、
+      ``000001`` → ``SZ.000001``。富途**没有** ``CN.`` 这个前缀。
     """
+    mkt = str(market or "").strip().upper()
     bare = str(code or "").strip().upper()
     if "." in bare:
-        bare = bare.partition(".")[2]
-    if market.upper() == "HK" and bare.isdigit():
-        return f"HK.{bare.lstrip('0').zfill(5) or '00000'}"
-    return f"{market.upper()}.{bare}"
+        bare = bare.partition(".")[2].strip()
+
+    if mkt == "CN":
+        exchange = cn_exchange(bare)
+        return f"{exchange}.{bare.zfill(6)}" if exchange else ""
+    if mkt == "HK":
+        return f"HK.{bare.lstrip('0').zfill(5) or '00000'}" if bare.isdigit() else f"HK.{bare}"
+    if not bare:
+        return ""
+    return f"{mkt}.{bare}"
+
+
+def quote_market(market: str, code: str = ""):
+    """市场 → 富途 ``Market`` 枚举（查行情用）。
+
+    ❗**认不出来就返回 ``None``**，绝不 ``getattr(..., Market.HK)`` 兜底：
+    ``Market`` 枚举里没有 ``CN``，A 股必须落到 ``Market.SH`` / ``Market.SZ``；
+    用港股兜底会静默拿错市场去查行情 —— 200 返回、字段缺失、看起来像
+    「这票没数据」。
+    """
+    try:
+        from futu import Market
+    except Exception:  # pragma: no cover - futu 未安装
+        return None
+
+    mkt = str(market or "").strip().upper()
+    if mkt == "CN":
+        exchange = cn_exchange(code)
+        return getattr(Market, exchange) if exchange else None
+    return getattr(Market, mkt, None)
+
+
+def trd_market(market: str):
+    """市场 → 富途 ``TrdMarket`` 枚举（过滤交易账户用）。认不出返回 ``None``。
+
+    ❗这个值**必须显式传给 ``OpenSecTradeContext``**：它的默认值是
+    ``TrdMarket.HK``，不传就只看得到港股账户 —— 美股 / A 股模拟账户
+    会被静默过滤掉，不报错。
+    """
+    try:
+        from futu import TrdMarket
+    except Exception:  # pragma: no cover - futu 未安装
+        return None
+
+    mkt = str(market or "").strip().upper()
+    if mkt in ("SH", "SZ"):
+        mkt = "CN"
+    return getattr(TrdMarket, mkt, None)
 
 
 # ---------------------------------------------------------------- 数量折算
@@ -163,6 +328,21 @@ def floor_to_lot(amount: float, price: float, lot_size: int) -> int:
     if price <= 0 or lot_size <= 0 or amount <= 0:
         return 0
     return int(amount // (price * float(lot_size))) * int(lot_size)
+
+
+def round_to_tick(price: float, tick: float) -> float:
+    """把限价**对齐到该标的的最小价差**。对齐不了返回 0（调用方跳过）。
+
+    富途下单接口会校验价格精度：填 ``227.325`` 报 ``US.NVDA``（最小价差
+    0.01）会被直接拒掉 —— ``下单接口价格参数精度不符合规范``。这不是
+    「价格填错」而是「价格没对齐」：每个市场的 tick 都不一样
+    （实测美股 0.01、港股 0.001、A 股 0.01），**必须查、不能写死**。
+    """
+    if price <= 0 or tick <= 0:
+        return 0.0
+    steps = max(1, int(round(price / tick)))
+    # 消掉二进制浮点尾巴（0.01 × 22731 = 227.31000000000003）
+    return round(steps * tick, 6)
 
 
 # ---------------------------------------------------------------- 幂等槽位
@@ -406,25 +586,40 @@ class FutuSimBackend(ExecutionBackend):
                 return target
         return None
 
-    def _query_lot_size(self, market: str, code: str) -> int:
-        """实查每手股数。查不到返回 0（调用方跳过）。"""
+    def _query_security(self, market: str, code: str) -> Dict[str, float]:
+        """实查该标的的**每手股数 / 最小价差 / 最新价**（查不到返回空字典）。
+
+        三个值都要：``lot_size`` 决定股数能不能成整手，``price_spread``
+        决定限价精度合不合规 —— 后者写死必错（美股 0.01 / 港股 0.001 /
+        A 股 0.01，且港股的 tick 还随价位分档）。
+        """
         try:
-            from futu import OpenQuoteContext, RET_OK, Market, SecurityType
+            from futu import OpenQuoteContext, RET_OK
+
+            mkt_enum = quote_market(market, code)
+            full_code = futu_code(market, code)
+            if mkt_enum is None or not full_code:
+                log.warning("[Execution] %s 的市场/代码无法换算成富途口径，跳过", code)
+                return {}
 
             ctx = OpenQuoteContext(host=HOST, port=PORT)
             try:
-                ret, data = ctx.get_stock_basicinfo(
-                    _market_enum(market), SecurityType.STOCK, [futu_code(market, code)],
-                )
+                ret, data = ctx.get_market_snapshot([full_code])
             finally:
                 ctx.close()
             if ret != RET_OK or data is None or len(data) == 0:
-                log.warning("[Execution] 每手股数查询失败 %s: %s", code, str(data)[:120])
-                return 0
-            return int(data.iloc[0].get("lot_size", 0) or 0)
+                log.warning("[Execution] 标的信息查询失败 %s: %s", code, str(data)[:120])
+                return {}
+
+            row = data.iloc[0]
+            return {
+                "last_price": float(row.get("last_price", 0) or 0),
+                "lot_size": float(row.get("lot_size", 0) or 0),
+                "price_spread": float(row.get("price_spread", 0) or 0),
+            }
         except Exception as e:
-            log.warning("[Execution] 每手股数查询异常 %s: %s", code, e)
-            return 0
+            log.warning("[Execution] 标的信息查询异常 %s: %s", code, e)
+            return {}
 
     # ---------------------------------------------------- 主流程
 
@@ -470,26 +665,40 @@ class FutuSimBackend(ExecutionBackend):
             return skip(why)
         if market not in self.markets:
             return skip(f"市场 {market} 不在模拟报单白名单 {sorted(self.markets)} 内")
+        if not futu_code(market, code):
+            return skip(f"代码 {code} 换算不出富途代码格式（市场 {market}）")
 
         target = self._resolve_account(market)
         if target is None:
             return skip(f"未找到 {market} 市场的富途模拟账户（模拟账户是否已开通？）")
 
-        lot_size = self._query_lot_size(market, code)
+        info = self._query_security(market, code)
+        lot_size = int(info.get("lot_size", 0) or 0)
         if lot_size <= 0:
             return skip(f"取不到 {code} 的每手股数，拒绝凭猜报单")
 
-        quantity = floor_to_lot(amount, price, lot_size)
+        # ❗限价必须对齐该标的的最小价差，否则富途直接拒单：
+        # 「下单接口价格参数精度不符合规范」。tick 逐市场逐标的都不同，
+        # 取不到就跳过 —— 也绝不回落到某个"看着合理"的默认精度。
+        tick = float(info.get("price_spread", 0) or 0)
+        limit_price = round_to_tick(price, tick)
+        if limit_price <= 0:
+            return skip(f"取不到 {code} 的最小价差({tick:g})，拒绝凭猜报单")
+        if limit_price != price:
+            log.info("[Execution] 限价对齐最小价差 %s: %s → %s", code, price, limit_price)
+
+        quantity = floor_to_lot(amount, limit_price, lot_size)
         if quantity <= 0:
-            return skip(f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {price:g}）")
+            return skip(f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {limit_price:g}）")
         outcome.quantity = float(quantity)
+        outcome.price = limit_price
 
         key = order_slot_key(market, code, side)
         if not claim_order_slot(key):
             return skip(f"该标的今日已报过单（幂等槽位 {key} 已占用）")
 
         try:
-            order_id = self._place(market, code, quantity, price, target)
+            order_id = self._place(market, code, quantity, limit_price, target)
         except Exception as e:
             release_order_slot(key)
             return fail(f"下单异常: {e}")
@@ -502,9 +711,9 @@ class FutuSimBackend(ExecutionBackend):
         outcome.ok = True
         outcome.order_id = order_id
         outcome.position_id = order_id
-        outcome.amount = quantity * price
+        outcome.amount = quantity * limit_price
         outcome.detail = f"模拟账户 {target['name']}（acc_id={target['acc_id']}）"
-        log.info("[Execution] ✅ 模拟报单成功 %s %s股 @ %s 单号=%s", code, quantity, price, order_id)
+        log.info("[Execution] ✅ 模拟报单成功 %s %s股 @ %s 单号=%s", code, quantity, limit_price, order_id)
         append_journal(outcome.to_dict())
         return outcome
 
@@ -516,13 +725,22 @@ class FutuSimBackend(ExecutionBackend):
             OpenSecTradeContext, OrderType, RET_OK, SecurityFirm, TrdEnv, TrdSide,
         )
 
+        full_code = futu_code(market, code)
+        if not full_code:
+            log.error("[Execution] %s 换算不出富途代码，拒绝报单", code)
+            return ""
+
         firm = getattr(SecurityFirm, target.get("firm") or "", SecurityFirm.FUTUSECURITIES)
-        ctx = OpenSecTradeContext(host=HOST, port=PORT, security_firm=firm)
+        # ❗filter_trdmarket 必须显式传（默认 TrdMarket.HK）：否则拿美股/A股
+        # 标的去连一个只认港股的上下文，会被判成「无此市场权限」。
+        ctx = OpenSecTradeContext(
+            filter_trdmarket=trd_market(market), host=HOST, port=PORT, security_firm=firm,
+        )
         try:
             ret, data = ctx.place_order(
                 price=price,
                 qty=quantity,
-                code=futu_code(market, code),
+                code=full_code,
                 trd_side=TrdSide.BUY,
                 order_type=OrderType.NORMAL,
                 trd_env=TrdEnv.SIMULATE,
@@ -538,11 +756,6 @@ class FutuSimBackend(ExecutionBackend):
             return str(data.iloc[0].get("order_id", ""))
         except Exception:
             return str(data)[:60]
-
-
-def _market_enum(market: str):
-    from futu import Market
-    return getattr(Market, market.upper(), Market.HK)
 
 
 # ---------------------------------------------------------------- 装配
@@ -561,6 +774,7 @@ __all__ = [
     "BACKENDS",
     "BACKEND_FUTU_SIM",
     "BACKEND_VIRTUAL",
+    "DEFAULT_SIM_MARKETS",
     "ENV_BACKEND",
     "ENV_SIM_MARKETS",
     "ExecutionBackend",
@@ -569,15 +783,21 @@ __all__ = [
     "VirtualPortfolioBackend",
     "append_journal",
     "claim_order_slot",
+    "cn_exchange",
+    "declared_market",
     "floor_to_lot",
     "futu_code",
     "futu_sim_enabled",
     "infer_market",
     "order_slot_key",
+    "quote_market",
     "read_journal",
     "release_order_slot",
     "resolve_backend",
+    "round_to_tick",
     "selected_backend_name",
     "sim_markets",
     "slot_taken",
+    "trd_market",
+    "us_symbols",
 ]
