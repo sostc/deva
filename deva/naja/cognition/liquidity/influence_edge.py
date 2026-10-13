@@ -14,6 +14,15 @@ import logging
 
 log = logging.getLogger(__name__)
 
+# pending 传播事件的最大存活时间（秒）。
+#
+# 坑：LiquidityCognition 的验证路径走 PredictionTracker.verify_prediction() →
+# _boost_edge()，绕过了 edge.verify()，也就是从不 pop _pending_events。
+# 队列一旦非空就永远非空，导致 _get_pending_propagations() 每次扫描都误判
+# "这条边还有待传播事件"，于是一个行情事件就建一条预测（钉钉刷屏的源头之一）。
+# 这里用过期清理把队列收敛回有界。
+DEFAULT_MAX_PENDING_AGE = 2 * 3600
+
 
 @dataclass
 class PropagationEvent:
@@ -88,6 +97,8 @@ class InfluenceEdge:
 
         self._delay_seconds = delay_hours * 3600
 
+        self._max_pending_age = DEFAULT_MAX_PENDING_AGE
+
         self._success_count = 0
         self._failure_count = 0
         self._total_propagations = 0
@@ -109,6 +120,10 @@ class InfluenceEdge:
         """发起一次传播"""
         if timestamp is None:
             timestamp = time.time()
+
+        # 先把过期事件清掉，让 pending 队列收敛：纠结太久的旧事件
+        # 既不该继续驱动新预测，也不该占用内存
+        self.cleanup_expired_events(self._max_pending_age)
 
         direction = "up" if source_change > 0 else "down" if source_change < 0 else "flat"
 

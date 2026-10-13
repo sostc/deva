@@ -139,6 +139,9 @@ class PredictionTracker:
         # 按目标市场索引: to_market -> [prediction_ids]
         self._predictions_by_target: Dict[str, List[str]] = {}
 
+        # 按边索引: edge_key -> 正处于 PENDING 的 prediction_id（同边去重用）
+        self._pending_by_edge: Dict[str, str] = {}
+
         # 按状态索引: status -> [prediction_ids]
         self._predictions_by_status: Dict[PredictionStatus, List[str]] = {
             PredictionStatus.PENDING: [],
@@ -154,13 +157,40 @@ class PredictionTracker:
         self._default_verify_minutes = 30  # 默认30分钟后验证
         self._max_pending_age = 2 * 3600   # 最大pending时间2小时
 
+        # 同边 PENDING 去重：一条边上同一方向同时只保留一条待验证预测。
+        # Radar 每 60 秒扫一次全球市场，单边行情里同一条边会被反复触发，
+        # 不去重会堆出几十条同质预测，进而洗版钉钉。
+        self._dedupe_by_edge = True
+
         # 统计
         self._stats = {
             "total_created": 0,
             "total_confirmed": 0,
             "total_denied": 0,
             "total_cancelled": 0,
+            "total_deduped": 0,
         }
+
+    # ------------------------------------------------------------------
+    #  边索引维护
+    # ------------------------------------------------------------------
+
+    def _drop_pending_edge(self, prediction: LiquidityPrediction):
+        """预测离开 PENDING 状态后，从边索引里摘掉（避免旧索引永久占位）"""
+        edge_key = prediction.edge_key or f"{prediction.from_market}->{prediction.to_market}"
+        if self._pending_by_edge.get(edge_key) == prediction.id:
+            self._pending_by_edge.pop(edge_key, None)
+
+    def get_pending_by_edge(self, edge_key: str) -> Optional[LiquidityPrediction]:
+        """查询某条边当前的 PENDING 预测"""
+        pred_id = self._pending_by_edge.get(edge_key)
+        if not pred_id:
+            return None
+        prediction = self._predictions.get(pred_id)
+        if prediction is None or not prediction.is_active():
+            self._pending_by_edge.pop(edge_key, None)
+            return None
+        return prediction
 
     def create_prediction(
         self,
@@ -220,6 +250,7 @@ class PredictionTracker:
         probability: float,
         source_change: Optional[float] = None,
         schedule: Optional[VerificationSchedule] = None,
+        dedupe_by_edge: bool = True,
     ) -> str:
         """
         创建新预测（使用智能调度）
@@ -229,12 +260,29 @@ class PredictionTracker:
             to_market: 目标市场
             direction: "up" 或 "down"
             probability: 预测置信度
-            source_change: 源市场变化幅度
-            schedule: 验证时间调度
+        source_change: 源市场变化幅度
+        schedule: 验证时间调度
+        dedupe_by_edge: 同边同方向是否复用已有 PENDING 预测（默认开启）
 
-        Returns:
-            prediction_id
-        """
+    Returns:
+        prediction_id（复用已有预测时返回原 id）
+    """
+        edge_key = f"{from_market}->{to_market}"
+
+        # 同边去重：同一方向已有待验证预测则直接复用，避免刷屏式堆预测；
+        # 出现反向信号则先作废旧预测再建新的（反向本身是有信息量的事件）。
+        if dedupe_by_edge and self._dedupe_by_edge:
+            existing = self.get_pending_by_edge(edge_key)
+            if existing is not None:
+                if existing.direction == direction:
+                    self._stats["total_deduped"] += 1
+                    log.debug(
+                        f"[PredictionTracker] 同边已有 PENDING 预测，复用 {existing.id}: "
+                        f"{from_market} → {to_market} ({direction})"
+                    )
+                    return existing.id
+                self.cancel_prediction(existing.id, "reverse_signal")
+
         prediction_id = f"liq_pred_{uuid.uuid4().hex[:12]}"
 
         if schedule:
@@ -260,6 +308,7 @@ class PredictionTracker:
         self._predictions[prediction_id] = prediction
         self._predictions_by_target.setdefault(to_market, []).append(prediction_id)
         self._predictions_by_status[PredictionStatus.PENDING].append(prediction_id)
+        self._pending_by_edge[prediction.edge_key] = prediction_id
         self._stats["total_created"] += 1
 
         from datetime import datetime
@@ -364,6 +413,7 @@ class PredictionTracker:
         # 更新索引
         self._predictions_by_status[PredictionStatus.PENDING].remove(prediction_id)
         self._predictions_by_status[PredictionStatus.CANCELLED].append(prediction_id)
+        self._drop_pending_edge(prediction)
         self._stats["total_cancelled"] += 1
 
         log.info(f"[PredictionTracker] 取消预测 {prediction_id}: {reason}")
@@ -438,6 +488,7 @@ class PredictionTracker:
             prediction.confirmed_at = time.time()
             self._predictions_by_status[PredictionStatus.PENDING].remove(prediction_id)
             self._predictions_by_status[PredictionStatus.CONFIRMED].append(prediction_id)
+            self._drop_pending_edge(prediction)
             self._stats["total_confirmed"] += 1
 
             log.info(f"[PredictionTracker] 预测 {prediction_id} 验证通过：{prediction.direction} == {actual_direction}")
@@ -460,6 +511,7 @@ class PredictionTracker:
             prediction.denied_at = time.time()
             self._predictions_by_status[PredictionStatus.PENDING].remove(prediction_id)
             self._predictions_by_status[PredictionStatus.DENIED].append(prediction_id)
+            self._drop_pending_edge(prediction)
             self._stats["total_denied"] += 1
 
             log.info(f"[PredictionTracker] 预测 {prediction_id} 验证失败：{prediction.direction} != {actual_direction}")
@@ -530,6 +582,7 @@ class PredictionTracker:
 
                 self._predictions_by_status[PredictionStatus.PENDING].remove(pred_id)
                 self._predictions_by_status[PredictionStatus.DENIED].append(pred_id)
+                self._drop_pending_edge(prediction)
                 self._stats["total_denied"] += 1
                 stats["denied"] += 1
 
@@ -561,7 +614,9 @@ class PredictionTracker:
                     to_remove.append(pred_id)
 
         for pred_id in to_remove:
-            del self._predictions[pred_id]
+            prediction = self._predictions.pop(pred_id, None)
+            if prediction is not None:
+                self._drop_pending_edge(prediction)
 
         if to_remove:
             log.debug(f"[PredictionTracker] 清理了 {len(to_remove)} 个过老预测")
@@ -623,6 +678,9 @@ class LiquidityCognition:
         # 验证循环
         self._verification_interval = 60  # 每60秒验证一次
         self._last_verification_time = 0.0
+
+        # 目标市场快照超过这个时长未更新，验证时给出陈旧告警（秒）
+        self._stale_snapshot_seconds = 30 * 60
 
         # 🚀 新架构：订阅 NajaEventBus，接收全球市场事件
         self._subscribe_to_event_bus()
@@ -820,6 +878,16 @@ class LiquidityCognition:
             actual_change = state.get("change_pct", 0)
             actual_direction = "up" if actual_change > 0 else "down" if actual_change < 0 else "flat"
 
+            # 快照可能是很久以前的（例如目标市场休市后不再推送）。
+            # 静默地拿陈旧快照去"验证"会让通知看起来像实时命中，属于误导，
+            # 这里显式告警，让"这条结论基于多旧的数据"始终可追溯。
+            snapshot_ts = state.get("timestamp", 0)
+            if snapshot_ts and (time.time() - snapshot_ts) > self._stale_snapshot_seconds:
+                log.warning(
+                    f"[LiquidityCognition] {to_market} 快照已陈旧 "
+                    f"({(time.time() - snapshot_ts) / 60:.0f} 分钟)，验证结论可信度下降"
+                )
+
             # 验证预测
             self._prediction_tracker.verify_prediction(
                 prediction.id,
@@ -916,11 +984,16 @@ class LiquidityCognition:
             if edge.from_market == from_market:
                 pending = edge.get_pending_events()
                 if pending:
+                    # PropagationEvent 上并没有 predicted_change 字段，
+                    # 以前写 pending[0].predicted_change 会在有 pending 事件时抛
+                    # AttributeError，被上层 try/except 吞掉 —— 典型的静默失效。
+                    # 取最新一条 pending 的 source_change 作为本次源市场变化。
+                    latest = pending[-1]
                     signal = PropagationSignal(
                         from_market=from_market,
                         to_market=edge.to_market,
                         timestamp=time.time(),
-                        change=pending[0].predicted_change if pending else 0,
+                        change=getattr(latest, "source_change", 0.0),
                         propagation_probability=edge.get_propagation_probability(),
                         status="pending",
                     )
