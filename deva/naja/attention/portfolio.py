@@ -279,6 +279,132 @@ class Portfolio:
 
         return watchlist
 
+    # ── 自选股（watchlist：用户可手动增删改）────────────────────────────
+    #
+    # 写的是 ``naja_watchlist`` 的 ``stocks`` 键，读用 ``get_watchlist()``。
+    # **只碰 stocks / others 两个键**——``ai_stocks`` 是预设的 AI 股票池
+    # （manas 与 market_observer 在用），不属于「用户自选」，不能被这里误删。
+    #
+    # 写后必须 ``invalidate_cache()``：``_load_watchlist`` 有 5 分钟缓存，
+    # 不失效会出现「UI 加了、报告 5 分钟后才看到」这类假故障。
+
+    _WATCHLIST_BUCKETS = ("stocks", "others")
+
+    def _save_watchlist(self, data: Dict[str, Any]) -> None:
+        """把整份自选数据写回落盘表，并让 5 分钟缓存立即失效。"""
+        nb = NB(WATCHLIST_TABLE)
+        nb.update(data)
+        self.invalidate_cache()
+
+    def list_watchlist_items(self) -> List[Dict[str, Any]]:
+        """自选股原始项（纯 dict：code/name/add_time/bucket），供管理 UI 用。
+
+        同一代码在 ``stocks`` 与 ``others`` 都出现时按先 ``stocks`` 去重。
+        ``ai_stocks``（预设股票池）**不在**自选管理范围内，故不返回。
+        """
+        data = self._load_watchlist()
+        seen: Dict[str, Dict[str, Any]] = {}
+        for bucket in self._WATCHLIST_BUCKETS:
+            for item in (data.get(bucket) or []):
+                if not isinstance(item, dict):
+                    continue
+                code = str(item.get("code") or "").strip()
+                if not code:
+                    continue
+                seen.setdefault(code.lower(), {
+                    "code": code,
+                    "name": str(item.get("name") or code),
+                    "add_time": float(item.get("add_time") or 0.0),
+                    "bucket": bucket,
+                })
+        # 最近加入的排前面，其次按代码字典序（稳定、可复现）
+        return sorted(seen.values(), key=lambda r: (-r["add_time"], r["code"].lower()))
+
+    def add_watchlist_item(self, code: str, name: str = "") -> Dict[str, Any]:
+        """新增一个自选（只写 ``stocks``）。已存在则拒绝，不静默改写成新名称。"""
+        code = str(code or "").strip()
+        if not code:
+            return {"ok": False, "reason": "股票代码/名称不能为空"}
+        name = str(name or "").strip() or code
+
+        data = dict(self._load_watchlist())
+        stocks = [s for s in (data.get("stocks") or []) if isinstance(s, dict)]
+        lower = {str(s.get("code") or "").strip().lower() for s in stocks}
+        for bucket in self._WATCHLIST_BUCKETS:
+            if bucket == "stocks":
+                continue
+            for s in (data.get(bucket) or []):
+                if isinstance(s, dict):
+                    lower.add(str(s.get("code") or "").strip().lower())
+        if code.lower() in lower:
+            return {"ok": False, "reason": f"自选「{code}」已存在"}
+
+        stocks.append({"code": code, "name": name, "add_time": time.time()})
+        data["stocks"] = stocks
+        try:
+            self._save_watchlist(data)
+        except Exception as e:
+            return {"ok": False, "reason": f"写入失败（{type(e).__name__}: {e}）"}
+        return {"ok": True, "reason": "",
+                "item": {"code": code, "name": name, "bucket": "stocks"}}
+
+    def update_watchlist_item(self, code: str, name: Optional[str] = None) -> Dict[str, Any]:
+        """修改自选的展示名（代码是标识，不作为可改字段）。"""
+        code = str(code or "").strip()
+        if not code:
+            return {"ok": False, "reason": "股票代码不能为空"}
+        if name is None:
+            return {"ok": False, "reason": "没有要修改的字段（当前仅支持 name）"}
+        name = str(name).strip()
+        if not name:
+            return {"ok": False, "reason": "名称不能为空"}
+
+        data = dict(self._load_watchlist())
+        hit = False
+        bucket_hit = ""
+        for bucket in self._WATCHLIST_BUCKETS:
+            for item in (data.get(bucket) or []):
+                if (isinstance(item, dict)
+                        and str(item.get("code") or "").strip().lower() == code.lower()):
+                    item["name"] = name
+                    hit = True
+                    bucket_hit = bucket_hit or bucket
+        if not hit:
+            return {"ok": False, "reason": f"自选「{code}」不存在"}
+        try:
+            self._save_watchlist(data)
+        except Exception as e:
+            return {"ok": False, "reason": f"写入失败（{type(e).__name__}: {e}）"}
+        return {"ok": True, "reason": "",
+                "item": {"code": code, "name": name, "bucket": bucket_hit}}
+
+    def remove_watchlist_item(self, code: str) -> Dict[str, Any]:
+        """移除一个自选（物理删除——自选只是"在看的票"，无持仓那样的历史价值）。"""
+        code = str(code or "").strip()
+        if not code:
+            return {"ok": False, "reason": "股票代码不能为空"}
+
+        data = dict(self._load_watchlist())
+        removed = 0
+        for bucket in self._WATCHLIST_BUCKETS:
+            arr = data.get(bucket)
+            if not isinstance(arr, list):
+                continue
+            kept = [
+                i for i in arr
+                if not (isinstance(i, dict)
+                        and str(i.get("code") or "").strip().lower() == code.lower())
+            ]
+            removed += len(arr) - len(kept)
+            data[bucket] = kept
+        if not removed:
+            return {"ok": False, "reason": f"自选「{code}」不存在"}
+        try:
+            self._save_watchlist(data)
+        except Exception as e:
+            return {"ok": False, "reason": f"写入失败（{type(e).__name__}: {e}）"}
+        return {"ok": True, "reason": "", "removed": code}
+
     # ── 手动持仓（「手动」账户：用户手填的真实仓位）──────────────────────
     def _manual_portfolio(self, create: bool = False) -> Optional[Any]:
         """取「手动」账户。
