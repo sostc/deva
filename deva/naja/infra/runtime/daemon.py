@@ -1,6 +1,7 @@
 import os
 import sys
 import signal
+import socket
 import time
 import re
 import fcntl
@@ -49,6 +50,78 @@ def _safe_read_pid(pid_file: Path) -> Optional[int]:
     except (ValueError, Exception) as e:
         logger.debug(f"读取 PID 文件失败: {e}")
         return None
+
+
+# 会被 httpx / requests 等自动读取的代理环境变量
+_PROXY_ENV_NAMES = (
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "all_proxy",
+)
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _proxy_url_target(url: str):
+    """从代理 URL 中取出 (host, port)；无法解析时返回 (None, None)。"""
+    from urllib.parse import urlsplit
+
+    text = (url or "").strip()
+    if not text:
+        return None, None
+    # 容忍省略 scheme 的写法（如 "127.0.0.1:53631"）
+    if "://" not in text:
+        text = "//" + text.lstrip("/")
+    try:
+        parts = urlsplit(text)
+        return parts.hostname, parts.port
+    except ValueError:
+        return None, None
+
+
+def sanitize_proxy_env(environ=None) -> dict:
+    """剔除「指向本机回环、但该端口已无人监听」的代理环境变量。
+
+    背景（2026-10-13 修）：从带沙箱代理的集成终端（IDE / agent shell）执行
+    ``-s start`` 时，终端会注入形如 ``http://127.0.0.1:53631`` 的本地代理。
+    该端口随会话生灭，却会被 ``os.environ.copy()`` 一路复制给 Naja 主进程和
+    托盘子进程；``openai`` / ``httpx`` 默认 ``trust_env=True``，于是**所有**
+    大模型请求都被送进这个死代理 → 托盘「一键总结」报
+    ``APIConnectionError: Connection attempts failed``，而代码本身毫无问题。
+
+    判据只取「回环地址 + 端口不通」：用户真实的梯度代理（Surge 6152、
+    Clash 7890 等）一定在监听，不会被误删（「假警报比不报警更伤」）。
+    若某代理端口恰好不通，剔除后表现为直连，并留一行 warning 便于追查。
+
+    Args:
+        environ: 待清洗的环境字典；默认直接清洗 ``os.environ``。
+
+    Returns:
+        被剔除的 ``{变量名: 原值}``；空字典表示环境本来就干净。
+    """
+    env = os.environ if environ is None else environ
+    removed = {}
+
+    for name in _PROXY_ENV_NAMES:
+        raw = env.get(name)
+        if not raw:
+            continue
+        host, port = _proxy_url_target(raw)
+        # 只处理「本机回环 + 端口明确」的代理；其余一律尊重用户设置
+        if not host or host not in _LOOPBACK_HOSTS or not port:
+            continue
+        try:
+            with socket.create_connection((host, port), timeout=0.25):
+                continue  # 端口有人监听 → 是真代理（Surge/Clash 等），保留
+        except OSError:
+            pass
+        removed[name] = raw
+        env.pop(name, None)
+
+    if removed:
+        logger.warning(
+            f"剔除失效的本地代理环境变量（回环地址端口无人监听）: {removed}；"
+            f"若确需代理请检查代理软件是否运行"
+        )
+    return removed
 
 
 class AnsiColors:
