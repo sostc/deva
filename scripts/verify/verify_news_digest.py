@@ -383,12 +383,24 @@ def main() -> int:
     # 持仓链路通了之后，AI/英伟达类新闻应当能进「持仓相关」档
     if live.holdings:
         live_items, _ = _load_scored_news(hours=168, limit=300)
-        live_result = NewsTriage(live).analyze(live_items, per_group_limit=20)
-        n_holding = live_result["stats"]["holding"]
-        check("真实新闻里已出现「持仓相关」命中（持仓档不再是死档）",
-              n_holding > 0,
-              f"holding={n_holding} theme={live_result['stats']['theme']} "
-              f"macro={live_result['stats']['macro']}")
+        # 先看池子里**有没有**本可以命中持仓的条目。
+        # 一条都没有时 holding=0 是数据条件（近 7 天没抓到这几只的新闻），
+        # 而不是链路坏了——报成"死档"就是**假警报**；本项目铁律：
+        # 假警报比不报警更伤（谎报一次，之后没人再看这块）。
+        candidates = [
+            it for it in live_items
+            if live.matched_holdings(it.get("title") or "", it.get("text") or "")
+        ]
+        if not candidates:
+            print(f"  ⏭️  跳过「持仓档命中」：近 7 天新闻池（{len(live_items)} 条）里"
+                  "没有任何一条提到持仓标的——本项无法判定，非链路故障")
+        else:
+            live_result = NewsTriage(live).analyze(live_items, per_group_limit=20)
+            n_holding = live_result["stats"]["holding"]
+            check("真实新闻里已出现「持仓相关」命中（持仓档不再是死档）",
+                  n_holding > 0,
+                  f"holding={n_holding} theme={live_result['stats']['theme']} "
+                  f"macro={live_result['stats']['macro']} 候选={len(candidates)}")
 
     # ── 汇总 ──────────────────────────────────────────────────────────
     print()
