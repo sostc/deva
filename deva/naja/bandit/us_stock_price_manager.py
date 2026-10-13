@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, asdict
 
 from deva import NB
+from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_US_PRICE
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,8 @@ class USStockPriceManager:
             self._last_update_time = max(self._last_update_time, now_ts)
 
         self._persist_all_prices()
+        # 实时链路成功注入 → 登记成功
+        get_freshness_tracker().record_success(SOURCE_US_PRICE)
 
     def _persist_all_prices(self):
         """持久化所有股票价格到统一表"""
@@ -329,6 +332,18 @@ class USStockPriceManager:
                 self._last_prev_closes[code] = snapshot.prev_close
                 self._last_update_time = max(self._last_update_time, snapshot.update_time)
             self._persist_all_prices()
+
+        # 登记数据新鲜度：只有「本轮真的去取过数」才记成败。
+        # 休市时 results 可能由持久化缓存填充（load_persisted_prices），
+        # 那不是新数据 —— 记成功会让页面显示"刚刚更新"，这种"假新鲜"
+        # 比不显示更危险。这种情况保持原记录不动，让 age 自然增长，
+        # 徽章会如实变成"已 N 未更新"。
+        if results and (is_open or force):
+            get_freshness_tracker().record_success(SOURCE_US_PRICE)
+        elif is_open or force:
+            get_freshness_tracker().record_failure(
+                SOURCE_US_PRICE, f"未取到任何价格（阶段 {phase}）"
+            )
 
         stale_duration = self.get_stale_duration()
         if stale_duration > 300:

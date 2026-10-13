@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 from deva import NB
 from deva.naja.register import SR
+from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_FUTU_SYNC
 
 log = logging.getLogger(__name__)
 
@@ -265,15 +266,31 @@ class FutuPortfolioSyncer:
         """
         log.info(f"[FutuSyncer] 开始同步持仓 from {self.account_name}...")
 
-        portfolio_data = self.get_portfolio(acc_id)
+        try:
+            portfolio_data = self.get_portfolio(acc_id)
+        except Exception as e:
+            # 埋点后原样抛出，不改控制流：UI 层原有的错误提示保持不变
+            log.error(f"[FutuSyncer] 同步异常: {e}")
+            get_freshness_tracker().record_failure(SOURCE_FUTU_SYNC, str(e))
+            raise
+
         if not portfolio_data.get("positions") and not portfolio_data.get("funds"):
             log.warning(f"[FutuSyncer] 未获取到持仓数据")
+            get_freshness_tracker().record_failure(
+                SOURCE_FUTU_SYNC, "未获取到持仓数据（OpenD 未运行或未登录？）"
+            )
             return False
 
-        self._sync_to_bandit(portfolio_data)
-        self._save_futu_accounts(portfolio_data)
+        try:
+            self._sync_to_bandit(portfolio_data)
+            self._save_futu_accounts(portfolio_data)
+        except Exception as e:
+            log.error(f"[FutuSyncer] 写入持仓失败: {e}")
+            get_freshness_tracker().record_failure(SOURCE_FUTU_SYNC, f"写入失败: {e}")
+            raise
 
         log.info(f"[FutuSyncer] 同步完成: {len(portfolio_data['positions'])} 个持仓")
+        get_freshness_tracker().record_success(SOURCE_FUTU_SYNC)
         return True
 
     def _sync_to_bandit(self, portfolio_data: Dict[str, Any]):

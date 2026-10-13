@@ -16,6 +16,7 @@ from .signal_listener import SignalListener, DetectedSignal
 from .virtual_portfolio import VirtualPortfolio, VirtualPosition
 from .market_observer import MarketDataObserver, get_market_observer
 from .optimizer import get_bandit_optimizer
+from .data_freshness import get_freshness_tracker, SOURCE_CN_PRICE
 from deva.naja.register import SR
 from deva.naja.decision import compute_order_amount, manas_sizing_enabled
 
@@ -447,10 +448,20 @@ class AdaptiveCycle:
     def _on_price_update(self, stock_code: str, price: float):
         """处理价格更新"""
         log.debug(f"[AdaptiveCycle] 📈 收到价格更新: {stock_code} @ {price}")
-        
-        closed = self._portfolio.update_price(stock_code, price)
+
+        try:
+            closed = self._portfolio.update_price(stock_code, price)
+        except Exception as e:
+            # 以前这里没有保护：异常会冒到 MarketObserver._update_price 的
+            # `except Exception: log.debug(...)` 里被静默吞掉，页面上只表现为
+            # "价格再也不动了"，看不到任何原因。现在如实登记失败。
+            log.warning(f"[AdaptiveCycle] ❌ 价格更新失败 {stock_code} @ {price}: {e}")
+            get_freshness_tracker().record_failure(SOURCE_CN_PRICE, f"{stock_code}: {e}")
+            return
+
+        get_freshness_tracker().record_success(SOURCE_CN_PRICE)
         log.debug(f"[AdaptiveCycle] 📊 止盈止损检查完成，平仓数量: {len(closed)}")
-        
+
         for close_info in closed:
             log.debug(f"[AdaptiveCycle] 💰 触发止盈止损平仓 {stock_code} @ {price}")
     
