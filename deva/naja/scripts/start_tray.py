@@ -18,7 +18,11 @@ def _activate_noop(self, flag):
     return None
 NSApplication.activateIgnoringOtherApps_ = _activate_noop
 
+from deva.naja.infra.runtime.daemon import sanitize_proxy_env
 from deva.naja.infra.ui.menu_bar_tray import start_tray
 
 if __name__ == "__main__":
+    # 托盘进程可能在「-s start」派生时继承一个已失效的本地代理，而
+    # 「一键总结」是在托盘进程内直接请求大模型 → 必须确保出口可用。
+    sanitize_proxy_env()
     start_tray()
