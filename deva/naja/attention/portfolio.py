@@ -217,7 +217,7 @@ class Portfolio:
     def get_all_holdings(self) -> List[StockInfo]:
         """合并**所有已初始化券商账户**的持仓（不含"虚拟测试"模拟盘）。
 
-        钱通常散在多个账户里（实测：Spark 2 只 + FutuReal 9 只）——
+        钱通常散在多个账户里（Spark / Cutie / FutuHK / MoomooUS …）——
         只看默认账户会漏掉大半持仓，新闻筛选就会把"我真正持有的票"的新闻
         错当成"外部机会"。同一标的跨账户出现时按 (code, account) 去重保留，
         不去合并数量（本方法只服务"我持有什么"的匹配，不做估值）。
