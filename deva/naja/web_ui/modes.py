@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from deva import NB
 from deva.naja.register import SR
+
+log = logging.getLogger(__name__)
 
 _lab_mode_initialized = False
 _news_radar_initialized = False
