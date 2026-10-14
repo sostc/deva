@@ -125,9 +125,22 @@ class VirtualPortfolio:
     
     @property
     def _mts(self):
-        """获取 MarketTimeService（注入优先，SR fallback 仅开发用）"""
-        if self._market_time_service is not None:
-            return self._market_time_service
+        """获取 MarketTimeService（注入优先，SR fallback 仅开发用）
+
+        ❗注入的对象必须真的是 MarketTimeService。TradingClock 不含
+        get_market_time()，历史上被误注入过，结果每次开/平仓都抛
+        AttributeError。这里做一次能力校验：注入物不具备该接口时自动
+        退回 SR('market_time_service')，避免静默刷屏报错。
+        """
+        injected = self._market_time_service
+        if injected is not None:
+            if hasattr(injected, 'get_market_time'):
+                return injected
+            log.error(
+                "[VirtualPortfolio] 注入的 market_time_service=%r 不含 "
+                "get_market_time()，已回退到 SR('market_time_service')，请检查装配",
+                type(injected).__name__,
+            )
         from deva.naja.register import SR
         return SR('market_time_service')
     
