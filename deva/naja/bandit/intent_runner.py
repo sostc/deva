@@ -42,7 +42,12 @@ from ..watch import (
     Allocation, BuyIntent, Intent, SellIntent, WatchDesk, WatchScan,
     declare_allocation,
 )
-from ..watch.allocation import DEFAULT_HORIZON
+from ..watch.allocation import (
+    DEFAULT_HORIZON,
+    allocation_row_of,
+    anchor_if_needed,
+    derive_watches,
+)
 from ..watch.intent import clamp_confidence
 from .core_holdings import env_flag, env_float
 
@@ -57,10 +62,17 @@ __all__ = [
     "read_allocation_rows", "save_allocations",
     "upsert_allocation", "remove_allocation",
     "allocation_row_of",
+    "holdings_snapshot",
+    "DEFAULT_SYNC_SECONDS",
 ]
 
 DEFAULT_POLL_SECONDS = 60.0
 DEFAULT_HEARTBEAT_SEC = 900.0
+
+#: 派生守望（补缺口 / 做 T）多久同步一次。
+#: ❗必须**周期性自证**：这套派生逻辑要是静默地不再运行，页面上就只剩
+#: 一堆不动的旧守望，跟「行情一直没机会」长得一模一样。
+DEFAULT_SYNC_SECONDS = 300.0
 
 #: 意愿强度的全局覆盖。设成 0.5 就等于「人工意向与系统自动补仓无差别」——
 #: 这是这条链路的一句话回滚开关。定义在**模块级**而不是类属性：
@@ -413,10 +425,53 @@ def load_allocations(path=None) -> List[Allocation]:
                 confidence=row.get("confidence"),
                 rationale=str(row.get("rationale") or ""),
                 note=str(row.get("note") or ""),
+                # -- 锚定：读回来才有「目标已定」，丢了就退化成未设定 --
+                anchor_shares=(
+                    float(row["anchor_shares"])
+                    if row.get("anchor_shares") else None
+                ),
+                anchor_at=(
+                    float(row["anchor_at"])
+                    if row.get("anchor_at") else None
+                ),
+                anchor_source=str(row.get("anchor_source") or ""),
+                anchor_note=str(row.get("anchor_note") or ""),
             ))
         except Exception as e:  # noqa: BLE001 - 单条坏了只跳过这一条
             log.warning("[IntentRunner] 长期配置清单第 %d 条（%s）不可用：%s:%s",
                         i + 1, row.get("code"), type(e).__name__, e)
+    return out
+
+
+def holdings_snapshot() -> Dict[str, Dict[str, Any]]:
+    """读一份「每个标的现在持有多少」的快照。
+
+    ❗要的是**约定持有份额**（真实持仓 + 未履行回购义务），不是裸持仓：
+    做 T 卖出去的那部分**欠着**，它仍然属于这笔长期持仓。拿裸持仓当
+    锚定的话，卖一次 T 目标就少一块 —— 目标被自己的操作拖着走，
+    是最隐蔽的一种失效（缺口永远算不出来）。
+
+    取不到就返回空 dict，❗**不拿 0 顶替**：「读不到持仓」和「持仓为 0」
+    是两件事，后者才会真的导致做 T 守望被撤下。
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    try:
+        from .t_rotation_runner import get_t_rotation_runner
+
+        status = get_t_rotation_runner().get_status()
+    except Exception as e:  # noqa: BLE001
+        log.warning("[IntentRunner] 持仓快照取不到：%s:%s", type(e).__name__, e)
+        return out
+    out["__total_assets__"] = float(status.get("total_assets") or 0.0) or None
+    for sym in (status.get("symbols") or ()):
+        code = str(sym.get("code") or "").strip().upper()
+        if not code:
+            continue
+        out[code] = {
+            "shares": sym.get("held_shares"),
+            "price": float(sym.get("last_price") or 0.0) or None,
+            "market": str(sym.get("market") or "").strip().upper(),
+        }
     return out
 
 
@@ -431,26 +486,6 @@ def save_allocations(rows, path=None) -> Path:
     """写回长期配置清单。"""
     p = Path(path).expanduser() if path is not None else allocation_file_path()
     return _write_rows(p, rows, "allocations")
-
-
-def allocation_row_of(alloc: Allocation) -> Dict[str, Any]:
-    """把配置变回清单里的一行。**只写装载方认得的键**。"""
-    row: Dict[str, Any] = {
-        "code": alloc.code,
-        "market": alloc.market,
-        "horizon": alloc.horizon,
-        "review_seconds": float(alloc.review_seconds or 0.0),
-        "alloc_pct": float(alloc.alloc_pct),
-    }
-    if alloc.name:
-        row["name"] = alloc.name
-    if alloc.rationale:
-        row["rationale"] = alloc.rationale
-    if alloc.note:
-        row["note"] = alloc.note
-    if alloc.confidence_explicit:
-        row["confidence"] = clamp_confidence(alloc.confidence)
-    return row
 
 
 def upsert_allocation(alloc: Allocation, path=None) -> str:
@@ -540,6 +575,8 @@ class IntentRunner:
             "denied": 0,
             "unanswered": 0,
         }
+        #: 派生守望同步的节流时刻。持仓不会每秒变，没必要每轮都去读。
+        self._last_sync: float = 0.0
 
     # ----------------------------------------------------------------
     @property
@@ -594,6 +631,165 @@ class IntentRunner:
             except Exception as e:  # noqa: BLE001
                 log.warning("[IntentRunner] 长期配置 %s 没挂上去：%s:%s",
                             alloc.describe(), type(e).__name__, e)
+        # 配置挂完之后，**派生**出它旗下的那组守望（补缺口 / 卖T / 买T）。
+        # ❗少了这一步，「长期持有 40%」在守望台上就只有孤零零一条
+        # 「定期回顾」，而用户真正关心的「还差多少没补、做 T 在等什么」
+        # 一个都看不见 —— 又是「配置写好了、链路没接」那一型。
+        try:
+            stats = self.sync_allocations(path)
+            log.info(
+                "[IntentRunner] 派生守望同步完成：锚定 %d 份 · 补缺口 %d · "
+                "做 T %d · 撤下 %d",
+                stats.get("anchored", 0), stats.get("gap", 0),
+                stats.get("rotation", 0), stats.get("closed", 0),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.error(f"[IntentRunner] 派生守望同步失败: {e}", exc_info=True)
+        return n
+
+    def sync_allocations(self, path=None, now=None) -> Dict[str, int]:
+        """把每份长期配置**派生出的那组守望**同步到台上。
+
+        用户原话（2026-10-14）：「他终归是要 40% 的仓位……一个是守望一个
+        机会加仓到 40%；还有一个是守望做 T 的机会……做 T 的守望应该是
+        持续一直存在的」。所以一份长期配置在系统里**不是一条守望**：
+
+            ├ 补缺口守望   还差 10% → 等机会加仓（**补满即撤下**）
+            ├ 卖 T 守望    常驻：涨过头先卖，等跌回来买回
+            └ 买 T 守望    常驻：跌过头先买，等涨回去卖回
+
+        ❗这里最要紧的两条：
+
+        1. **已挂的守望只更新参数，绝不重建**。重建会把「问过几次、
+           被否几次、等了几期」一笔勾销 —— 页面上看起来一直在等，
+           实际每轮都是全新的守望。
+        2. **撤下要分清是成功还是前提消失**：补缺口守望不再需要是
+           **目标达成了**（``reached``）；做 T 守望不再需要是**没持仓了**
+           （``abandoned``）。都记成 expired 的话，补到目标的那天会被
+           显示成「没等到」，而那天恰恰是最该庆祝的一天。
+
+        :return: ``{"anchored":…, "gap":…, "rotation":…, "closed":…}``
+        """
+        snap = holdings_snapshot()
+        assets = snap.get("__total_assets__")
+        stats = {"anchored": 0, "gap": 0, "rotation": 0, "closed": 0}
+        t = now if now is not None else time.time()
+
+        for alloc in load_allocations(path):
+            try:
+                info = snap.get(alloc.code) or {}
+                shares = info.get("shares")
+
+                # ① 目标没定 → 默认锚定当前持仓（只锚一次，锚了就写回）
+                alloc2, newly = anchor_if_needed(alloc, shares, now=t)
+                if newly:
+                    upsert_allocation(alloc2, path)
+                    stats["anchored"] += 1
+                    log.info(
+                        "[IntentRunner] %s 目标未设定 → 已锚定当前持仓 %.0f 份"
+                        "（写回清单，之后目标不再随做 T 浮动）",
+                        alloc2.code, float(shares or 0.0),
+                    )
+
+                # ② 配置自己那条循环守望必须在台上
+                self._ensure_allocation_watch(alloc2)
+
+                # ③ 派生这一组：补缺口 / 卖T / 买T
+                specs = derive_watches(
+                    alloc2, shares, assets, info.get("price"),
+                )
+                present = set()
+                for spec in specs:
+                    if self._ensure_watch(spec):
+                        stats["new_watch"] = stats.get("new_watch", 0) + 1
+                    present.add(spec["objective"].id)
+                    if spec["role"] == "gap":
+                        stats["gap"] += 1
+                    else:
+                        stats["rotation"] += 1
+
+                # ④ 撤下不该再挂的（缺口补满了 / 没持仓搓不了）
+                stats["closed"] += self._retire_stale(alloc2, present, t)
+            except Exception as e:  # noqa: BLE001 - 单份坏了只跳这一份
+                log.warning("[IntentRunner] 长期配置 %s 同步失败：%s:%s",
+                            alloc.code, type(e).__name__, e)
+        return stats
+
+    def _ensure_allocation_watch(self, alloc: Allocation) -> bool:
+        """配置自己那条循环守望在不在台上，不在就挂，在就更新参数。"""
+        from ..watch.allocation import allocation_id, to_objective
+
+        reg = self.desk.registry
+        wid = allocation_id(alloc)
+        watch = reg.get(wid)
+        obj = to_objective(alloc)
+        if watch is None:
+            reg.declare(
+                obj,
+                self._alloc_opportunities(alloc),
+                recurring=True,
+                bootstrap=True,
+                max_silence_seconds=self._beat_sec or None,
+            )
+            return True
+        watch.objective.params.update(obj.params)
+        watch.objective.note = obj.note
+        return False
+
+    def _alloc_opportunities(self, alloc: Allocation):
+        from ..watch.allocation import opportunities_for
+
+        return opportunities_for(alloc)
+
+    def _ensure_watch(self, spec: Dict[str, Any]) -> bool:
+        """保证一个派生守望在台上。**已挂就只更新参数，绝不重建**。"""
+        reg = self.desk.registry
+        obj = spec["objective"]
+        watch = reg.get(obj.id)
+        if watch is None:
+            reg.declare(
+                obj,
+                spec["opportunities"],
+                recurring=bool(spec.get("recurring")),
+                standing=bool(spec.get("standing")),
+            )
+            log.info("[IntentRunner] 派生守望已挂上：%s（%s）",
+                     obj.id, spec.get("role"))
+            return True
+        # ❗只改参数与说明，不动统计 —— 重建会把守望的历史抹掉
+        watch.objective.params.update(obj.params)
+        watch.objective.note = obj.note
+        return False
+
+    def _retire_stale(self, alloc: Allocation, present: set, now: float) -> int:
+        """撤下这份配置旗下**已经不该存在**的派生守望。
+
+        ❗结算方式必须分开：补缺口守望撤下 = **补到了**（reached，是成功）；
+        做 T 守望撤下 = **没持仓了**（abandoned，前提消失）。
+        """
+        from ..watch.allocation import allocation_id
+
+        aid = allocation_id(alloc)
+        n = 0
+        for watch in list(self.desk.registry.watches()):
+            p = watch.objective.params or {}
+            if p.get("alloc_id") != aid:
+                continue
+            if watch.objective.kind == "allocation":
+                continue  # 配置自己那条是循环守望，不在这里撤
+            if watch.watch_id in present:
+                continue
+            if watch.state.value == "settled":
+                continue
+            if watch.objective.kind == "establish_core":
+                watch.settle("reached", "已补到目标，缺口守望完成", now=now)
+                log.info("[IntentRunner] ✅ %s 已补到目标，缺口守望完成",
+                         watch.watch_id)
+            else:
+                watch.settle("abandoned", "没有持仓，做 T 守望失去前提", now=now)
+                log.info("[IntentRunner] %s 没有持仓，做 T 守望撤下",
+                         watch.watch_id)
+            n += 1
         return n
 
     def declare(self, intent: Intent) -> str:
@@ -704,6 +900,13 @@ class IntentRunner:
         """跑一轮。与心跳分离是为了便于测试与手工推动。"""
         t = now if now is not None else time.time()
         self.stats["polls"] += 1
+        # 派生守望同步（节流）—— 持有量变了，旗下的那组守望也要跟着变
+        if t - self._last_sync >= DEFAULT_SYNC_SECONDS:
+            self._last_sync = t
+            try:
+                self.sync_allocations(now=t)
+            except Exception as e:  # noqa: BLE001
+                log.error(f"[IntentRunner] 派生守望同步失败: {e}", exc_info=True)
         tickets = self.desk.poll(t)
         for tk in tickets:
             self.stats["tickets"] += 1

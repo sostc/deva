@@ -33,6 +33,22 @@
 页面必须如实写「未设定」—— 拿一个默认值假装用户拍过板，
 正是幽灵配置的长法。
 
+★一份目标，一组守望
+====================
+用户原话（2026-10-14）：「他终归是要 40% 的仓位……一个是守望一个机会
+把它加仓加到 40%；还有一个是守望做 T 的机会……做 T 的守望应该是
+持续一直存在的」。
+
+所以「长期持有 40%」在页面上**不是一行，是一组**：
+
+    补缺口   还差 10% → 等机会加仓（**补满就不挂了**）
+    卖 T     涨过头先卖，等跌回来买回（**常驻**）
+    买 T     跌过头先买，等涨回去卖回（**常驻**）
+
+❗「常驻」两个字必须标出来：它一直在等下一次机会，看到它「已结算」
+不该紧张 —— 那是刚问完一轮，下一期马上重新挂起。而补缺口守望
+「已结算」是**补到了**，是该庆祝的那种结算。
+
 落盘与在台
 ==========
 登记/改力度/撤下会同时写回声明式清单（``~/.naja/intents.json``、
@@ -297,6 +313,80 @@ def _position_lookup() -> Optional[Dict[Tuple[str, str], Dict[str, Any]]]:
     return out
 
 
+def _derived_html(
+    desk, alloc_id: str, now: float, held: Optional[float] = None,
+) -> str:
+    """这份长期配置**旗下派生出的那组守望**。
+
+    用户原话（2026-10-14）：「一个是守望一个机会把它加仓加到 40%；
+    还有一个是守望做 T 的机会……守望的类型很多」。
+
+    所以一份「长期持有 40%」在页面上不是一行，是**一组**：
+
+        补缺口   还差 100 份 → 等机会加仓（补满就不挂了）
+        卖 T     常驻：涨过头先卖，等跌回来买回
+        买 T     常驻：跌过头先买，等涨回去卖回
+
+    ❗常驻守望要标出来：它「一直在等」，跟「等一个机会、等到就结束」
+    的一次性守望读法完全不同 —— 看到「已结算」不该紧张，那是刚问完
+    一轮，马上会重新挂起。
+    """
+    role_zh = {
+        "gap": "补缺口", "sell_t": "卖 T", "buy_t": "买 T", "repay": "回购",
+    }
+    bits: List[str] = []
+    for watch in desk.watches():
+        p = watch.objective.params or {}
+        if p.get("alloc_id") != alloc_id or watch.objective.kind == "allocation":
+            continue
+        r = watch.to_row(now)
+        role = str(p.get("t_side") or "")
+        if watch.objective.kind == "establish_core":
+            role = "gap"
+        zh = role_zh.get(role, role or "守望")
+
+        state = r.get("state")
+        badge = {
+            "armed": "⏳", "triggered": "🔔", "settled": "🏁",
+        }.get(str(state), "")
+        color = {
+            "armed": "#94a3b8", "triggered": "#fbbf24", "settled": "#64748b",
+        }.get(str(state), "#94a3b8")
+
+        if role == "gap":
+            detail = f"还差 {float(p.get('gap_shares') or 0.0):,.0f} 份"
+        else:
+            detail = f"偏离 {float(p.get('pct') or 0.0):g}% 出手"
+        tail = ""
+        if r.get("standing"):
+            tail = f" · <span style='color:#7dd3fc'>常驻 第{r.get('cycles', 0) + 1}期</span>"
+        asked = int(r.get("asked") or 0)
+        if asked:
+            tail += f" · 问过 {asked} 次"
+        bits.append(
+            f"<div style='line-height:1.5'>"
+            f"<span style='color:{color}'>{badge}</span> "
+            f"<b>{zh}</b> "
+            f"<span style='color:#94a3b8;font-size:12px'>{detail}{tail}</span>"
+            f"</div>"
+        )
+    if not bits:
+        # ❗「一个派生守望都没有」有两种完全不同的原因，不能合成一句：
+        #   · 补到位了 → 缺口守望完成、做 T 也没在等（正常）
+        #   · 还没持仓 → 做 T 没前提、目标也没锚上（要人去拍板）
+        # 都写成「已到位」的话，一个**空仓且目标未定**的标的会被读成
+        # 一切就绪 —— 那正是「合法的空」掩盖真问题的标准形态。
+        if held is None:
+            return "<span style='color:#94a3b8'>（持仓取不到，判不了）</span>"
+        if float(held) > 0:
+            return "<span style='color:#4ade80'>（已到位，做 T 守望也没在等）</span>"
+        return (
+            "<span style='color:#fbbf24'>（还没持仓 —— 做 T 没前提，"
+            "目标也没锚上）</span>"
+        )
+    return "".join(bits)
+
+
 def _allocation_rows(
     desk, now: float, positions: Optional[Dict[Tuple[str, str], Dict[str, Any]]],
 ) -> List[List[Any]]:
@@ -314,32 +404,62 @@ def _allocation_rows(
         )
 
         pct = float(p.get("alloc_pct") or 0.0)
-        target_txt = (
-            _h(f"<b>{pct:.0f}%</b>"
-               f"<div style='color:#94a3b8;font-size:12px'>总资产</div>")
-            if r.get("target_set") or pct > 0
-            else _h("<b style='color:#fbbf24'>未设定</b>"
-                    "<div style='color:#94a3b8;font-size:12px'>点「改目标」</div>")
-        )
+        anchor = p.get("anchor_shares")
+        if pct > 0:
+            target_txt = _h(
+                f"<b>{pct:.0f}%</b>"
+                f"<div style='color:#94a3b8;font-size:12px'>总资产</div>"
+            )
+        elif anchor:
+            # ❗锚定来的目标必须标明**来源**：人拍板和「默认锚定当前持仓」
+            # 在复查时是两回事 —— 后者只是「当时有多少算多少」
+            src = str(p.get("anchor_source") or "")
+            src_zh = {
+                "user": "人拍板", "holdings": "默认锚定当前持仓",
+            }.get(src, src or "锚定")
+            target_txt = _h(
+                f"<b>{float(anchor):,.0f}</b> 份"
+                f"<div style='color:#94a3b8;font-size:12px'>{src_zh}</div>"
+            )
+        else:
+            target_txt = _h(
+                "<b style='color:#fbbf24'>未设定</b>"
+                "<div style='color:#94a3b8;font-size:12px'>点「改目标」</div>"
+            )
 
         # 缺口：拿不到持仓就如实说未知，❗不拿 0 顶替
-        if positions is None:
-            gap = _h("<span style='color:#94a3b8'>未知</span>"
-                     "<div style='color:#94a3b8;font-size:12px'>取不到账户</div>")
-        else:
+        held: Optional[float] = None
+        if positions is not None:
             row = positions.get(
                 (watch.objective.subject.upper(), watch.objective.market.upper())
             )
-            held = row.get("held_shares") if isinstance(row, dict) else None
-            if held is None:
-                gap = _h("<span style='color:#94a3b8'>未知</span>")
-            else:
-                tgt = float(row.get("target_shares") or 0.0) if isinstance(row, dict) else 0.0
-                diff = tgt - float(held)
-                color = "#4ade80" if diff <= 0 else "#fbbf24"
-                word = "已到位" if diff <= 0 else f"还差 {diff:,.0f}"
-                gap = _h(f"持 {float(held):,.0f}"
-                         f"<div style='color:{color};font-size:12px'>{word}</div>")
+            raw = row.get("held_shares") if isinstance(row, dict) else None
+            held = None if raw is None else float(raw)
+
+        if not r.get("target_set") and not (p.get("anchor_shares") is not None
+                                           and float(p.get("anchor_shares") or 0) > 0):
+            # ❗守望台自己的目标没定时，**不许拿执行层折算的目标顶替**算缺口 ——
+            # 那会演出「上面写着未设定、下面写着还差 543」的口径打架。
+            gap = _h("<span style='color:#fbbf24'>算不出</span>"
+                     "<div style='color:#94a3b8;font-size:12px'>"
+                     "目标未设定</div>")
+        elif held is None:
+            gap = _h("<span style='color:#94a3b8'>未知</span>"
+                     "<div style='color:#94a3b8;font-size:12px'>取不到账户</div>")
+        else:
+            tgt = float(p.get("anchor_shares") or 0.0)
+            if not tgt and positions is not None:
+                prow = positions.get(
+                    (watch.objective.subject.upper(), watch.objective.market.upper())
+                )
+                tgt = float(prow.get("target_shares") or 0.0) if isinstance(prow, dict) else 0.0
+            diff = tgt - float(held)
+            color = "#4ade80" if diff <= 0 else "#fbbf24"
+            word = "已到位" if diff <= 0 else f"还差 {diff:,.0f}"
+            gap = _h(f"持 {float(held):,.0f}"
+                     f"<div style='color:{color};font-size:12px'>{word}</div>")
+
+        derived = _h(_derived_html(desk, watch.objective.id, now, held))
 
         review = (
             f"每 {float(p.get('review_seconds') or 0) / 86400:.0f} 天<br>"
@@ -350,6 +470,7 @@ def _allocation_rows(
                f"<div style='color:#94a3b8;font-size:12px'>{who}</div>"),
             target_txt,
             gap,
+            derived,
             _h(f"<b>{_conf_text(p.get('confidence'))}</b>"
                f"<div style='color:#94a3b8;font-size:12px'>"
                f"{'手改' if p.get('confidence_explicit') else '默认'}</div>"),
@@ -378,6 +499,11 @@ def _watch_rows(desk, now: float) -> List[List[Any]]:
     rows: List[List[Any]] = []
     for watch in desk.watches():
         if watch.objective.kind == "allocation":
+            continue
+        # ❗带 alloc_id 的是某份长期配置**派生**出来的（补缺口 / 做 T），
+        # 它们归在长期配置区里，不在这里重复列一遍 ——
+        # 同一件事在两个地方显示，迟早会显示成两个不同的数字。
+        if (watch.objective.params or {}).get("alloc_id"):
             continue
         r = watch.to_row(now)
         side = str(watch.objective.params.get("side") or "-")
@@ -826,7 +952,7 @@ def render_body():
                 put_text(_EMPTY_ALLOC_NOTE)
             else:
                 put_table(rows, header=[
-                    "标的", "目标占比", "当前 / 缺口", "意愿强度",
+                    "标的", "目标", "当前 / 缺口", "旗下的守望", "意愿强度",
                     "尺度 / 理由", "回顾", "本期问询", "最近结论", "操作",
                 ])
 
