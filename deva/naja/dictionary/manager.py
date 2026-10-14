@@ -190,6 +190,13 @@ class DictionaryManager:
         event_condition: str = "",
         event_condition_type: str = "contains",
     ) -> dict:
+        # ❗本方法碰 ``self._items`` / ``self._items_lock``（见下方 "字典名称已存在" 判重）。
+        # 其它公开方法都显式调了 `_ensure_initialized()`，只有这里漏了 ——
+        # 如果 `create()` 是进程里第一个被调到的方法（比如冷启动时 UI 直接建字典），
+        # 就会 AttributeError: '_items_lock'，而调用方一律 `except Exception` 吞掉
+        # → 表现为「点了创建没反应」。与 datasource 侧的 `@_require_initialized` 对齐。
+        self._ensure_initialized()
+
         from ..config import get_dictionary_config
 
         import hashlib

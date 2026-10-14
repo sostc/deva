@@ -109,6 +109,13 @@ def _http_get(path: str, port: int = None, timeout: float = 5.0) -> Optional[dic
 class MenuBarTray:
     _instance: Optional['MenuBarTray'] = None
 
+    #: 操作状态位。**必须留在类上**：``__init__`` 里会重新赋值为 ``None``，
+    #: 但守卫（如 ``verify_naja_restart``）会 ``object.__new__`` 跳过 rumps 初始化，
+    #: 此时若只有实例属性，``_update_op`` / ``_clear_op`` / ``_apply_op_status``
+    #: 会直接 AttributeError —— 而它们正是「重启服务」第一步要走的路径。
+    #: 类级默认既是兜底，也让「未初始化」与「空闲」同义，不会误报「有任务在跑」。
+    _op_status = None
+
     @classmethod
     def is_available(cls):
         if sys.platform != "darwin":
