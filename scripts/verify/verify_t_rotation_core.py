@@ -459,17 +459,29 @@ def check_no_catching_falling_knife():
         tr.update(98.0 - i * 0.08, timestamp=i * 60)
     snap = tr.snapshot()
     assert snap.consecutive_down > 0, "应处于连跌中"
+    assert snap.bars_since_low == 0, "每根都在创新低，计数应为 0"
 
     sig = evaluate_deviation(snap, RotationThresholds(), bars_since_last_action=99)
     assert sig.action == "NONE", "连跌途中竟然抄底了"
-    assert "连跌" in sig.reason or "企稳" in sig.reason, sig.reason
+    assert "企稳" in sig.reason, sig.reason
 
-    # 打断了连跌就应该放行
+    # ❗反方向用例：只打断 **1 根**不算企稳。
+    # 轮询默认 30 秒一根 → 1 根 = 只确认了 30 秒没创新低，
+    # 真下跌里这点喘息毫无意义（这正是接飞刀的主敞口）。
     tr.update(snap.last + 0.05, timestamp=31 * 60)
+    snap1 = tr.snapshot()
+    assert snap1.bars_since_low == 1, f"应只计 1 根，实为 {snap1.bars_since_low}"
+    sig1 = evaluate_deviation(snap1, RotationThresholds(), bars_since_last_action=99)
+    assert sig1.action == "NONE", f"仅企稳 1 根就抄底了: {sig1.reason}"
+
+    # 连续 stabilize_bars(3) 根不再创新低才放行
+    for k in range(2, 5):
+        tr.update(snap.last + 0.05 * k, timestamp=(31 + k) * 60)
     snap2 = tr.snapshot()
+    assert snap2.bars_since_low >= 3, snap2.bars_since_low
     sig2 = evaluate_deviation(snap2, RotationThresholds(), bars_since_last_action=99)
-    assert sig2.action == "BUY_T", f"已企稳仍拒: {sig2.reason}"
-    print(f"13) 右侧确认 OK（连跌拒: {sig.reason[:30]}... → 企稳放行）")
+    assert sig2.action == "BUY_T", f"已企稳 3 根仍拒: {sig2.reason}"
+    print(f"13) 右侧确认 OK（连跌拒 → 1根仍拒 → 3根放行）")
 
 
 def check_no_new_reverse_near_close():
@@ -483,8 +495,11 @@ def check_no_new_reverse_near_close():
     seq = [101.0 + i * 0.05 for i in range(30)]
     for i, p in enumerate(seq):
         tr.update(p, timestamp=i * 60)
-    tr.update(seq[-1] - 0.02, timestamp=30 * 60)  # 见回落（能过 require_stabilize）
+    # 见回落 —— ❗同样要连续 stabilize_bars(3) 根，只回落 1 根过不了企稳闸
+    for k in range(1, 4):
+        tr.update(seq[-1] - 0.02 * k, timestamp=(30 + k) * 60)
     snap = tr.snapshot()
+    assert snap.bars_since_high >= 3, f"回落根数不足: {snap.bars_since_high}"
     assert snap.ret > 1.5, f"应已明显高于昨收，实为 {snap.ret}"
 
     near = evaluate_deviation(snap, RotationThresholds(), minutes_to_close=5.0,
@@ -774,6 +789,92 @@ def check_static_obligation_paired_with_sell():
     print(f"25) 静态：挂义务必伴随减仓 OK（{', '.join(sorted(callers))}）")
 
 
+def check_extreme_deviation_guard():
+    """极端偏离不参与 —— 且各市场的极端阈值不得相对触发阈值被放大。
+
+    为什么单独守这一条
+    ------------------
+    这道闸是防黑天鹅的**唯一**一道：偏离过大通常意味着基本面事件
+    （停牌、退市风险、政策黑天鹅），均值回归的假设不再成立。
+    2026-10-14 之前 US 档 ``max_dev_close=4.0`` 而触发阈值仅 0.5%
+    —— **8 倍**，CN 档只有 5.3 倍。QQQ 跌 4% 已是灾难级，
+    这道闸在美股等于没设（已收紧到 2.0）。
+    """
+    from deva.naja.bandit.core_holdings import MARKET_PROFILES
+    from deva.naja.bandit.intraday_deviation import (
+        IntradayDeviationTracker, evaluate_deviation,
+    )
+
+    # 静态：倍数红线。CN 档 5.3x 是历史基准，取 6x
+    ratios = []
+    for mkt, prof in MARKET_PROFILES.items():
+        t = prof.thresholds
+        ratio = t.max_dev_close / t.buy_dev_close
+        ratios.append(f"{mkt} {ratio:.1f}x")
+        assert ratio <= 6.0, (
+            f"{mkt} 极端阈值 {t.max_dev_close} 相对触发阈值 {t.buy_dev_close} "
+            f"是 {ratio:.1f} 倍（>6），防黑天鹅的闸形同虚设"
+        )
+
+    # 行为：美股档跌破 2.0% 红线必须拒，不能当成「跌多了是机会」
+    us = MARKET_PROFILES["US"].thresholds
+    tr = IntradayDeviationTracker("QQQ")
+    tr.set_prev_close(100.0)
+    seq = [99.0 - i * 0.05 for i in range(30)]
+    for i, p in enumerate(seq):
+        tr.update(p, timestamp=i * 60)
+    for k in range(1, 4):
+        tr.update(seq[-1] + 0.02 * k, timestamp=(30 + k) * 60)  # 企稳 3 根
+    snap = tr.snapshot()
+    assert snap.ret < -2.0, f"用例没造出极端偏离，实为 {snap.ret:.2f}%"
+    sig = evaluate_deviation(snap, us, minutes_to_close=120.0,
+                             bars_since_last_action=99)
+    assert sig.action == "NONE", (
+        f"美股跌 {snap.ret:.2f}% 竟被当成机会: {sig.reason}"
+    )
+    assert "极端" in sig.reason, sig.reason
+    print(f"26) 极端偏离闸 OK（{', '.join(ratios)}；美股 {snap.ret:.2f}% 拒）")
+
+
+def check_close_tolerance_matches_edge():
+    """了结/买回的回撤容忍度不得大过预期净空间。
+
+    为什么单独守这一条
+    ------------------
+    ``close_drawdown_pct`` / ``buyback_rebound_pct`` 决定「让出去多少才认输」。
+    它们必须和**预期净空间同量级**，否则：
+
+    * 让出去的比赚到的还多（止盈精度撑不起利润目标）；
+    * 更糟的是几乎无法自然了结，只能等收盘前 10 分钟**强制平仓**
+      —— 价格不可控，这才是卖飞真正兑现的地方。
+
+    2026-10-14 之前这两个数三市场共用 0.3%，而美股触发处预期净空间只有
+    0.13%（= 0.5 × 0.5 − 0.12），**了结摩擦是预期收益的 2.3 倍**；
+    对振幅仅 0.72% 的 QQQ，0.3% 反弹 = 当日振幅的 42%，倒 T 几乎买不回来。
+    """
+    from deva.naja.bandit.core_holdings import MARKET_PROFILES
+
+    lines = []
+    for mkt, prof in MARKET_PROFILES.items():
+        t = prof.thresholds
+        cfg = prof.config
+        # 触发阈值处的预期净空间（保守：只假设回归 reversion_ratio 那部分）
+        expected = t.buy_dev_close * t.reversion_ratio - t.round_trip_cost_pct()
+        assert expected > 0, f"{mkt} 触发处预期净空间 {expected:.2f}% <= 0，参数本身就不该触发"
+        for name, v in (
+            ("close_drawdown_pct", cfg.close_drawdown_pct),
+            ("buyback_rebound_pct", cfg.buyback_rebound_pct),
+        ):
+            budget = expected * 1.5 + 0.05
+            assert v <= budget, (
+                f"{mkt}.{name}={v} 相对预期净空间 {expected:.2f}% 过大"
+                f"（预算 {budget:.2f}）：了结摩擦会吃掉利润，"
+                f"且几乎只能靠收盘强制平仓了结"
+            )
+        lines.append(f"{mkt} 空间{expected:.2f}%/容忍{cfg.close_drawdown_pct}")
+    print(f"27) 回撤容忍度与净空间同量级 OK（{'；'.join(lines)}）")
+
+
 # ════════════════════════════════════════════════════════════════
 def main():
     check_forward_t_conservation()
@@ -807,6 +908,8 @@ def main():
     check_static_conservation_called()
     check_static_settle_has_forced_path()
     check_static_obligation_paired_with_sell()
+    check_extreme_deviation_guard()
+    check_close_tolerance_matches_edge()
 
     # 清理测试账户，别污染真实持仓
     try:
@@ -818,7 +921,7 @@ def main():
     except Exception:
         pass
 
-    print("\nALL PASS (25)")
+    print("\nALL PASS (27)")
 
 
 if __name__ == "__main__":

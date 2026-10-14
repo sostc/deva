@@ -69,6 +69,7 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 from .intraday_deviation import RotationThresholds
+from .t_rotation import TRotationConfig
 
 log = logging.getLogger(__name__)
 
@@ -120,6 +121,13 @@ class MarketProfile:
     round_lot: float
     max_round_amount: float
     thresholds: RotationThresholds = field(default_factory=RotationThresholds)
+    #: 引擎级参数档（了结/买回的回撤容忍度）。
+    #: ❗这两个数**同样必须按市场标定**，道理与 thresholds 完全一致：
+    #: 它们要和「预期净空间」同量级，否则了结摩擦会吃掉全部利润。
+    #: 2026-10-14 之前本字段不存在，三市场共用 0.3%，
+    #: 对振幅仅 0.72% 的 QQQ 来说 = 当日振幅的 42% → 倒 T 几乎不可能自然买回，
+    #: 全靠收盘前强制买回兜底（价格不可控 = 卖飞真正兑现的地方）。
+    config: TRotationConfig = field(default_factory=TRotationConfig)
     note: str = ""
 
 
@@ -133,6 +141,11 @@ MARKET_PROFILES: Dict[str, MarketProfile] = {
             buy_dev_close=1.5, sell_dev_close=1.5,
             min_amplitude=1.0, min_net_edge=0.35, max_dev_close=8.0,
         ),
+        # 触发处预期净空间 = 1.5 × 0.5 − 0.15 = 0.60%
+        # 回撤容忍 0.30% = 当日振幅(6.02%)的 5.0%，约为预期空间的一半
+        config=TRotationConfig(
+            close_drawdown_pct=0.30, buyback_rebound_pct=0.30,
+        ),
         note="A股场内ETF：免印花税，日内振幅大（实测 6%）",
     ),
     "HK": MarketProfile(
@@ -142,7 +155,16 @@ MARKET_PROFILES: Dict[str, MarketProfile] = {
             commission_pct=0.05, slippage_pct=0.05, stamp_duty_pct=0.1,
             min_commission=20.0,
             buy_dev_close=0.8, sell_dev_close=0.8,
-            min_amplitude=0.6, min_net_edge=0.10, max_dev_close=5.0,
+            min_amplitude=0.6, min_net_edge=0.10,
+            # ❗2026-10-14 从 5.0 收紧到 4.0：原来相对触发阈值 0.8% 是 6.2 倍，
+            # 比 A 股档（5.3x）还松。00700 这类大盘股跌 5% 已是重大利空，
+            # 而它当日振幅只有 1.36% —— 跌 5% = 3.7 倍振幅，早该判为极端
+            max_dev_close=4.0,
+        ),
+        # 触发处预期净空间 = 0.8 × 0.5 − 0.30 = 0.10%（印花税吃掉了大半）
+        # 回撤必须跟着缩到 0.15%，否则让出去的比赚到的还多
+        config=TRotationConfig(
+            close_drawdown_pct=0.15, buyback_rebound_pct=0.15,
         ),
         note="港股：含 0.1% 印花税，往返成本约 0.30%，振幅中等（实测 1.4%）",
     ),
@@ -154,7 +176,16 @@ MARKET_PROFILES: Dict[str, MarketProfile] = {
             commission_pct=0.03, slippage_pct=0.03, stamp_duty_pct=0.0,
             min_commission=1.0,
             buy_dev_close=0.5, sell_dev_close=0.5,
-            min_amplitude=0.35, min_net_edge=0.10, max_dev_close=4.0,
+            min_amplitude=0.35, min_net_edge=0.10,
+            # ❗2026-10-14 从 4.0 收紧到 2.0：原来相对触发阈值 0.5% 是 8 倍
+            # （CN 仅 5.3 倍），QQQ 跌 4% 已是灾难级，这道防黑天鹅的闸等于没设
+            max_dev_close=2.0,
+        ),
+        # 触发处预期净空间 = 0.5 × 0.5 − 0.12 = 0.13%
+        # ❗回撤若沿用 0.3%：是预期空间的 2.3 倍、当日振幅(0.72%)的 42%
+        # → 止盈精度根本撑不起它自己的利润目标，且几乎只能靠收盘强平了结
+        config=TRotationConfig(
+            close_drawdown_pct=0.10, buyback_rebound_pct=0.10,
         ),
         note="美股：1 股起、无印花税，但振幅小（实测 0.72%），闸门须放低",
     ),
