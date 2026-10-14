@@ -350,7 +350,67 @@ class TRotationRunner:
             except Exception as e:
                 log.error(f"[TRotationRunner] {spec.code} 处理失败: {e}", exc_info=True)
                 results.append({"code": spec.code, "error": str(e)})
+        self._heartbeat(dt)
         return results
+
+    # ------------------------------------------------------------------
+    # 心跳
+    # ------------------------------------------------------------------
+    # 每多少次轮询自报一次。30s × 20 = 10 分钟。
+    HEARTBEAT_EVERY = 20
+
+    def _heartbeat(self, dt: datetime) -> None:
+        """周期性自报「我活着、我看到了什么、我为什么没动手」。
+
+        ❗**静默的后台任务等于没有后台任务**。真仓模式下做 T 会自己报单，
+        而 ``poll()`` 正常路径**一行日志都不打** —— 于是「在跑但没机会」
+        与「线程已经死了」在日志上完全无法区分：页面数字停在最后一次的值，
+        看起来就是「今天没行情」。这类「合法的空」比报错危险得多。
+        所以必须定期把**增量**说出来，让人能一眼判断链路是不是活的。
+        """
+        n = self._stats["polls"]
+        # 第一次轮询必报（相当于启动自检），之后按间隔报。
+        # 否则「重启后到底有没有真正跑起来」要等 10 分钟才知道。
+        if n != 1 and n % self.HEARTBEAT_EVERY != 0:
+            return
+
+        mode = "真仓(模拟账户)" if self._on_sim else "虚拟盘"
+        parts = [
+            f"💓 心跳 轮询={n}",
+            f"行情 缺失={self._stats['quote_miss']} 错误={self._stats['fetch_errors']}",
+            f"tick={self._stats['ticks']} 动作={self._stats['actions']}",
+            f"休市跳过={self._stats['off_hours_skips']}",
+            f"模式={mode}",
+        ]
+        lines = ["[TRotationRunner] " + " | ".join(parts)]
+
+        for spec in self._specs:
+            if not is_trading(spec.market, dt):
+                lines.append(f"    · {spec.code}({spec.market}) 休市，未取数")
+                continue
+            mtc = minutes_to_close(spec.market, dt)
+            try:
+                held = self._ledger.effective_shares(
+                    spec.code, self._pf(spec.market),
+                    now=self._clock(),
+                    session_open_ts=session_open_ts(spec.market, dt),
+                )
+            except Exception as e:  # 心跳绝不能把轮询拖死
+                held = float("nan")
+                lines.append(f"    · {spec.code} 读持仓失败: {e}")
+            target = self._plan_targets.get(spec.code)
+            tgt = f"/目标{target:.0f}" if target else ""
+            diag = self._last_diag.get(spec.code) or {}
+            why = (
+                diag.get("reason")
+                or diag.get("action")
+                or ("已喂 tick" if self._last_diag.get(spec.code) else "尚未取到行情")
+            )
+            lines.append(
+                f"    · {spec.code}({spec.market}) 盘中 距收盘={mtc:.0f}min "
+                f"持有={held:.0f}{tgt} 最近={why}"
+            )
+        log.info("\n".join(lines))
 
     # ------------------------------------------------------------------
     # 单个标的
