@@ -38,7 +38,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
-from ..watch import BuyIntent, Intent, SellIntent, WatchDesk, WatchScan
+from ..watch import (
+    Allocation, BuyIntent, Intent, SellIntent, WatchDesk, WatchScan,
+    declare_allocation,
+)
+from ..watch.allocation import DEFAULT_HORIZON
 from ..watch.intent import clamp_confidence
 from .core_holdings import env_flag, env_float
 
@@ -49,6 +53,10 @@ __all__ = [
     "intent_file_path", "load_intents",
     "read_intent_rows", "save_intents", "upsert_intent", "remove_intent",
     "intent_row_of",
+    "allocation_file_path", "load_allocations",
+    "read_allocation_rows", "save_allocations",
+    "upsert_allocation", "remove_allocation",
+    "allocation_row_of",
 ]
 
 DEFAULT_POLL_SECONDS = 60.0
@@ -241,33 +249,45 @@ def read_intent_rows(path=None) -> List[Dict[str, Any]]:
     """
     p = Path(path).expanduser() if path is not None else intent_file_path()
     doc = _read_doc(p)
-    if doc is None:
+    return _extract_rows(doc, "intents") if doc is not None else []
+
+
+def _extract_rows(doc: Any, key: str) -> List[Dict[str, Any]]:
+    """从清单原文里取出条目列表。顶层是列表就直接用，是 dict 就按 key 取。"""
+    rows = doc if isinstance(doc, list) else (doc.get(key) or [])
+    if not isinstance(rows, list):
         return []
-    rows = doc if isinstance(doc, list) else (doc.get("intents") or [])
-    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+    return [r for r in rows if isinstance(r, dict)]
 
 
-def save_intents(rows, path=None) -> Path:
+def _write_rows(p: Path, rows, key: str) -> Path:
     """整份写回。**原子替换**：先写同目录临时文件再 ``os.replace``，
-    避免写一半崩掉把清单变成空文件 —— 那等于把所有「想买」一次性抹掉。
+    避免写一半崩掉把清单变成空文件 —— 那等于把所有「想买 / 想长期持有」
+    一次性抹掉。
 
-    :param rows: 原始条目列表。顶层原本是 ``{"intents": [...]}`` 的会保持原形状。
+    顶层原本是 ``{"<key>": [...]}`` 的会**保持原形状**，
+    只改条目不动外框：清单里可能有装载方之外的人写的注释性字段。
     """
-    p = Path(path).expanduser() if path is not None else intent_file_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     doc = _read_doc(p)
     body = list(rows)
     payload: Any = body
     if isinstance(doc, dict):
         payload = dict(doc)
-        payload["intents"] = body
+        payload[key] = body
     tmp = p.with_name(p.name + f".tmp{os.getpid()}")
     tmp.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     os.replace(tmp, p)
-    log.info("[IntentRunner] 意向清单已写回 %s（%d 条）", p, len(body))
+    log.info("[IntentRunner] 清单已写回 %s（%d 条）", p, len(body))
     return p
+
+
+def save_intents(rows, path=None) -> Path:
+    """写回意向清单。"""
+    p = Path(path).expanduser() if path is not None else intent_file_path()
+    return _write_rows(p, rows, "intents")
 
 
 def _row_key(row: Mapping[str, Any]) -> Tuple[str, str, str]:
@@ -336,6 +356,140 @@ def remove_intent(code: str, market: str, side: str = "buy", path=None) -> bool:
     if len(left) == len(rows):
         return False
     save_intents(left, path)
+    return True
+
+
+# ---------------------------------------------------------------- 长期配置
+
+#: 声明式长期配置清单。与意向清单同源同理：守望是纯内存的，
+#: 「我要长期持有它」这句话得落到服务启动时读得到的地方。
+ENV_ALLOCATION_FILE = "NAJA_ALLOCATION_FILE"
+DEFAULT_ALLOCATION_FILE = "~/.naja/allocations.json"
+
+
+def allocation_file_path() -> Path:
+    """长期配置清单路径。"""
+    raw = (os.environ.get(ENV_ALLOCATION_FILE) or "").strip()
+    if raw:
+        return Path(raw).expanduser()
+    return Path(DEFAULT_ALLOCATION_FILE).expanduser()
+
+
+def load_allocations(path=None) -> List[Allocation]:
+    """读长期配置清单。
+
+    与 :func:`load_intents` 同构 **包括容错口径**：单条坏了只跳过那一条并喊出来。
+    一份清单里有一条填错市场，不该让另外两个「长期持有」也跟着消失。
+    文件不存在 = 合法的空，返回空列表而不是报错。
+    """
+    p = Path(path).expanduser() if path is not None else allocation_file_path()
+    if not p.exists():
+        log.debug("[IntentRunner] 长期配置清单 %s 不存在（合法的空）", p)
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("[IntentRunner] 长期配置清单 %s 读不出来：%s:%s",
+                    p, type(e).__name__, e)
+        return []
+
+    if not isinstance(data, (list, dict)):
+        log.warning("[IntentRunner] 长期配置清单 %s 的顶层不是列表/对象，整份跳过", p)
+        return []
+
+    out: List[Allocation] = []
+    for i, row in enumerate(_extract_rows(data, "allocations")):
+        try:
+            out.append(Allocation(
+                str(row.get("code") or "").strip(),
+                str(row.get("market") or "").strip(),
+                name=str(row.get("name") or ""),
+                alloc_pct=float(row.get("alloc_pct") or 0.0),
+                horizon=str(row.get("horizon") or DEFAULT_HORIZON),
+                review_seconds=(
+                    float(row["review_seconds"])
+                    if row.get("review_seconds") else None
+                ),
+                confidence=row.get("confidence"),
+                rationale=str(row.get("rationale") or ""),
+                note=str(row.get("note") or ""),
+            ))
+        except Exception as e:  # noqa: BLE001 - 单条坏了只跳过这一条
+            log.warning("[IntentRunner] 长期配置清单第 %d 条（%s）不可用：%s:%s",
+                        i + 1, row.get("code"), type(e).__name__, e)
+    return out
+
+
+def read_allocation_rows(path=None) -> List[Dict[str, Any]]:
+    """读清单里的**原始条目**，不做校验。"""
+    p = Path(path).expanduser() if path is not None else allocation_file_path()
+    doc = _read_doc(p)
+    return _extract_rows(doc, "allocations") if doc is not None else []
+
+
+def save_allocations(rows, path=None) -> Path:
+    """写回长期配置清单。"""
+    p = Path(path).expanduser() if path is not None else allocation_file_path()
+    return _write_rows(p, rows, "allocations")
+
+
+def allocation_row_of(alloc: Allocation) -> Dict[str, Any]:
+    """把配置变回清单里的一行。**只写装载方认得的键**。"""
+    row: Dict[str, Any] = {
+        "code": alloc.code,
+        "market": alloc.market,
+        "horizon": alloc.horizon,
+        "review_seconds": float(alloc.review_seconds or 0.0),
+        "alloc_pct": float(alloc.alloc_pct),
+    }
+    if alloc.name:
+        row["name"] = alloc.name
+    if alloc.rationale:
+        row["rationale"] = alloc.rationale
+    if alloc.note:
+        row["note"] = alloc.note
+    if alloc.confidence_explicit:
+        row["confidence"] = clamp_confidence(alloc.confidence)
+    return row
+
+
+def upsert_allocation(alloc: Allocation, path=None) -> str:
+    """新增或更新一条长期配置，返回 ``"added"`` / ``"updated"``。
+
+    同款判据是 ``code + market``（长期配置没有方向这一维）。
+    """
+    rows = read_allocation_rows(path)
+    key = (alloc.code.upper(), alloc.market.upper())
+    row = allocation_row_of(alloc)
+    for i, old in enumerate(rows):
+        if (
+            str(old.get("code") or "").strip().upper(),
+            str(old.get("market") or "").strip().upper(),
+        ) == key:
+            merged = dict(old)
+            merged.update(row)
+            rows[i] = merged
+            save_allocations(rows, path)
+            return "updated"
+    rows.append(row)
+    save_allocations(rows, path)
+    return "added"
+
+
+def remove_allocation(code: str, market: str, path=None) -> bool:
+    """删掉一条长期配置。找不到返回 ``False``（不抛）。"""
+    rows = read_allocation_rows(path)
+    key = (str(code or "").strip().upper(), str(market or "").strip().upper())
+    left = [
+        r for r in rows
+        if (
+            str(r.get("code") or "").strip().upper(),
+            str(r.get("market") or "").strip().upper(),
+        ) != key
+    ]
+    if len(left) == len(rows):
+        return False
+    save_allocations(left, path)
     return True
 
 
@@ -414,7 +568,11 @@ class IntentRunner:
 
     # ----------------------------------------------------------------
     def seed(self, path=None) -> int:
-        """读声明式清单并挂上守望台，返回成功挂上去的条数。"""
+        """读声明式清单并挂上守望台，返回成功挂上去的条数。
+
+        同时装载两份清单：一次性意向（``intents.json``）与
+        长期配置（``allocations.json``）。
+        """
         n = 0
         for intent in load_intents(path):
             try:
@@ -423,6 +581,19 @@ class IntentRunner:
             except Exception as e:  # noqa: BLE001
                 log.warning("[IntentRunner] 意向 %s 没挂上去：%s:%s",
                             intent.describe(), type(e).__name__, e)
+        n += self.seed_allocations()
+        return n
+
+    def seed_allocations(self, path=None) -> int:
+        """装载长期配置清单。单条坏了只跳过那一条。"""
+        n = 0
+        for alloc in load_allocations(path):
+            try:
+                self.declare_allocation(alloc)
+                n += 1
+            except Exception as e:  # noqa: BLE001
+                log.warning("[IntentRunner] 长期配置 %s 没挂上去：%s:%s",
+                            alloc.describe(), type(e).__name__, e)
         return n
 
     def declare(self, intent: Intent) -> str:
@@ -434,6 +605,58 @@ class IntentRunner:
             float(intent.max_wait_seconds or 0.0) / 3600.0,
         )
         return watch.watch_id
+
+    def declare_allocation(self, alloc: Allocation) -> str:
+        """挂一份长期配置上台。**循环守望**，到期自动续期。
+
+        与 :meth:`declare` 的区别只在语义：那个等的是「什么时候下手」，
+        这个等的是「什么时候回头看一眼」。
+        """
+        watch = declare_allocation(
+            self.desk.registry, alloc, max_silence_seconds=self._beat_sec or None,
+        )
+        log.info(
+            "[IntentRunner] 长期配置已进入守望台：%s（%s），每 %.0f 天回顾一次",
+            watch.watch_id, alloc.describe(), alloc.review_days,
+        )
+        return watch.watch_id
+
+    def set_alloc_pct(self, watch_id: str, pct: Any, path=None) -> float:
+        """改一份长期配置的目标占比，并**写回清单**。
+
+        ❗目标仓位由人拍板，代码只负责记下来。改了只改内存的话，
+        服务一重启就回到「还没定」—— 那是把人的决定悄悄抹掉了。
+
+        :param path: 清单路径。测试用它指向临时文件，
+            ❗不能让验收动作写进真实清单（那是生产数据）。
+        """
+        watch = self.desk.registry.get(watch_id)
+        if watch is None:
+            raise KeyError(f"守望 {watch_id} 不在台上，改不了它的目标占比")
+        obj = watch.objective
+        p = obj.params or {}
+        try:
+            value = float(pct)
+        except (TypeError, ValueError):
+            raise ValueError(f"目标占比不是数字：{pct!r}") from None
+        if value < 0:
+            raise ValueError(f"目标占比不能为负：{pct!r}")
+        p["alloc_pct"] = value
+        p["target_set"] = value > 0
+        upsert_allocation(
+            Allocation(
+                code=obj.subject, market=obj.market,
+                name=str(p.get("name") or ""),
+                alloc_pct=value,
+                horizon=str(p.get("horizon") or DEFAULT_HORIZON),
+                review_seconds=float(p.get("review_seconds") or 0.0) or None,
+                confidence=p.get("confidence") if p.get("confidence_explicit") else None,
+                rationale=str(p.get("rationale") or ""),
+            ),
+            path,
+        )
+        log.info("[IntentRunner] %s 目标占比改为 %.0f%%", watch_id, value)
+        return value
 
     def start(self) -> bool:
         if not self._enabled:
