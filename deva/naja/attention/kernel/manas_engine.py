@@ -213,8 +213,8 @@ MANAS_OUTPUT_GROUPS: Dict[str, Tuple[str, ...]] = {
     ),
     # 天地人是否合拍
     'harmony': ('harmony_state', 'harmony_strength'),
-    # 行动门：要不要动、怎么动、为什么
-    'gate': ('should_act', 'action_type', 'action_gate_reason'),
+    # 行动门：要不要动、怎么动、为什么（gate_factors 是原因的**结构化**版本）
+    'gate': ('should_act', 'action_type', 'action_gate_reason', 'gate_factors'),
     # 观照层纠偏
     'bias': ('bias_state', 'bias_correction'),
     # 注意力
@@ -231,6 +231,49 @@ MANAS_OUTPUT_GROUPS: Dict[str, Tuple[str, ...]] = {
     # 注意力焦点枚举
     'focus': ('focus_enum',),
 }
+
+
+# 三维基础因子的可读名、语义归属与展示口径。
+#
+# 为什么要区分 domain：
+#   env      = **大环境**（市场本身此刻适不适合动手）→ 天时 / 地势
+#   strategy = **策略自身**的历史表现（人和 = 战绩库算出的自信度）
+#
+# 门理由原先是若干**并列**旗标（「环境阻力 | 时机不佳 | 策略不自信 …」），
+# 谁在拖后腿、拖了多少看不出来；更糟的是「策略不自信」常常排在最显眼处，
+# 让一条**由市场风险温度主导**的拒绝被误读成「策略不行」。归因时把三维
+# 分开算、分开标，人下达的意愿就不会被算到策略头上。
+_FACTOR_META: Dict[str, Dict[str, Any]] = {
+    # key        可读名   语义归属     展示值取自          措辞
+    "timing": {"label": "天时", "domain": "env", "unit": "时机"},
+    "risk": {"label": "地势", "domain": "env", "unit": "风险温度"},
+    "confidence": {"label": "人和", "domain": "strategy", "unit": "策略战绩"},
+}
+
+
+def _factor_note(key: str, display: float) -> str:
+    """把某维的展示值翻成一句「它现在什么水平」的短注。"""
+    unit = _FACTOR_META[key]["unit"]
+    if key == "timing":
+        if display >= 0.7:
+            return f"({unit}{display:.2f}成熟)"
+        if display <= 0.3:
+            return f"({unit}{display:.2f}欠佳)"
+        return f"({unit}{display:.2f})"
+    if key == "risk":
+        if display >= 1.4:
+            return f"({unit}{display:.2f}极高)"
+        if display >= 1.2:
+            return f"({unit}{display:.2f}偏高)"
+        if display <= 0.7:
+            return f"({unit}{display:.2f}很低)"
+        return f"({unit}{display:.2f})"
+    # confidence
+    if display >= 0.8:
+        return f"({unit}{display:.2f}可靠)"
+    if display <= 0.4:
+        return f"({unit}{display:.2f}偏低)"
+    return f"({unit}{display:.2f})"
 
 
 def _jsonable(value: Any) -> Any:
@@ -261,6 +304,10 @@ class ManasOutput:
 
     should_act: bool = False
     action_gate_reason: str = ""
+    #: 行动门原因的**结构化归因**：{base, final, discount, dominant, factors[]}。
+    #: 天时/地势/人和 各自的实际贡献与缺口，`dominant` 是缺口最大（卡点）那一维。
+    #: action_gate_reason 是给人读的一句话；这个是给 UI / 排查看的。
+    gate_factors: Dict[str, Any] = field(default_factory=dict)
 
     bias_state: BiasState = BiasState.NEUTRAL
     bias_correction: float = 1.0
@@ -294,6 +341,7 @@ class ManasOutput:
             "risk_temperature": self.risk_temperature,
             "should_act": self.should_act,
             "action_gate_reason": self.action_gate_reason,
+            "gate_factors": self.gate_factors,
             "bias_state": self.bias_state.value,
             "bias_correction": self.bias_correction,
             "alpha": self.alpha,
@@ -1973,19 +2021,33 @@ class ManasEngine:
 
         # 基础分：天时 + 地势（风险温度的反函数）+ 人和
         cfg = self.config
-        harmony_strength = (
+        base_score = (
             timing_score * cfg.weight_timing +
             (1.0 - min(risk_temperature, cfg.risk_temperature_span) / cfg.risk_temperature_span)
             * cfg.weight_risk +
             confidence_score * cfg.weight_confidence
         )
+        harmony_strength = base_score
 
         # 依次施加调节环节：地势 / 叙事风险 / AI算力 / 共振 / 觉醒 / 偏差
         # （认知层状态为事件驱动更新，见 _update_cognitive_state）
+        # ❗记录每一环前后的分数：归因要说清「是哪个因子/哪一环」，只看终值看不出来。
+        score_trace = [("base", base_score)]
         for _name, modifier in self._score_modifier_chain():
             harmony_strength = modifier(harmony_strength, ctx)
+            score_trace.append((_name, harmony_strength))
 
         harmony_strength = max(0.0, min(1.0, harmony_strength))
+
+        # 三维归因（哪一维在拖后腿 + 调节链吃了多少），供门理由与结构化留痕使用。
+        attribution = self._factor_attribution(
+            timing=timing_score,
+            risk_temperature=risk_temperature,
+            confidence=confidence_score,
+            base_score=base_score,
+            final_score=harmony_strength,
+            trace=score_trace,
+        )
 
         narrative_risk = ctx["narrative_risk"]
         hot_narratives = self._cognitive_state.narrative.hot_narratives
@@ -2032,7 +2094,11 @@ class ManasEngine:
             attention_focus *= watchlist_bonus
             log.debug(f"[ManasEngine] 自选股注意力加成: bonus={watchlist_bonus:.2f}")
 
-        reason = self._get_gate_reason(harmony_strength, timing_score, regime_score, confidence_score, bias_state, harmony_state, action_type)
+        reason = self._get_gate_reason(
+            harmony_strength, timing_score, regime_score, confidence_score,
+            bias_state, harmony_state, action_type,
+            attribution=attribution,
+        )
 
         supply_chain_risk = self._cognitive_state.narrative.level
 
@@ -2049,6 +2115,7 @@ class ManasEngine:
             risk_temperature=risk_temperature,
             should_act=should_act,
             action_gate_reason=reason,
+            gate_factors=attribution,
             bias_state=bias_state,
             bias_correction=bias_correction,
             alpha=alpha,
@@ -2120,6 +2187,65 @@ class ManasEngine:
         except Exception as e:  # noqa: BLE001
             log.debug("[ManasEngine] 行动门留痕失败: %s", e)
 
+    def _factor_attribution(
+        self,
+        *,
+        timing: float,
+        risk_temperature: float,
+        confidence: float,
+        base_score: float,
+        final_score: float,
+        trace: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
+        """把 harmony_strength 拆成「天时 / 地势 / 人和」，并点出**卡点是哪一个**。
+
+        为什么要有这个：门理由原先是若干**并列**旗标（「环境阻力 | 时机不佳 |
+        策略不自信 …」）——谁在拖后腿、拖了多少，读的人看不出来；而且
+        「策略不自信」（人和维）常排在最显眼处，一条**由市场风险温度主导**的
+        拒绝就被误读成「策略不行」。对**人下达的意愿**来说这个误读尤其有害：
+        「我想持有」跟「策略历史胜率低」是两件不相干的事。
+
+        这里给出：
+          · 每维的 `contrib`（实际贡献）与 `gap`（相对满权的缺口）；
+          · **gap 最大的一维 = `dominant`**（binding factor，真正卡住的那个）；
+          · 每维的 `domain`：``env`` = 大环境（市场）／``strategy`` = 策略自身。
+        """
+        cfg = self.config
+        span = cfg.risk_temperature_span
+        # 地势：风险温度的反函数。T 越大越危险 → 地势分越低。
+        safety = 1.0 - min(max(float(risk_temperature), 0.0), span) / span
+
+        # (key, 参与打分的[0,1]量, 权重, 给人看的口径)
+        spec = (
+            ("timing", float(timing), cfg.weight_timing, float(timing)),
+            ("risk", safety, cfg.weight_risk, float(risk_temperature)),
+            ("confidence", float(confidence), cfg.weight_confidence, float(confidence)),
+        )
+        factors: List[Dict[str, Any]] = []
+        for key, value, weight, display in spec:
+            contrib = value * weight
+            factors.append({
+                "key": key,
+                "label": _FACTOR_META[key]["label"],
+                "domain": _FACTOR_META[key]["domain"],
+                "value": round(value, 4),
+                "display": round(display, 4),
+                "weight": weight,
+                "contrib": round(contrib, 4),
+                "gap": round(weight - contrib, 4),
+            })
+
+        dominant = max(factors, key=lambda f: f["gap"])["key"]
+        discount = (final_score / base_score) if base_score > 1e-9 else 1.0
+        return {
+            "base": round(float(base_score), 4),
+            "final": round(float(final_score), 4),
+            "discount": round(float(discount), 4),
+            "dominant": dominant,
+            "factors": factors,
+            "trace": [[str(n), round(float(v), 4)] for n, v in (trace or ())],
+        }
+
     def _get_gate_reason(
         self,
         manas_score: float,
@@ -2128,30 +2254,64 @@ class ManasEngine:
         confidence: float,
         bias: BiasState,
         harmony_state: HarmonyState,
-        action_type: ActionType
+        action_type: ActionType,
+        attribution: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """生成行动门原因"""
-        reasons = []
+        """生成行动门原因。
+
+        ❗**主因必须排在最前**：守望台表格把这一列截到 70 字符（守望行更短），
+        把「主因=…」放到末尾等于没写。所以顺序固定为：
+            环境档位 → 主因 → 其余两维 → 风/折扣 → 行动 → 通过与否
+        """
+        reasons: List[str] = []
 
         if harmony_state == HarmonyState.RESISTANCE:
             reasons.append("环境阻力")
         elif harmony_state == HarmonyState.RESONANCE:
             reasons.append("和谐共振")
 
-        if timing < 0.3:
-            reasons.append("时机不佳")
-        elif timing > 0.7:
-            reasons.append("时机成熟")
+        factors = list((attribution or {}).get("factors") or [])
+        dominant = (attribution or {}).get("dominant")
 
-        if regime < -0.3:
-            reasons.append("逆风环境")
-        elif regime > 0.3:
-            reasons.append("顺风环境")
-
-        if confidence > 0.8:
-            reasons.append("策略自信")
-        elif confidence < 0.4:
-            reasons.append("策略不自信")
+        if factors:
+            dom = next((f for f in factors if f["key"] == dominant), None)
+            if dom is not None:
+                # 被拒时它是「卡住你的那一维」；放行时它只是「最给力的一维」。
+                head = "主因" if action_type == ActionType.HOLD else "最强维"
+                reasons.append(f"{head}={dom['label']}{_factor_note(dom['key'], dom['display'])}")
+            for f in factors:
+                if dom is not None and f["key"] == dom["key"]:
+                    continue
+                # ❗人和维必须显式标出「策略维」：它算的是策略历史战绩，
+                #   跟人下达的意愿无关，混在一起读会归错因。
+                tag = "·策略维" if f["domain"] == "strategy" else ""
+                reasons.append(f"{f['label']}{f['display']:.2f}{tag}")
+            if regime < -0.3:
+                reasons.append(f"逆风(regime{regime:.2f})")
+            elif regime > 0.3:
+                reasons.append(f"顺风(regime{regime:.2f})")
+            # ❗折扣**和加成都要显示**：调节链把分数压下去要看得见，抬上去
+            #   （共振/觉醒/AI算力）同样要看得见 —— 只报坏消息同样是失真。
+            discount = float((attribution or {}).get("discount") or 1.0)
+            if abs(discount - 1.0) > 1e-3:
+                word = "折扣" if discount < 1.0 else "加成"
+                reasons.append(
+                    f"{attribution['base']:.3f}×{word}{discount:.2f}={attribution['final']:.3f}"
+                )
+        else:
+            # 兼容无归因的调用路径（外部只想要一句旗标）
+            if timing < 0.3:
+                reasons.append("时机不佳")
+            elif timing > 0.7:
+                reasons.append("时机成熟")
+            if regime < -0.3:
+                reasons.append("逆风环境")
+            elif regime > 0.3:
+                reasons.append("顺风环境")
+            if confidence > 0.8:
+                reasons.append("策略自信")
+            elif confidence < 0.4:
+                reasons.append("策略不自信")
 
         if bias == BiasState.GREED:
             reasons.append("⚠️检测到贪")
@@ -2170,7 +2330,17 @@ class ManasEngine:
                     f"(分数{manas_score:.2f}≤{self.config.action_threshold}，由共振/强时机豁免)"
                 )
         else:
-            reasons.append("✗未通过")
+            thr = self.config.action_threshold
+            if manas_score < thr:
+                reasons.append(f"✗未通过(终分{manas_score:.3f}<门槛{thr:.3f})")
+            else:
+                # ❗分数其实够、却被**档位**按住（如 RESISTANCE 直接 hold）。
+                #   这时绝不能写成「终分0.585<门槛0.500」—— 一句自相矛盾的
+                #   理由比没有理由更坏，排查的人会当场怀疑这套数的可信度。
+                reasons.append(
+                    f"✗未通过(终分{manas_score:.3f}≥门槛{thr:.3f}，"
+                    f"被档位={action_type.value} 按住)"
+                )
 
         return " | ".join(reasons)
 

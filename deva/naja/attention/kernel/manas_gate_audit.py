@@ -97,11 +97,18 @@ class GateAuditLog:
             v = getattr(output, name, default)
             return getattr(v, "value", v)
 
+        factors = getattr(output, "gate_factors", None) or {}
         return {
             "ts": datetime.now().isoformat(timespec="seconds"),
             "should_act": bool(getattr(output, "should_act", False)),
             "action_type": _val("action_type"),
             "reason": getattr(output, "action_gate_reason", "") or "",
+            # ❗归因必须一起留痕：只存一句话（「策略不自信 | …」）事后仍分不清
+            #   到底是**大环境**不适合，还是**策略历史**拖后腿 —— 前者该等，
+            #   后者是数据问题。dominant = 缺口最大（真正卡住）的那一维。
+            "dominant_factor": factors.get("dominant"),
+            "factors": factors.get("factors"),
+            "discount": factors.get("discount"),
             "manas_score": round(float(getattr(output, "manas_score", 0.0) or 0.0), 4),
             "alpha": round(float(getattr(output, "alpha", 0.0) or 0.0), 4),
             "timing_score": round(float(getattr(output, "timing_score", 0.0) or 0.0), 4),

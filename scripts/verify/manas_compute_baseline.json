@@ -1,6 +1,6 @@
 {
   "ai_down": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.85=0.294 | 行动:hold | ✗未通过(终分0.294<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "down",
     "alpha": 0.3,
@@ -10,6 +10,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.85,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.294,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.294
+        ],
+        [
+          "bias",
+          0.294
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.2939583333333333,
     "hot_narratives": [],
@@ -25,7 +93,7 @@
     "timing_score": 0.5
   },
   "ai_up": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.93=0.320 | 行动:hold | ✗未通过(终分0.320<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "up",
     "alpha": 0.3,
@@ -35,6 +103,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.9265,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3204,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.3204
+        ],
+        [
+          "resonance",
+          0.3204
+        ],
+        [
+          "awakening",
+          0.3204
+        ],
+        [
+          "bias",
+          0.3204
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.32041458333333334,
     "hot_narratives": [],
@@ -50,7 +186,7 @@
     "timing_score": 0.5
   },
   "awaken_awakening": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.89=0.309 | 行动:hold | ✗未通过(终分0.309<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -60,6 +196,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.8925,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3087,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.3087
+        ],
+        [
+          "bias",
+          0.3087
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.30865625,
     "hot_narratives": [],
@@ -75,7 +279,7 @@
     "timing_score": 0.5
   },
   "awaken_enlightened": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.98=0.338 | 行动:hold | ✗未通过(终分0.338<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -85,6 +289,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.9775,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3381,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.3381
+        ],
+        [
+          "bias",
+          0.3381
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.3380520833333333,
     "hot_narratives": [],
@@ -100,7 +372,7 @@
     "timing_score": 0.5
   },
   "awaken_illuminated": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.94=0.323 | 行动:hold | ✗未通过(终分0.323<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -110,6 +382,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.935,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3234,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.3234
+        ],
+        [
+          "bias",
+          0.3234
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.32335416666666666,
     "hot_narratives": [],
@@ -125,7 +465,7 @@
     "timing_score": 0.5
   },
   "bias_fear": {
-    "action_gate_reason": "策略不自信 | ⚠️检测到惧 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.68=0.235 | ⚠️检测到惧 | 行动:hold | ✗未通过(终分0.235<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -135,6 +475,74 @@
     "bias_state": "fear",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.68,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.2352,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.294
+        ],
+        [
+          "bias",
+          0.2352
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.23516666666666666,
     "hot_narratives": [],
@@ -150,7 +558,7 @@
     "timing_score": 0.5
   },
   "bias_greed": {
-    "action_gate_reason": "策略不自信 | ⚠️检测到贪 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.59=0.206 | ⚠️检测到贪 | 行动:hold | ✗未通过(终分0.206<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -160,6 +568,74 @@
     "bias_state": "greed",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.595,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.2058,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.294
+        ],
+        [
+          "bias",
+          0.2058
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.20577083333333332,
     "hot_narratives": [],
@@ -175,7 +651,7 @@
     "timing_score": 0.5
   },
   "combo_all_negative": {
-    "action_gate_reason": "策略不自信 | ⚠️检测到惧 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.57=0.198 | ⚠️检测到惧 | 行动:hold | ✗未通过(终分0.198<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -185,6 +661,74 @@
     "bias_state": "fear",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.5712,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.1975,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.2572
+        ],
+        [
+          "ai_compute",
+          0.2572
+        ],
+        [
+          "resonance",
+          0.2469
+        ],
+        [
+          "awakening",
+          0.2469
+        ],
+        [
+          "bias",
+          0.1975
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.19754,
     "hot_narratives": [],
@@ -200,7 +744,7 @@
     "timing_score": 0.5
   },
   "combo_all_positive": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×加成1.11=0.383 | 行动:hold | ✗未通过(终分0.383<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "up",
     "alpha": 0.3,
@@ -210,6 +754,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 1.1081,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3832,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.3204
+        ],
+        [
+          "resonance",
+          0.3332
+        ],
+        [
+          "awakening",
+          0.3832
+        ],
+        [
+          "bias",
+          0.3832
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.38321584166666667,
     "hot_narratives": [],
@@ -225,7 +837,7 @@
     "timing_score": 0.5
   },
   "combo_greed_positive": {
-    "action_gate_reason": "策略不自信 | ⚠️检测到贪 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.67=0.233 | ⚠️检测到贪 | 行动:hold | ✗未通过(终分0.233<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "up",
     "alpha": 0.3,
@@ -235,6 +847,74 @@
     "bias_state": "greed",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.6745,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.2333,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.3204
+        ],
+        [
+          "resonance",
+          0.3332
+        ],
+        [
+          "awakening",
+          0.3332
+        ],
+        [
+          "bias",
+          0.2333
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.23326181666666668,
     "hot_narratives": [],
@@ -250,7 +930,7 @@
     "timing_score": 0.5
   },
   "default": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.85=0.294 | 行动:hold | ✗未通过(终分0.294<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -260,6 +940,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.85,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.294,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.294
+        ],
+        [
+          "bias",
+          0.294
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.2939583333333333,
     "hot_narratives": [],
@@ -275,7 +1023,7 @@
     "timing_score": 0.5
   },
   "narrative_high": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.74=0.257 | 行动:hold | ✗未通过(终分0.257<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -285,6 +1033,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.7438,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.2572,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.2572
+        ],
+        [
+          "ai_compute",
+          0.2572
+        ],
+        [
+          "resonance",
+          0.2572
+        ],
+        [
+          "awakening",
+          0.2572
+        ],
+        [
+          "bias",
+          0.2572
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.25721354166666666,
     "hot_narratives": [],
@@ -300,7 +1116,7 @@
     "timing_score": 0.5
   },
   "resonance_neg": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.82=0.282 | 行动:hold | ✗未通过(终分0.282<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -310,6 +1126,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.816,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.2822,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.2822
+        ],
+        [
+          "awakening",
+          0.2822
+        ],
+        [
+          "bias",
+          0.2822
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.28219999999999995,
     "hot_narratives": [],
@@ -325,7 +1209,7 @@
     "timing_score": 0.5
   },
   "resonance_pos": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.88=0.306 | 行动:hold | ✗未通过(终分0.306<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -335,6 +1219,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.884,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.3057,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.3057
+        ],
+        [
+          "awakening",
+          0.3057
+        ],
+        [
+          "bias",
+          0.3057
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.3057166666666667,
     "hot_narratives": [],
@@ -350,7 +1302,7 @@
     "timing_score": 0.5
   },
   "watchlist_bonus": {
-    "action_gate_reason": "策略不自信 | 行动:hold | ✗未通过",
+    "action_gate_reason": "主因=地势(风险温度1.25偏高) | 天时0.50 | 人和0.35·策略维 | 0.346×折扣0.85=0.294 | 行动:hold | ✗未通过(终分0.294<门槛0.500)",
     "action_type": "hold",
     "ai_compute_direction": "neutral",
     "alpha": 0.3,
@@ -360,6 +1312,74 @@
     "bias_state": "neutral",
     "confidence_score": 0.35,
     "focus_enum": "watch",
+    "gate_factors": {
+      "base": 0.3458,
+      "discount": 0.85,
+      "dominant": "risk",
+      "factors": [
+        {
+          "contrib": 0.2,
+          "display": 0.5,
+          "domain": "env",
+          "gap": 0.2,
+          "key": "timing",
+          "label": "天时",
+          "value": 0.5,
+          "weight": 0.4
+        },
+        {
+          "contrib": 0.0583,
+          "display": 1.25,
+          "domain": "env",
+          "gap": 0.2917,
+          "key": "risk",
+          "label": "地势",
+          "value": 0.1667,
+          "weight": 0.35
+        },
+        {
+          "contrib": 0.0875,
+          "display": 0.35,
+          "domain": "strategy",
+          "gap": 0.1625,
+          "key": "confidence",
+          "label": "人和",
+          "value": 0.35,
+          "weight": 0.25
+        }
+      ],
+      "final": 0.294,
+      "trace": [
+        [
+          "base",
+          0.3458
+        ],
+        [
+          "regime",
+          0.294
+        ],
+        [
+          "narrative_risk",
+          0.294
+        ],
+        [
+          "ai_compute",
+          0.294
+        ],
+        [
+          "resonance",
+          0.294
+        ],
+        [
+          "awakening",
+          0.294
+        ],
+        [
+          "bias",
+          0.294
+        ]
+      ]
+    },
     "harmony_state": "neutral",
     "harmony_strength": 0.2939583333333333,
     "hot_narratives": [],
