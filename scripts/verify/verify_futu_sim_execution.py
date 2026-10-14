@@ -76,6 +76,10 @@ STATIC_RULES = [
      "卖单方向未按 side 选择（做T 的卖腿会变成加仓）"),
     (EXEC_PY, r'can_sell_qty',
      "卖出未用 can_sell_qty（A股 T+1 当日买入不可卖，用 qty 会被富途拒单）"),
+    # ❗买入决策记录必须用**实际成交股数**（outcome.quantity），与平仓侧
+    # （position.quantity）同量纲 —— 这张表是复盘用的，混量纲事后无法解读。
+    (ADAPTIVE_PY, r'quantity\s*=\s*(?:float\(\s*)?(?:getattr\(\s*)?outcome',
+     "买入决策记录未用 outcome.quantity（实际成交股数）"),
 ]
 
 STATIC_FORBIDDEN = [
@@ -87,6 +91,9 @@ STATIC_FORBIDDEN = [
      "默认后端变成了 futu_sim —— 装上新代码就自动开始报单"),
     (ADAPTIVE_PY, r'self\._portfolio\.open_position\(',
      "AdaptiveCycle 绕过执行后端直接调 open_position"),
+    (ADAPTIVE_PY, r'quantity\s*=\s*amount\b',
+     "买入决策记录把**金额**当成 quantity —— 复盘表 naja_bandit_decision_context "
+     "量纲混用（平仓侧传的是股数）"),
 ]
 
 # 负向注入：改一处源码，check() 必须报错
@@ -168,6 +175,12 @@ INJECTIONS = [
                "                # ❗调用方（做 T 的补底仓",
         "new": "            if False:\n"
                "                # ❗调用方（做 T 的补底仓",
+    },
+    {
+        "name": "买入决策记录把金额当 quantity（复盘表量纲混用）",
+        "file": ADAPTIVE_PY,
+        "old": '                quantity=float(getattr(outcome, "quantity", 0.0) or 0.0),',
+        "new": "                quantity=amount,",
     },
 ]
 
