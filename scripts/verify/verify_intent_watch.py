@@ -39,6 +39,7 @@ import argparse
 import ast
 import importlib
 import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -54,6 +55,7 @@ INTENT_PY = WATCH_DIR / "intent.py"
 DESK_PY = WATCH_DIR / "desk.py"
 RUNNER_PY = REPO / "deva/naja/bandit/intent_runner.py"
 CONTAINER_PY = REPO / "deva/naja/application/container.py"
+GATE_PY = REPO / "deva/naja/bandit/core_establish_gate.py"
 
 
 REQUIRED_RULES = [
@@ -118,6 +120,22 @@ REQUIRED_RULES = [
      "❗容器没启动意向守望运行器（注册进单例表不等于会跑）"),
     ("container.py", r"intent_runner\.start\(\)",
      "❗容器没有显式 start()（注册进单例表不等于会跑）"),
+    # -- 意愿权重（「我想买」必须真的进决策中心，而不是只降低守望门槛） ----
+    # ❗ast.unparse 输出的是**单引号**，两种引号都要认
+    ("intent.py", r"INTENT_CONFIDENCE_CAP\s*=\s*[\d.]+",
+     "缺意愿强度硬上限（主动意愿必须有天花板，否则它就变成放行键）"),
+    ("intent.py", r"SIGNAL_TYPE_FOR_SIDE\s*=",
+     "缺 side → 决策中心方向的映射（trim 必须翻译成 SELL）"),
+    ("intent_runner.py", r"signal_confidence\s*=",
+     "❗意愿强度没有交给决策中心（只在守望层降门槛 = 权重为 0）"),
+    ("intent_runner.py", r"f[\"']intent:",
+     "❗人工意向没有可区分的 strategy_id（与系统自动补仓长得一样）"),
+    ("intent_runner.py", r"signal_metadata\s*=",
+     "❗没有把意向身份写进 metadata（DecisionPlan 留痕分不出两条链路）"),
+    ("core_establish_gate.py", r"getattr\(spec, [\"']signal_confidence[\"']",
+     "❗决策询问口写死了置信度，没有为人工意向留可选入口"),
+    ("core_establish_gate.py", r"getattr\(spec, [\"']strategy_id[\"']",
+     "❗决策询问口写死了策略名，底仓与人工意向将不可区分"),
 ]
 
 FORBIDDEN_RULES = [
@@ -407,6 +425,104 @@ def behavior_checks() -> list:
     elif not granted13:
         f.append("⑬ 决策中心批准又不给额度时应当是 granted=True，"
                  f"实际 False（{_why}）")
+
+    # -- ⑮~㉑ 意愿权重：「我想买」必须真的进到决策中心那一份信号里 --------
+    # 静态只证明「写了」，这一段才证明「真的传进去了」。做法是假扮
+    # TradingCenter，把交给它的 signal 原样捕获下来逐字段验。
+    import deva.naja.attention.orchestration.trading_center as tc_mod  # noqa: E402
+    from deva.naja.bandit.core_holdings import CoreHoldingSpec  # noqa: E402
+
+    seen: list = []
+
+    class _FakeTC:
+        def process_strategy_signal(self, signal):
+            seen.append(dict(signal))
+            return {"approved": True, "action_type": "act_carefully",
+                    "plan": {"size_hint": 0.4}, "final_confidence": 0.66}
+
+    orig_tc = tc_mod.get_trading_center
+    tc_mod.get_trading_center = lambda: _FakeTC()
+    try:
+        def ask(obj, price=199.0):
+            granted, why = decision_center_asker(
+                obj, W.WatchContext(now=8000.0, price=price), None)
+            if not seen:
+                # ❗守卫自己不该崩：链路没接通时如实记一条，而不是抛 IndexError
+                f.append(f"⑮~㉑ 决策中心没收到信号（{why}）：链路没接通")
+                return {}
+            return seen[-1]
+
+        sig15 = ask(W.to_objective(W.BuyIntent(
+            "NVDA", "US", max_wait_seconds=3600, budget=5000, rationale="看好 AI")))
+        if not str(sig15.get("strategy_id", "")).startswith("intent:"):
+            f.append(f"⑮ 人工意向的 strategy_id 不可区分：{sig15.get('strategy_id')!r}"
+                     "（决策中心分不出「人想买」与「系统自动补仓」）")
+        meta15 = sig15.get("metadata") or {}
+        if not meta15.get("intent") or not meta15.get("rationale"):
+            f.append(f"⑮ metadata 里没有意向身份/理由，留痕审计不了：{meta15}")
+
+        # ⑯ 默认强度必须**高于**自动链路的 0.5，否则「我想买」权重仍是 0
+        conf16 = float(sig15.get("confidence") or 0.0)
+        if conf16 <= 0.5:
+            f.append(f"⑯ 人工意向的默认强度 {conf16} 没有高于自动链路的 0.5"
+                     "（主动意愿在打分里等于没有）")
+
+        # ⑰ 封顶：给 0.9 也只能拿到上限，且永远够不到 1.0
+        sig17 = ask(W.to_objective(W.BuyIntent(
+            "NVDA", "US", max_wait_seconds=3600, confidence=0.9)))
+        # ❗基准写死在守卫里，不去读被测模块：否则注入把上限调高时
+        #   守卫会跟着一起变，用例就绿了（守卫必须能独立判定对错）
+        cap = 0.75
+        if float(sig17.get("confidence") or 0.0) > cap + 1e-9:
+            f.append(f"⑰ 意愿强度没封顶：{sig17['confidence']} > {cap}"
+                     "（主动意愿被当成放行键）")
+        if float(sig17.get("confidence") or 0.0) >= 1.0:
+            f.append("⑰ 意愿强度达到 1.0（等于替决策中心拍板了）")
+
+        # ⑱ 一句话回滚
+        os.environ["NAJA_INTENT_CONFIDENCE"] = "0.5"
+        try:
+            sig18 = ask(W.to_objective(W.BuyIntent("NVDA", "US", max_wait_seconds=3600)))
+        finally:
+            os.environ.pop("NAJA_INTENT_CONFIDENCE", None)
+        if abs(float(sig18.get("confidence") or -1.0) - 0.5) > 1e-9:
+            f.append(f"⑱ NAJA_INTENT_CONFIDENCE=0.5 没有生效：{sig18.get('confidence')}")
+
+        # ⑲ trim 必须翻译成 SELL —— 决策中心的 side_from_signal_type 只认
+        #    BUY/SELL，直传 TRIM 会被归成 none（方向丢失）
+        sig19 = ask(W.to_objective(W.Intent(
+            code="00700", market="HK", side="trim", max_wait_seconds=3600)))
+        if str(sig19.get("signal_type", "")).upper() != "SELL":
+            f.append(f"⑲ 减仓意向的方向是 {sig19.get('signal_type')!r} 而不是 SELL"
+                     "（决策中心会把它当成没有方向）")
+
+        # ⑳【反方向】自动补底仓链路必须**一点没变**：这条函数同时服务两条
+        #    链路，改人工意向时不许顺手把底仓的行为改掉。
+        sig20 = seen[-1]
+        gate_mod.ask_decision_center(
+            CoreHoldingSpec(code="588200", bus_code="sh588200", name="科创芯片ETF",
+                            market="CN", target_shares=400000), 0.98)
+        sig20 = seen[-1]
+        if not str(sig20.get("strategy_id", "")).startswith("core_establish:"):
+            f.append(f"⑳ 底仓链路的 strategy_id 变了：{sig20.get('strategy_id')!r}"
+                     "（人工意向的改动外溢到了自动链路）")
+        if str(sig20.get("signal_type", "")).upper() != "BUY":
+            f.append(f"⑳ 底仓链路的方向被改成了 {sig20.get('signal_type')!r}")
+        if abs(float(sig20.get("confidence") or -1.0) - 0.5) > 1e-9:
+            f.append(f"⑳ 底仓链路的置信度被改成了 {sig20.get('confidence')}")
+        if "metadata" in sig20:
+            f.append("⑳ 底仓链路凭空多出 metadata（应当保持原样）")
+
+        # ㉑ 默认 vs 显式：审计标签不能说谎
+        p_def = W.to_objective(W.BuyIntent("NVDA", "US", max_wait_seconds=3600)).params
+        p_exp = W.to_objective(W.BuyIntent(
+            "NVDA", "US", max_wait_seconds=3600, confidence=0.6)).params
+        if p_def.get("confidence_explicit"):
+            f.append("㉑ 没写 confidence 却被标成「显式」，审计标签说谎")
+        if not p_exp.get("confidence_explicit"):
+            f.append("㉑ 明确写了 confidence 却没被标成「显式」，审计标签说谎")
+    finally:
+        tc_mod.get_trading_center = orig_tc
     return f
 
 
@@ -478,6 +594,7 @@ def static_checks() -> list:
     lookup = {
         "manas_lens.py": LENS_PY, "intent.py": INTENT_PY, "desk.py": DESK_PY,
         "intent_runner.py": RUNNER_PY, "container.py": CONTAINER_PY,
+        "core_establish_gate.py": GATE_PY,
     }
     for name, pattern, why in REQUIRED_RULES:
         path = lookup.get(name)
@@ -496,6 +613,41 @@ def static_checks() -> list:
 
 
 INJECTIONS = [
+    {
+        "name": "❗人工意向伪装成 core_establish（与自动补仓不可区分）",
+        "file": RUNNER_PY,
+        "old": 'strategy_id=f"intent:{side}:{objective.subject}",',
+        "new": 'strategy_id=f"core_establish:{objective.subject}",',
+        "count": -1,
+    },
+    {
+        "name": "❗意愿强度写死 0.5（「我想买」权重归零）",
+        "file": RUNNER_PY,
+        "old": "signal_confidence=confidence,",
+        "new": "signal_confidence=0.5,",
+        "count": -1,
+    },
+    {
+        "name": "❗意愿强度上限被抬到 1.0（主动意愿变成放行键）",
+        "file": INTENT_PY,
+        "old": "INTENT_CONFIDENCE_CAP = 0.75",
+        "new": "INTENT_CONFIDENCE_CAP = 1.0",
+        "count": -1,
+    },
+    {
+        "name": "❗trim 直传 TRIM（决策中心会归成 none，方向丢失）",
+        "file": INTENT_PY,
+        "old": 'SIGNAL_TYPE_FOR_SIDE = {"buy": "BUY", "sell": "SELL", "trim": "SELL"}',
+        "new": 'SIGNAL_TYPE_FOR_SIDE = {"buy": "BUY", "sell": "SELL", "trim": "TRIM"}',
+        "count": -1,
+    },
+    {
+        "name": "❗决策询问口写死置信度（底仓链路被外溢改动）",
+        "file": GATE_PY,
+        "old": 'raw_conf = getattr(spec, "signal_confidence", None)',
+        "new": "raw_conf = 1.0",
+        "count": -1,
+    },
     {
         "name": "意向缺结算点不再报错（允许无限期守望）",
         "file": INTENT_PY,

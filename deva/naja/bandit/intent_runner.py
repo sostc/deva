@@ -51,6 +51,11 @@ __all__ = [
 DEFAULT_POLL_SECONDS = 60.0
 DEFAULT_HEARTBEAT_SEC = 900.0
 
+#: 意愿强度的全局覆盖。设成 0.5 就等于「人工意向与系统自动补仓无差别」——
+#: 这是这条链路的一句话回滚开关。定义在**模块级**而不是类属性：
+#: :func:`decision_center_asker` 是模块级函数，拿不到类命名空间。
+ENV_INTENT_CONFIDENCE = "NAJA_INTENT_CONFIDENCE"
+
 #: 声明式意向清单。守望是**纯内存**的，另一个进程里登记不会飞进服务进程，
 #: 所以「我想买英伟达」这句话要落到一个服务启动时读得到的地方。
 ENV_INTENT_FILE = "NAJA_INTENT_FILE"
@@ -69,14 +74,50 @@ def decision_center_asker(objective: Any, ctx: Any, _scan: WatchScan):
     那条路径自带 :class:`DecisionPlan` 留痕（写穿日志），
     事后能查到「这一笔当时为什么放行 / 被否」。另写一份等于绕过留痕。
     """
+    from ..watch.intent import SIGNAL_TYPE_FOR_SIDE, clamp_confidence
     from .core_establish_gate import VerdictUnavailable, ask_decision_center
 
     price = float(getattr(ctx, "price", 0.0) or 0.0)
-    side = str(objective.params.get("side") or "buy").upper()
+    side = str(objective.params.get("side") or "buy").strip().lower()
+    signal_type = (
+        str(objective.params.get("signal_type") or "").strip().upper()
+        or SIGNAL_TYPE_FOR_SIDE.get(side, "BUY")
+    )
+
+    # ❗意愿强度：优先意向自带，其次环境变量（一句话回滚成「无差别」），
+    # 最后才是默认。上限由 clamp_confidence 兜住，谁都调不过 0.75。
+    raw_conf = objective.params.get("confidence")
+    env_conf = os.environ.get(ENV_INTENT_CONFIDENCE)
+    if env_conf:
+        try:
+            raw_conf = float(env_conf)
+        except ValueError:
+            log.warning("[IntentRunner] 非法 %s=%r，忽略", ENV_INTENT_CONFIDENCE, env_conf)
+    confidence = clamp_confidence(raw_conf)
+
     spec = SimpleNamespace(
         code=objective.subject,
         bus_code=_bus_code(objective.subject, objective.market),
         name=objective.params.get("name") or objective.subject,
+        # ❗身份必须可区分：决策中心原先看到的是 core_establish:NVDA，
+        # 跟系统自动补底仓的信号长得一模一样 —— 「这是人想买的」这件事
+        # 在打分里权重就是 0。留痕时也能一眼分出两条链路。
+        strategy_id=f"intent:{side}:{objective.subject}",
+        signal_type=signal_type,
+        signal_confidence=confidence,
+        signal_metadata={
+            "intent": True,
+            "side": side,
+            "market": objective.market,
+            "rationale": str(objective.params.get("rationale") or ""),
+            "budget": objective.params.get("budget"),
+            "confidence": confidence,
+            "confidence_source": (
+                "env" if env_conf
+                else ("intent" if objective.params.get("confidence_explicit") else "default")
+            ),
+            "watch_id": getattr(objective, "id", ""),
+        },
     )
     try:
         raw = ask_decision_center(spec, price)
@@ -167,6 +208,7 @@ def load_intents(path=None) -> List[Intent]:
                 rationale=str(row.get("rationale") or ""),
                 min_action=str(row.get("min_action") or "act_minimally"),
                 reading_max_age=float(row.get("reading_max_age") or 600.0),
+                confidence=row.get("confidence"),
             ))
         except Exception as e:  # noqa: BLE001 - 单条坏了只跳过这一条
             log.warning("[IntentRunner] 意向清单第 %d 条（%s）不可用：%s:%s",
@@ -184,6 +226,8 @@ class IntentRunner:
     ENV_ENABLED = "NAJA_INTENT_WATCH_ENABLED"
     ENV_POLL = "NAJA_INTENT_POLL_SECONDS"
     ENV_HEARTBEAT = "NAJA_INTENT_HEARTBEAT_SEC"
+    #: 意愿强度的全局覆盖（与模块级 :data:`ENV_INTENT_CONFIDENCE` 同源）。
+    ENV_INTENT_CONFIDENCE = ENV_INTENT_CONFIDENCE
 
     def __init__(
         self,
