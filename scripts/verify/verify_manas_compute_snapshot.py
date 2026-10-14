@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -134,6 +135,12 @@ def main():
     ap.add_argument("--save", help="把快照写入文件")
     ap.add_argument("--check", help="与基线文件比对")
     ap.add_argument("--show", action="store_true", help="打印快照")
+    # ❗补上 --strict：本仓库所有守卫都接受它，自动化统一用
+    #   `verify_*.py --strict` 扫一遍；缺这个开关会让脚本以
+    #   「unrecognized arguments」exit 2 退出，被误当成「守卫 ERROR」。
+    #   语义：与内置基线比对，有差异就非零退出（不给 --check 时的默认基线）。
+    ap.add_argument("--strict", action="store_true",
+                    help="与内置基线 manas_compute_baseline.json 比对，有差异即失败")
     args = ap.parse_args()
 
     snap = run_snapshot()
@@ -146,8 +153,12 @@ def main():
     if args.show:
         print(json.dumps(snap, ensure_ascii=False, indent=2, default=str, sort_keys=True))
 
-    if args.check:
-        with open(args.check, encoding="utf-8") as f:
+    check_target = args.check
+    if check_target is None and args.strict:
+        check_target = str(Path(__file__).resolve().parent / "manas_compute_baseline.json")
+
+    if check_target:
+        with open(check_target, encoding="utf-8") as f:
             baseline = json.load(f)
         diffs = 0
         for name in sorted(set(baseline) | set(snap)):

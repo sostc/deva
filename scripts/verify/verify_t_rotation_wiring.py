@@ -83,7 +83,12 @@ class FakeMTS:
 
 
 class Quote:
-    """最小可用的 MarketQuote 替身。"""
+    """最小可用的 FutuQuote 替身。
+
+    ❗必须带 ``ok``：runner 的 ``_read_quote`` 判的是 ``quote.ok``
+    （``futu_quote_source`` 的失败是「如实返回 ok=False + 原因」，不是抛异常）。
+    少了它，替身会被当成「取不到行情」，整条链路静默空转。
+    """
 
     PRIORITY_HIGH = "HIGH"
 
@@ -94,6 +99,7 @@ class Quote:
         self.current = current
         self.prev_close = prev_close
         self.volume = volume
+        self.ok = True
         self.open_price = open_price if open_price is not None else current
         self.high = high if high is not None else current
         self.low = low if low is not None else current
@@ -109,8 +115,13 @@ class Quote:
         return (self.current - self.prev_close) / self.prev_close * 100 if self.prev_close else 0.0
 
 
-class FakeBus:
-    """MarketDataBus 的最小替身。只实现 runner 真正用到的接口。"""
+class FakeQuotes:
+    """富途行情源（``futu_quote_source``）的最小替身。
+
+    ❗接口已不是 MarketDataBus：runner 读的是 ``src.get(code, market)``，
+    返回对象必须带 ``ok`` / ``current`` / ``prev_close`` / ``volume``。
+    旧替身是 ``fetch`` + ``get_quote``，2026-10-14 换富途后已经对不上了。
+    """
 
     PRIORITY_HIGH = "HIGH"
     PRIORITY_MEDIUM = "MEDIUM"
@@ -121,23 +132,20 @@ class FakeBus:
         self.fetches = []
         self.subscribed = []
         self.priority = []
-        self.quote = None  # 兼容：runner 只调用 fetch / get_quote
 
     def put(self, code, quote):
         self.quotes[code] = quote
 
-    def fetch(self, codes, force=False):
-        self.fetches.append(list(codes))
-        return {c: (self.quotes.get(c).current if self.quotes.get(c) else 0.0) for c in codes}
-
-    def get_quote(self, code, allow_stale=True):
-        return self.quotes.get(code)
-
-    def subscribe(self, codes, callback):
-        self.subscribed.append((list(codes), callback))
-
-    def register_priority_codes(self, codes, level):
-        self.priority.append((list(codes), level))
+    def get(self, code, market=None):
+        """runner 的取数入口。兼容「按 bus_code 存、按裸 code 取」。"""
+        if code in self.quotes:
+            return self.quotes[code]
+        code = str(code)
+        for k, v in self.quotes.items():
+            k = str(k)
+            if k == code or k.endswith(code):
+                return v
+        return None
 
 
 def _dt(y, m, d, h, mi):
@@ -160,10 +168,10 @@ def make_runner(capital=2_000_000.0, establish=False, flat_limit=999):
     vp.set_max_total_pct(1.0)
 
     spec = CoreHoldingSpec(
-        code="588200", bus_code="sh588200", name="科创芯片ETF嘉实",
+        code="588200", bus_code="sh588200", name="科创芯片ETF嘉实", market="CN",
         target_shares=100_000.0, round_lot=100.0,
     )
-    bus = FakeBus()
+    bus = FakeQuotes()
     ledger = CorePositionLedger(persist=False)
     eng = TRotationEngine(
         portfolio=vp, ledger=ledger,
@@ -171,7 +179,7 @@ def make_runner(capital=2_000_000.0, establish=False, flat_limit=999):
     )
     clock = {"t": _dt(*D1, 9, 35).timestamp()}
     runner = TRotationRunner(
-        portfolio=vp, bus=bus, engine=eng, ledger=ledger, specs=[spec],
+        portfolio=vp, quotes=bus, engine=eng, ledger=ledger, specs=[spec],
         establish_missing=establish, flat_poll_limit=flat_limit,
         clock=lambda: clock["t"],
     )
@@ -181,7 +189,56 @@ def make_runner(capital=2_000_000.0, establish=False, flat_limit=999):
     }
 
 
-def make_alloc_env(price=1.0):
+def _fake_gate_provider(spec, price):
+    """给「大环境闸门」喂一个恒放行的假裁定。
+
+    ❗为什么必须注入：闸门默认开，且要求先问决策中心；离线环境里问不到
+    就是「看不见就别动」→ 一笔都不买，把所有正向用例淹没掉
+    （``core_establish_gate.py`` 的 ``provider`` 形参就是为此留的注入点）。
+    闸门自身的语义（hold 硬拦 / 收盘兜底 / 定量）由
+    ``verify_core_establish_gate.py`` 负责，这里只把它拨到「放行」，
+    好让本守卫专心测**接线与分批**。
+
+    另见 :func:`check_gate_hold_blocks_establish` —— 反方向的用例。
+    """
+    return {
+        "approved": True,
+        "action_type": "act_fully",
+        "final_confidence": 0.9,
+        "manas_score": 0.9,
+        "regime_score": 0.5,
+        "timing_score": 0.5,
+        "plan": {"action_type": "act_fully", "size_hint": 1.0},
+    }
+
+
+class _AlwaysAskWatch:
+    """永远回答「值得去问」的守望替身。
+
+    守望（``CoreEstablishWatch``）带节流：问过一次要等一段窗口才再问。
+    本守卫测的是**接线与分批**，若用真守望，「隔多久问一次」就成了
+    用例成败的隐藏变量（12 轮 poll 只够问一次 → 底仓只建一批）。
+    守望自身的节流/结算语义由 ``verify_core_establish_watch.py`` 负责。
+    """
+
+    def ensure(self, spec, *, now=None):
+        return None
+
+    def context_for(self, spec, *, now=None, price=None, anchor=None,
+                    minutes_to_close=None):
+        return None
+
+    def peek(self, spec, ctx, *, now=None):
+        return True, None
+
+    def mark_asked(self, spec, granted, reason, *, now=None):
+        return None
+
+    def settle(self, spec, outcome, reason, *, now=None):
+        return None
+
+
+def make_alloc_env(price=1.0, gate_provider=_fake_gate_provider):
     """自动建仓专用环境：**保留虚拟仓默认风控参数**。
 
     make_runner 把 max_position_pct 放成 1.0，是为了让做 T 的用例不受打扰；
@@ -193,6 +250,7 @@ def make_alloc_env(price=1.0):
     from deva.naja.bandit.core_position import CorePositionLedger
     from deva.naja.bandit.t_rotation import TRotationEngine, TRotationConfig
     from deva.naja.bandit.core_holdings import load_core_holdings
+    from deva.naja.bandit.core_establish_gate import CoreEstablishGate
     from deva.naja.bandit.t_rotation_runner import TRotationRunner
 
     clock = {"t": _dt(*D1, 9, 35).timestamp()}
@@ -214,16 +272,21 @@ def make_alloc_env(price=1.0):
     vp.set_capital(1_000_000.0)  # **不放宽任何限额**
 
     specs = load_core_holdings()  # target_shares=0 → 走 alloc_pct
-    bus = FakeBus()
+    bus = FakeQuotes()
     ledger = CorePositionLedger(persist=False)
     eng = TRotationEngine(
         portfolio=vp, ledger=ledger,
         config=TRotationConfig(max_round_pct=0.30, max_round_amount=500_000.0),
     )
     runner = TRotationRunner(
-        portfolio=vp, bus=bus, engine=eng, ledger=ledger, specs=specs,
+        portfolio=vp, quotes=bus, engine=eng, ledger=ledger, specs=specs,
         establish_missing=True, flat_poll_limit=99999,
         clock=lambda: clock["t"],
+        establish_gate=(
+            CoreEstablishGate(provider=gate_provider, clock=lambda: clock["t"])
+            if gate_provider is not None else None
+        ),
+        establish_watch=_AlwaysAskWatch(),
     )
     return {
         "vp": vp, "bus": bus, "eng": eng, "ledger": ledger,
@@ -355,7 +418,7 @@ def check_alloc_pct_resolution():
 
     # 可审计：to_dict 必须带上 alloc_pct（状态页要能回答"这 40 万份怎么来的"）
     d = CoreHoldingSpec(
-        code="588200", bus_code="sh588200", name="x", target_shares=0.0
+        code="588200", bus_code="sh588200", name="x", market="CN", target_shares=0.0
     ).to_dict()
     assert "alloc_pct" in d, "to_dict 缺 alloc_pct，线上无法核对仓位口径"
     print(f"2b) 仓位口径 OK —— 总资产 100 万 × 40% ÷ 1.0 = "
@@ -384,9 +447,10 @@ def check_establish_default_on():
                 return {"total_capital": 1_000_000.0, "available_capital": 1_000_000.0}
 
         rnr = TRotationRunner(
-            portfolio=_Stub(), bus=object(), engine=object(), ledger=object(),
+            portfolio=_Stub(), quotes=object(), engine=object(), ledger=object(),
             specs=[CoreHoldingSpec(
-                code="588200", bus_code="sh588200", name="x", target_shares=0.0,
+                code="588200", bus_code="sh588200", name="x", market="CN",
+                target_shares=0.0,
             )],
         )
         assert rnr._establish is True, \
@@ -497,6 +561,40 @@ def check_auto_establish_40pct():
     fill_txt = " → ".join(f"{v/10000:.0f}万" for v, _t in fill_log)
     print(f"3b) 自动建仓 OK —— 目标 {plan_target:.0f} 份（总资产 100 万 × 40%），"
           f"分 {len(fill_log)} 笔：{fill_txt}")
+
+
+def check_gate_hold_blocks_establish():
+    """3d) 反方向用例：闸门判 hold 时，一行都不许买。
+
+    与 3b（放行 → 分批建到 40%）**成对**。只留 3b 的话，哪天有人把
+    闸门摘掉/默认关掉，3b 依旧全绿 —— 一项保护掩盖了另一项缺失。
+    这里用假裁定把闸门钉死在 hold 上，断言缺口没被填、且原因可见。
+    """
+
+    def _hold(spec, price):
+        return {
+            "approved": False,
+            "action_type": "hold",
+            "plan": {"action_type": "hold", "size_hint": 0.0},
+            "manas_score": 0.27,
+            "plan_gate_reason": "策略不自信",
+        }
+
+    env = make_alloc_env(gate_provider=_hold)
+    vp, rnr, spec = env["vp"], env["runner"], env["spec"]
+    for i in range(12):
+        step(env)
+        push_quote(env, 1.0, prev_close=1.0, cum_volume=1_000_000 * (i + 1))
+        rnr.poll()
+
+    held = sum(
+        p.quantity for p in vp.get_all_positions(status="OPEN")
+        if p.stock_code == spec.code
+    )
+    assert held == 0, f"闸门判 hold，却仍建了 {held:.0f} 份底仓 —— 逆风加码被放行"
+    assert rnr._stats.get("gate_blocked", 0) > 0, \
+        "闸门拦下了却没计数 —— 「为什么没动」将无从查起"
+    print(f"3d) 闸门 hold → 一笔不买 OK（拦截计数 {rnr._stats['gate_blocked']}）")
 
 
 def check_budget_headroom_shared_with_other_strategies():
@@ -713,17 +811,28 @@ def check_flat_day_suspension():
 
 
 def check_minutes_to_close():
-    """8) minutes_to_close 必须算准，它同时决定能否开仓与是否强平。"""
-    from deva.naja.bandit.t_rotation_runner import minutes_to_close, cn_phase
+    """8) minutes_to_close 必须算准，它同时决定能否开仓与是否强平。
 
-    assert abs(minutes_to_close(_dt(*D1, 10, 0)) - 300) < 1e-6
-    assert abs(minutes_to_close(_dt(*D1, 14, 55)) - 5) < 1e-6
-    assert minutes_to_close(_dt(*D1, 15, 1)) is None
-    assert minutes_to_close(datetime(2026, 10, 17, 10, 0)) is None  # 周六
-    assert cn_phase(_dt(*D1, 10, 0)) == "morning"
-    assert cn_phase(_dt(*D1, 12, 30)) == "lunch"
-    assert cn_phase(_dt(*D1, 14, 0)) == "afternoon"
-    assert cn_phase(_dt(*D1, 15, 30)) == "closed"
+    ❗接口与口径都随「做 T 支持三市场」变了：
+      * 首参多了 ``market``（A 股 15:00 / 港股 16:00 / 美股 04:00 收盘各不相同）；
+      * 返回值是**剩余交易分钟**，午休那 90 分钟不算 —— 10:00 距收盘是
+        210 分钟（90 + 120），不是墙钟的 300 分钟。
+        旧口径把午休也算成"还有时间"，会让「收盘前 N 分钟不许新开倒 T」
+        这条保护在午休前后系统性偏晚。
+    """
+    from deva.naja.bandit.market_session import minutes_to_close, market_phase
+
+    assert abs(minutes_to_close("CN", _dt(*D1, 10, 0)) - 210) < 1e-6, \
+        minutes_to_close("CN", _dt(*D1, 10, 0))
+    assert abs(minutes_to_close("CN", _dt(*D1, 14, 55)) - 5) < 1e-6
+    assert minutes_to_close("CN", _dt(*D1, 15, 1)) is None
+    assert minutes_to_close("CN", datetime(2026, 10, 17, 10, 0)) is None  # 周六
+    # 港股收盘 16:00：同一时刻比 A 股多一截
+    assert abs(minutes_to_close("HK", _dt(*D1, 14, 0)) - 120) < 1e-6
+    assert market_phase("CN", _dt(*D1, 10, 0)) == "morning"
+    assert market_phase("CN", _dt(*D1, 12, 30)) == "lunch"
+    assert market_phase("CN", _dt(*D1, 14, 0)) == "afternoon"
+    assert market_phase("CN", _dt(*D1, 15, 30)) == "closed"
     print("8) 交易时段/收盘倒计时 OK")
 
 
@@ -793,11 +902,17 @@ def check_cross_session_buyback():
     env["eng"].register_target("588200", 100_000.0, name=env["spec"].name)
     before = env["ledger"].effective_shares("588200", env["vp"], **_kw(env))
 
-    # 单边拉升 → 一根回落 bar 作右侧确认 → 触发倒 T 高抛
+    # 单边拉升 → **≥3 根不再创新高的企稳 bar** → 一根回落 bar 作右侧确认 → 高抛
+    #
+    # ❗「企稳确认」是 `179f42f`（做 T 标定按市场分档收紧）加的门槛：
+    #   `RotationThresholds.require_stabilize` 要求 `bars_since_high >= stabilize_bars`。
+    #   单调拉升时每根 bar 都是新高 → bars_since_high 恒为 0 → **永远不高抛**。
+    #   旧样本只有「拉升 + 一根回落」，正是在这道门槛下永远等不到触发的那类用例。
     prices = [0.990]
     for _ in range(24):
         prices.append(prices[-1] + 0.0012)
-    prices.append(prices[-1] - 0.005)   # 回落：打断连涨
+    prices += [1.0186, 1.0184, 1.0182]   # 企稳确认：连续 3 根不创新高
+    prices.append(1.0130)                 # 右侧回落确认
 
     fired = None
     for i, p in enumerate(prices):
@@ -860,8 +975,14 @@ def check_status_exposes_degraded():
         assert key in sym, f"状态缺字段 {key}"
     assert sym["session_date"] == "2026-10-13"
     assert sym["last_diag"].get("reason"), "诊断信息缺 reason —— 静默失效的温床"
-    assert "stats" in st and "phase" in st and "minutes_to_close" in st
-    print("11) 状态输出可诊断 OK（含 reason/phase/minutes_to_close）")
+    # ❗时段信息已从顶层「单个 phase」改成**逐市场**（做 T 支持三市场后，
+    #   一份状态里可能同时有 CN/HK/US 三个标的，一个 phase 装不下）。
+    assert "stats" in st and "phases" in st, sorted(st)
+    ph = st["phases"][sym["code"]]
+    for key in ("market", "phase", "minutes_to_close", "session_date"):
+        assert key in ph, f"逐市场时段缺字段 {key}"
+    assert ph["market"] == "CN" and ph["phase"] == "morning", ph
+    print("11) 状态输出可诊断 OK（含 reason/phases[市场].phase）")
 
 
 def check_runner_start_is_idempotent():
@@ -873,7 +994,7 @@ def check_runner_start_is_idempotent():
         rnr = make_runner()["runner"]
         # bootstrap 已由 poll 内部自动完成；这里再补一次显式启动会不会出问题
         rnr._bootstrap()
-        assert rnr._bus is not None and rnr._engine is not None
+        assert rnr._quotes is not None and rnr._engine is not None
         assert rnr.stop() is True or True
     finally:
         runner_mod._runner = old
@@ -901,16 +1022,25 @@ def _method_bodies(path):
 
 
 def check_static_bus_wired():
-    """13) 运行器必须真的订阅/连接了 MarketDataBus，而不是空口说与总线对接。"""
+    """13) 运行器必须真的接到了行情源，而不是空口说已对接。
+
+    ❗2026-10-14 起行情源由 MarketDataBus（新浪）换成富途统一行情
+    （``futu_quote_source``）：新浪那条路在港股/美股上**实测静默丢数**
+    （``hk`` 无分支、美股 ETF 不在 Block 池里 → 解析成空）。
+    所以这里断言的是**富途**接线，不是旧的 ``subscribe`` / ``bus.fetch``。
+    """
     src = open(RUNNER_FILE, encoding="utf-8").read()
-    assert "get_market_data_bus" in src, "没有引用 MarketDataBus"
+    assert "get_futu_quote_source" in src, "没有引用富途行情源"
     blocks = _method_bodies(RUNNER_FILE)
-    sub_src = blocks.get("_bootstrap", "")
-    assert "subscribe(" in sub_src, "_bootstrap 未订阅总线"
-    assert "register_priority_codes" in sub_src, "未把底仓标注册为高优先级"
+    boot_src = blocks.get("_bootstrap", "")
+    assert "get_futu_quote_source" in boot_src, "_bootstrap 未接上富途行情源"
     read_src = blocks.get("_read_quote", "")
-    assert "bus.fetch(" in read_src, "取行情不走同步 fetch"
-    print("13) 静态：总线订阅 + 同步取数 OK")
+    assert "src.get(" in read_src, "取行情不走行情源同步入口 src.get()"
+    assert ".ok" in read_src, "未校验 quote.ok —— 会把失败报价当有效数据喂进引擎"
+    # 反方向：旧的新浪总线不许再出现在取数路径里（防止有人「顺手」加回一条）
+    assert "get_market_data_bus" not in read_src, \
+        "_read_quote 又引用了 MarketDataBus —— 港股/美股会静默丢数"
+    print("13) 静态：富途行情源接线 + 同步取数 OK")
 
 
 def _strip_comments(src: str) -> str:
@@ -1025,12 +1155,17 @@ def check_static_registered_and_started():
 
 
 def check_static_core_default():
-    """16) 底仓默认标的写死为 588200，且带市场前缀。"""
+    """16) 底仓默认标的写死为 588200，且带市场前缀。
+
+    ❗清单常量名为 ``CORE_CATALOG``（``CHIP_ETF_CATALOG`` 只是兼容旧名的别名）。
+    读取入口用的是新名，所以这里断言 ``CORE_CATALOG`` —— 断言别名等于
+    在守一个可能被删掉的转发变量。
+    """
     src = open(HOLDINGS_FILE, encoding="utf-8").read()
     assert 'DEFAULT_CORE_CODE = "588200"' in src, "默认标的不是 588200"
     blocks = _method_bodies(HOLDINGS_FILE)
     loader = blocks.get("load_core_holdings", "")
-    assert "CHIP_ETF_CATALOG" in loader, "清单未被读取入口使用"
+    assert "CORE_CATALOG" in loader, "清单未被读取入口使用"
     print("16) 静态：默认底仓锁定 588200 OK")
 
 
@@ -1062,26 +1197,32 @@ def check_exchange_prefix():
     print(f"18) 交易所号段判定 OK（{len(cases)} 个用例，含沪市 5 开头的 ETF）")
 
 
-def check_real_bus_quote():
-    """19) 真实总线上确实能取到 588200 的报价（离线时如实跳过，不算通过也不算失败）。"""
+def check_real_quote_source():
+    """19) 真实行情源确实能取到 588200 的报价（离线时如实跳过，不算通过也不算失败）。
+
+    ❗这里必须走 runner 真正用的那个源（富途）。此前的版本查的是
+    MarketDataBus —— 一个 runner 已经不再读取的地方：查它等于在验
+    「另一条路的行情通不通」，对做 T 的实际取数能力零信息量。
+    """
     try:
-        from deva.naja.bandit.market_data_bus import get_market_data_bus
+        from deva.naja.bandit.futu_quote_source import get_futu_quote_source
         from deva.naja.bandit.core_holdings import load_core_holdings
 
         spec = load_core_holdings()[0]
-        bus = get_market_data_bus()
-        bus.fetch([spec.bus_code])
-        quote = bus.get_quote(spec.bus_code)
+        quote = get_futu_quote_source().get(spec.code, spec.market)
     except Exception as e:
-        print(f"⏭️ 19) 真实行情不可达，跳过（{type(e).__name__}: {e}）")
+        print(f"⏭️ 19) 真实行情源不可达，跳过（{type(e).__name__}: {e}）")
         return
-    if quote is None or quote.current <= 0:
-        print("⏭️ 19) 真实行情未返回数据，跳过（离线环境）")
+    if quote is None or not getattr(quote, "ok", False):
+        note = getattr(quote, "error", "无返回")
+        print(f"⏭️ 19) 真实行情源未返回数据，跳过（{note}）")
+        return
+    if quote.current <= 0:
+        print("⏭️ 19) 真实行情返回的价格 <= 0，跳过")
         return
     assert quote.prev_close > 0, "真实报价缺昨收 —— 百分比基准没了"
-    assert quote.code == spec.bus_code
     print(
-        f"19) 真实总线可取数 OK —— {quote.name}({quote.code}) "
+        f"19) 真实行情源可取数 OK —— {quote.name}({spec.code}) "
         f"现价 {quote.current} / 昨收 {quote.prev_close}"
     )
 
@@ -1106,6 +1247,7 @@ CHECKS = [
     check_alloc_pct_resolution,
     check_establish_default_on,
     check_auto_establish_40pct,
+    check_gate_hold_blocks_establish,
     check_budget_headroom_shared_with_other_strategies,
     check_bus_drives_engine,
     check_real_day_makes_t_and_conserves,
@@ -1124,7 +1266,7 @@ CHECKS = [
     check_static_core_default,
     check_static_conservation_reached,
     check_exchange_prefix,
-    check_real_bus_quote,
+    check_real_quote_source,
 ]
 
 
@@ -1149,10 +1291,16 @@ def main():
     total = len(CHECKS)
     if failed:
         print(f"❌ {failed}/{total} 项失败")
-        sys.exit(1 if strict else 0)
+        # 本仓约定：非 --strict 为「提示档」（看得到失败、退出码仍 0），
+        # --strict 为「闸门档」（失败即非零）。自动化统一用 --strict 扫。
+        #
+        # ⚠️ 正因为闸门在 --strict，本守卫曾经 17/24 项崩掉却长期无人知晓 ——
+        #    不是因为退出策略，而是因为**没人跑**。配套的一键严格扫描见
+        #    `scripts/verify/run_all_guards.py`。
+        return 1 if strict else 0
     print(f"✅ ALL PASS ({total}/{total})")
-    sys.exit(0)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

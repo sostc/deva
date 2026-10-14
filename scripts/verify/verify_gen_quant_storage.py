@@ -1,10 +1,31 @@
 #!/usr/bin/env python3
 """
 验证gen_quant代码已存储到数据源执行代码中
+
+⚠️ 已知失效（2026-10-15 核查，尚未处置 —— 需人拍板）
+--------------------------------------------------
+本守卫依赖 `deva.admin.strategy.datasource.get_ds_manager`，但：
+
+  * `git log --diff-filter=D` 显示该模块与 `get_ds_manager` **从未被提交过**
+    （不是"被删了"，是"从来没存在"）—— 守卫写于 2026-03-18，脱离了实现；
+  * 被测功能本身（`quant_source` 数据源 / `gen_quant` 函数）在全仓库
+    也搜不到任何痕迹。
+
+结论：这是一个**指向不存在功能的守卫**，永远不可能通过，只会训练人忽略红色。
+处置二选一：① 退役删除；② 按当前数据源管理器（`deva/naja/datasource/manager.py`）重写。
+在处置之前，它**如实报错**（exit 1 + 原因），不做静默跳过。
 """
 
-import datetime
-from deva.admin.strategy.datasource import get_ds_manager
+import sys
+
+try:
+    from deva.admin.strategy.datasource import get_ds_manager
+except ImportError as e:  # pragma: no cover - 结构性失效
+    print("❌ verify_gen_quant_storage 已失效：")
+    print(f"   依赖模块不可用 —— {e}")
+    print("   `deva.admin.strategy.datasource` 在 git 中从不存在（见文件头说明）。")
+    print("   处置：删除本守卫，或按 deva/naja/datasource/manager.py 重写。")
+    sys.exit(1)
 
 def main():
     """验证gen_quant代码存储功能"""
