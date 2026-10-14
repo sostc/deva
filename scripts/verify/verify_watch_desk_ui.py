@@ -42,6 +42,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
@@ -176,6 +177,25 @@ def _desk(action="act_carefully", ts=1000.0, asker=None):
                        "timestamp": ts})
     return W.WatchDesk(lens=lens, quote_fn=lambda c: None,
                        asker=asker, heartbeat_sec=0.0), box
+
+
+class _SilentHtml:
+    """``put_html`` 的替身：收起 HTML，**不建 Output、不碰会话**。
+
+    ❗理由同下面 ``put_buttons`` 那段注释，只是触发点不同：
+    ``watch/ui._h()`` 用 ``put_html`` 给表格单元格包一层，而 ``put_html``
+    在**没有会话**的脚本模式下会退化成 ``_start_script_mode_server`` ——
+    真起一个 tornado server 并永久阻塞在 ``threading.wait()``。守卫于是
+    「跑到超时」，看着像产品慢，其实是用例自己开了一个服务器。
+
+    ``.spec["content"]`` 保留原始 HTML，需要时可拿来查文案。
+    """
+
+    def __init__(self, html: str):
+        self.spec = {"content": html, "type": "html"}
+
+    def __str__(self) -> str:
+        return self.spec["content"]
 
 
 def behavior_checks() -> list:
@@ -365,8 +385,12 @@ def behavior_checks() -> list:
     # ❗必须先换掉 ``put_buttons``：PyWebIO 的按钮要注册回调并等待事件，
     # 在**没有会话**的脚本模式下它会真的起一个 tornado server 并阻塞在退出处
     # —— 守卫不是被产品代码卡住，是被测试自己的交互控件卡住。
+    # ``put_html``（``_h`` 用的）是同一个坑的另一个触发点，必须一并换掉，
+    # 否则 ``_watch_rows`` 里第一格 HTML 就会把进程挂住。
     orig_buttons = ui_mod.put_buttons
+    orig_html = ui_mod.put_html
     ui_mod.put_buttons = lambda *a, **k: "<操作>"
+    ui_mod.put_html = lambda html, *a, **k: _SilentHtml(html)
     try:
         if not inspect.iscoroutinefunction(ui_mod.render_watch_desk):
             f.append("⑭ render_watch_desk 不是 async（页面函数不被 await 就报错）")
@@ -421,6 +445,65 @@ def behavior_checks() -> list:
             f.append("⑯ 空台面的概览没写清楚「0 个在等」")
     finally:
         ui_mod.put_buttons = orig_buttons
+        ui_mod.put_html = orig_html
+
+    # ⑰ 意向登记的**写回链路**：点一下必须真的落盘
+    #
+    # ❗为什么非测不可：⑭~⑯ 全在测「渲染」—— 页面画得出来 ≠ 点下去会落盘。
+    # 「UI 写好了、链路没接」是本仓库头号病理，它最典型的形态就是：
+    # 登记一次、toast 说成功、**重启之后清单里空空如也**。
+    #
+    # ❗为什么连 ``input`` / ``select`` / ``slider`` / ``textarea`` 也要换：
+    # Python 先把实参算完再调用 ``input_group``，所以 ``await input_group(
+    # [...])`` 里那一串控件**在 input_group 被调用之前就已经执行了** ——
+    # 真控件在没有会话的脚本模式下同样会起 tornado server 并阻塞。
+    #
+    # ``upsert_intent`` 必须**接管**：真身默认写 ``~/.naja/intents.json``，
+    # 守卫不得写生产数据。这里只记录「有没有被调用、写了什么」。
+    import asyncio
+
+    import deva.naja.bandit.intent_runner as ir
+
+    async def _fake_form(*a, **k):
+        return {"code": "nvda", "market": "us", "name": "英伟达",
+                "side": "buy", "budget": None, "hours": 72.0,
+                "conf": 0.66, "rationale": "写回链路自检"}
+
+    def _no_control(*a, **k):
+        return None
+
+    desk17, _ = _desk(ts=1000.0)
+    written: list = []
+    names = ("input", "select", "slider", "textarea",
+             "input_group", "toast", "_refresh", "_get_runner")
+    saved = {n: getattr(ui_mod, n) for n in names}
+    saved_upsert = ir.upsert_intent
+    try:
+        for _n in ("input", "select", "slider", "textarea"):
+            setattr(ui_mod, _n, _no_control)
+        ui_mod.input_group = _fake_form
+        ui_mod.toast = _no_control
+        ui_mod._refresh = _no_control
+        ui_mod._get_runner = lambda: SimpleNamespace(desk=desk17)
+        ir.upsert_intent = lambda intent, *a, **k: written.append(intent) or "ok"
+        asyncio.run(ui_mod._on_new())
+    except Exception as e:  # noqa: BLE001
+        f.append(f"⑰ 登记回调抛异常：{type(e).__name__}: {e}")
+    finally:
+        for _n, _v in saved.items():
+            setattr(ui_mod, _n, _v)
+        ir.upsert_intent = saved_upsert
+
+    if not written:
+        f.append("⑰ ❗登记回调没把意向写回清单（点一下看着成功，重启就什么都没发生过）")
+    else:
+        it = written[0]
+        if str(getattr(it, "code", "")) != "NVDA":
+            f.append(f"⑰ 写回清单的代码不对：{getattr(it, 'code', None)!r}")
+        if abs(float(getattr(it, "confidence", 0) or 0) - 0.66) > 1e-9:
+            f.append("⑰ 写回清单的意愿强度与表单填的不一致（写了个别的）")
+        if not desk17.watches():
+            f.append("⑰ 意向只写回了清单、没挂上守望台（页面上看不到）")
 
     return f
 
