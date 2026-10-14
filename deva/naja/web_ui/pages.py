@@ -109,6 +109,14 @@ async def banditadmin():
     await render_bandit_admin(ctx)
 
 
+async def watchdesk():
+    """守望台 —— 想买/想卖但还没下手的，都挂在这里等机会"""
+    from deva.naja.watch.ui import render_watch_desk
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("守望台")
+    await render_watch_desk(ctx)
+
+
 async def bandit_attribution():
     """Bandit 盈亏归因分析"""
     from deva.naja.bandit.attribution_ui import render_attribution_page
@@ -1254,6 +1262,7 @@ async def devtools_page():
             {"name": "🎯 策略", "path": "/strategyadmin", "desc": "策略管理"},
             {"name": "🤖 LLM", "path": "/llmadmin", "desc": "LLM 调节"},
             {"name": "🎰 Bandit", "path": "/banditadmin", "desc": "Bandit 自适应交易"},
+            {"name": "🌗 守望台", "path": "/watchdesk", "desc": "想买/想卖但还没下手的，挂在这里等机会"},
             {"name": "🎯 关注管理", "path": "/focusadmin", "desc": "持仓与关注主题管理"},
         ],
         "系统监控": [
