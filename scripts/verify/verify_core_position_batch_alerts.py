@@ -37,6 +37,7 @@ import os
 import sys
 import time
 from datetime import datetime
+from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
@@ -125,6 +126,40 @@ class LogTrap:
         return [r.getMessage() for r in self.records]
 
 
+class _OpenGate:
+    """固定放行的大环境闸门，见下方 TRotationRunner 构造处的说明。"""
+
+    def evaluate(self, spec, price, minutes_to_close):
+        return SimpleNamespace(
+            allowed=True, source="decision_center", action_type="act_fully",
+            size_hint=1.0, reason="守卫注入放行", degraded=False,
+        )
+
+
+class _OpenWatch:
+    """固定「值得问」的守望，见下方 TRotationRunner 构造处的说明。
+
+    与 :class:`_OpenGate` 是同一层意思：本守卫测的是分批告警，
+    不该被「什么时候才值得问」这条链路挡住。守望本身的语义由
+    ``verify_core_establish_watch.py`` 覆盖。
+    """
+
+    enabled = True
+
+    def ensure(self, spec, *, now, max_wait_seconds=None):
+        return None
+
+    def context_for(self, spec, *, now, price, anchor, minutes_to_close,
+                    extras=None):
+        return None
+
+    def peek(self, spec, ctx, *, now=None):
+        return True, None
+
+    def mark_asked(self, spec, granted, reason, *, now=None):
+        return None
+
+
 # ------------------------------------------------------------------
 # 环境搭建
 # ------------------------------------------------------------------
@@ -176,6 +211,13 @@ def make_env(capital=1_000_000.0, alloc_pct=40.0, occlude=0.0):
         portfolios={"CN": vp},
         establish_missing=True, flat_poll_limit=99999,
         clock=lambda: clock["t"],
+        # ❗本守卫测的是「分批的告警是否恰当」，不是大环境闸门、也不是守望台。
+        # 这两层现在默认开，不显式放行的话所有用例都会被「决策中心不可用」
+        # /「还不值得问」挡掉，变成一堆看不懂的全红。它们各自有专门守卫：
+        #   大环境闸门 → verify_core_establish_gate.py
+        #   守望       → verify_core_establish_watch.py
+        establish_gate=_OpenGate(),
+        establish_watch=_OpenWatch(),
     )
     return {
         "vp": vp, "quotes": quotes, "eng": eng, "ledger": ledger,

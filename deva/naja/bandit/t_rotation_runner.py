@@ -42,7 +42,7 @@ import threading
 import time
 from dataclasses import replace
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .core_holdings import (
     CoreHoldingSpec,
@@ -50,6 +50,8 @@ from .core_holdings import (
     env_float,
     load_core_holdings,
 )
+from .core_establish_gate import CoreEstablishGate
+from .core_establish_watch import CoreEstablishWatch
 from .market_session import (
     is_trading,
     market_phase,
@@ -89,6 +91,8 @@ class TRotationRunner:
         on_sim: Optional[bool] = None,
         portfolios: Optional[Dict[str, Any]] = None,
         stall_limit: Optional[int] = None,
+        establish_gate=None,
+        establish_watch=None,
     ):
         self._specs = list(specs) if specs else load_core_holdings()
         self._by_code: Dict[str, CoreHoldingSpec] = {s.code: s for s in self._specs}
@@ -134,6 +138,25 @@ class TRotationRunner:
         self._portfolios: Dict[str, Any] = {}
         self._engines: Dict[str, Any] = {}
 
+        # 补仓闸门：**下单前必须先问决策中心**。背景见 core_establish_gate 模块
+        # 文档 —— 没有它的时候，逆风行情反而是买入触发器
+        #（target 的定义本身会让「越跌 → 目标份额越大 → 接着买」）。
+        # 留 None 是为了让守卫能注入假裁定，离线验证闸门的三条分支。
+        self._gate = establish_gate if establish_gate is not None \
+            else CoreEstablishGate()
+        # 「等待机会」的一等公民：守望只回答「这一步值不值得去问」，
+        # 真正去问的仍是 self._gate。两者分开，就是为了不让「机会」和
+        # 「放行」变成同一件事 —— 背景见 core_establish_watch 模块文档。
+        if not hasattr(self, "_establish_watch"):
+            self._establish_watch: Any = (
+                establish_watch
+                if establish_watch is not None
+                else CoreEstablishWatch(self._gate)
+            )
+        # 闸门拦截的按天去重键。被 Manas 否掉是**常态**（不是故障），
+        # 30 秒一条就会把 INFO 刷成噪音；真正该喊的是 source=unavailable。
+        self._gate_noted: Dict[str, str] = {}
+
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._lock = threading.RLock()
@@ -147,6 +170,10 @@ class TRotationRunner:
         self._plan_date: Dict[str, str] = {}
         # 真的卡住的额度冲突才告警，按天去重，别把日志刷满
         self._budget_warned: Dict[str, str] = {}
+        # 在飞单提示的按天去重键。这类是**持续状态**而不是瞬时事件：
+        # 一笔挂单可能挂几分钟，30 秒一条就把日志淹了。
+        # 「到底有没有下单」在订单流水和心跳里另有记录，不靠这条提示。
+        self._inflight_noted: Dict[str, str] = {}
         # 分批补底仓的进度追踪：(交易日, 上一轮持有份额, 连续零增长轮数)
         self._fill_progress: Dict[str, tuple] = {}
         # 当天已成交的分批笔数，仅用于日志可读性：(交易日, 笔数)
@@ -170,6 +197,13 @@ class TRotationRunner:
             "actions": 0,
             "pushed_ticks": 0,
             "fetch_errors": 0,
+            # 被大环境闸门拦下 / 闸门链路不可用。两个数区分得开很重要：
+            # 前者是策略在观望，后者是故障 —— 混起来看会以为一切正常。
+            "gate_blocked": 0,
+            "gate_unavailable": 0,
+            # 守望认为「还不值得去问」—— 与 gate_blocked 区分开：
+            # 前者是压根没走到决策中心，后者是走到被否了。
+            "watch_waiting": 0,
         }
 
     # ------------------------------------------------------------------
@@ -604,7 +638,14 @@ class TRotationRunner:
         if cached is not None and self._plan_date.get(spec.code) == date:
             return cached
 
-        target = spec.resolve_target_shares(self.total_assets(), price)
+        # ❗必须带 market：真仓模式下三个市场是**三个独立账户、三种本位币**。
+        #   漏掉参数会退化到 self._portfolio（虚拟盘兜底），于是折出的是
+        #   「虚拟盘人民币总资产 ÷ 港股价格」这种跨币种跨账户的量纲 ——
+        #   而且日志那句「📐 …总资产 X×40%÷P」读的是**带 market 的版本**，
+        #   展示的数字与真正用来算的数不是同一个，看日志排查会被带偏
+        #   （2026-10-14 实测：登记 405600 份，那是按虚拟盘 100 万折的；
+        #    按 CN 账户 998981 折应为 405200）。
+        target = spec.resolve_target_shares(self.total_assets(spec.market), price)
         if target <= 0:
             # 折算不出来（价格缺失 / 资金为 0）就沿用昨天的，
             # 绝不把计划悄悄砍成 0 —— 那等于无声地放弃长期持有。
@@ -715,6 +756,62 @@ class TRotationRunner:
             return
 
         pf = self._pf(spec.market)
+
+        # ❗在飞单闸门（2026-10-14 富途模拟仓首航实跑踩到的）
+        #
+        # 报单到成交之间有真实的时间差（实测 SH.588200 用了 4 秒），而下面
+        # 三件事凑起来会咬人：
+        #   · FutuSimPortfolio._reload 只等 0.8 秒就判定「持仓未出现」
+        #   · 幂等槽位按**分钟**分槽（core_{日期}_{分钟}）
+        #   · 这里每 30 秒轮询一次
+        # 只要成交慢一点、跨过分钟边界，下一轮 carried 仍读到 0，
+        # 于是拿着全额 missing 再报一单 —— **双倍仓位**。
+        #
+        # 所以判据不能是「等多久」或「记在内存里」（进程一重启就没了），
+        # 而是问券商：**那张单还在不在飞**。这是唯一站得住的外生真相。
+        inflight, blind_reason = self._probe_inflight(spec, pf)
+        if inflight is None:
+            # 查不到 ≠ 没有。看不清路面就别踩油门。
+            self._note_inflight_blind(spec, blind_reason, date)
+            return
+        if inflight:
+            self._note_inflight_wait(spec, inflight, carried, target, date)
+            return
+
+        # ❗守望层：这一步值不值得去问。
+        #
+        # 顺序刻意放在在飞单闸门之后 —— 有单在飞时连问都不必问。
+        # 守望不改变「谁有权放行」，只是把「每 30 秒必问一次」变成
+        # 「有事才问」，同时把「我在等什么」落成可观测的状态。
+        # 三个判据见 core_establish_watch 模块文档，其中 liveness 那条
+        # 是防死锁的：环境判据依赖 action_type，而 action_type 得问过才有。
+        mtc = minutes_to_close(spec.market, datetime.fromtimestamp(now))
+        self._establish_watch.ensure(spec, now=now)
+        watch_ctx = self._establish_watch.context_for(
+            spec,
+            now=now,
+            price=float(quote.current),
+            anchor=float(getattr(quote, "prev_close", 0.0) or 0.0) or None,
+            minutes_to_close=mtc,
+        )
+        ask, wscan = self._establish_watch.peek(spec, watch_ctx, now=now)
+        if not ask:
+            self._note_watch_wait(spec, wscan, carried, target, date)
+            return
+
+        # ❗大环境闸门（2026-10-14）：补仓必须先过决策中心。
+        #
+        # 在飞单闸门守的是「别重复报单」，这里守的是「别在逆风里加码」。
+        # 两件事不一样，两个闸门都要有 —— 只有前者的话，标的越跌就买得越多
+        #（target = 总资产 × 40% ÷ 现价，分母变小所以份额变大）。
+        verdict = self._gate.evaluate(spec, float(quote.current), mtc)
+        self._establish_watch.mark_asked(
+            spec, bool(verdict.allowed), verdict.reason, now=now
+        )
+        if not verdict.allowed:
+            self._note_gate_block(spec, verdict, date)
+            return
+
         summary = pf.get_summary() or {}
         available = float(summary.get("available_capital", 0.0) or 0.0)
         used = float(summary.get("used_capital", 0.0) or 0.0)
@@ -753,6 +850,15 @@ class TRotationRunner:
 
         qty = min(missing, affordable, cap_by_single, cap_by_total)
         qty = (int(qty / lot)) * lot
+
+        # 定量折算：决策中心给的是 0~1 的仓位乘子（decision.sizing 单一口径）。
+        # 逆风少买而不是不打折扣地全买 —— 「等待时机」落在数量上，
+        # 而不是归零（乘子算出来 0 就永远不建仓，等于换个姿势死锁）。
+        # ❗地板是 1 手：乘子再小也要有进展，否则闸门放行了却什么都不做。
+        hint = float(getattr(verdict, "size_hint", 0.0) or 0.0)
+        if 0.0 < hint < 1.0:
+            wanted = (int(missing * hint / lot)) * lot
+            qty = min(qty, max(lot, wanted))
 
         # 本轮买不满目标 → 分批。这一步**不是故障**，而是设计意图。
         #
@@ -801,9 +907,20 @@ class TRotationRunner:
             take_profit_pct=995.0,
         )
         if pos is None:
-            log.error(
-                f"[TRotationRunner] 底仓建仓失败 {spec.name}({spec.code}) "
-                f"{qty:.0f} 份（可能撞仓位限额）"
+            # ❗这里**不能**再说「建仓失败 / 可能撞仓位限额」。
+            #
+            # 下单前刚确认过没有在飞单，且 open_position 里 ok=False 会提前
+            # return —— 走到这里说明**单已经报出去了**，只是 _reload 的等待
+            # 窗口（0.8s）比真实撮合（实测 4s）短，还没看到持仓而已。
+            #
+            # 把它记成 ERROR 还顺手猜一个错的病因，是典型的假警报：
+            # 真出额度问题时，日志里混着这类"没事却喊疼"的记录，真信号会被
+            # 稀释；而看到它的人先去查仓位限额，查的方向就是错的。
+            # （同一类病：见上面「本轮买不满就报 ERROR」那段批注。）
+            log.info(
+                f"[TRotationRunner] 🕐 {spec.name}({spec.code}) 已报单 "
+                f"{qty:.0f} 份 @{price:.3f}，等待成交确认"
+                f"（下一轮核对 —— 有单在飞时不会重复建仓）"
             )
             return
 
@@ -820,6 +937,132 @@ class TRotationRunner:
             f"[TRotationRunner] 🏦 补足底仓 {spec.name}({spec.code}) "
             f"{qty:.0f} 份 @{price:.3f}，"
             f"累计 {carried + qty:.0f}/{target:.0f}（T+1，今日不可卖）{batch_note}"
+        )
+
+    # ------------------------------------------------------------------
+    # 在飞单闸门（建仓幂等的判据）
+    # ------------------------------------------------------------------
+    def _probe_inflight(
+        self, spec: CoreHoldingSpec, pf: Any,
+    ) -> Tuple[Optional[List[Dict[str, Any]]], str]:
+        """问组合："这个标的现在有没有还没了结的买单？"
+
+        返回 ``(orders, blind_reason)``：
+
+        * ``([], "")``      —— 确认没有 → 放行
+        * ``([...], "")``   —— 确认在飞 → 跳过，等它落地
+        * ``(None, "...")`` —— **查不到**（接口失败 / 账户解析不出来）。
+          调用方必须当成"我不知道"，**绝不**能当成"没有" ——
+          把 None 当 [] 用，等于宣称"接口失联 = 可以放心下单"。
+
+        虚拟盘没有 :meth:`in_flight_buy_orders`（下单即成交，不存在中间态），
+        探测不到就走 ``([], "")`` 放行 —— 这是 duck-type 的**刻意兼容**，
+        不是降级，虚拟盘的行为与本次改动前完全一致。
+        """
+        probe = getattr(pf, "in_flight_buy_orders", None)
+        if not callable(probe):
+            return [], ""
+        try:
+            orders = probe(spec.code)
+        except Exception as e:
+            # 适配器自己没兜住的异常，在这里同样不能当成"没有在飞单"
+            return None, f"查询异常: {e}"
+        if orders is None:
+            reason = str(getattr(pf, "last_error", "") or "").strip()
+            return None, reason or "接口未返回结果"
+        return list(orders), ""
+
+    def _note_inflight_wait(
+        self, spec: CoreHoldingSpec, orders: List[Dict[str, Any]],
+        carried: float, target: float, date: str,
+    ) -> None:
+        """有单在飞。这不是故障，按天去重地提示一次就够。"""
+        if self._inflight_noted.get(spec.code) == f"{date}|wait":
+            return
+        self._inflight_noted[spec.code] = f"{date}|wait"
+        first = orders[0] if orders else {}
+        log.info(
+            f"[TRotationRunner] ⏳ {spec.name}({spec.code}) 有 "
+            f"{len(orders)} 笔买单在飞（首笔单号 {first.get('order_id')}，"
+            f"状态 {first.get('order_status')}）持有 {carried:.0f} / "
+            f"目标 {target:.0f} —— 等它落地再决定补不补"
+        )
+
+    def _note_inflight_blind(
+        self, spec: CoreHoldingSpec, reason: str, date: str,
+    ) -> None:
+        """查不到订单状态。看不清路面不能当路面是空的。"""
+        if self._inflight_noted.get(spec.code) == f"{date}|blind":
+            return
+        self._inflight_noted[spec.code] = f"{date}|blind"
+        log.warning(
+            f"[TRotationRunner] ⚠️ {spec.name}({spec.code}) 查不到在飞订单"
+            f"（{reason}）—— **查不到不等于没有**，本轮不建仓以免重复报单"
+        )
+
+    def _note_watch_wait(
+        self,
+        spec: CoreHoldingSpec,
+        wscan: Any,
+        carried: float,
+        target: float,
+        date: str,
+    ) -> None:
+        """守望认为「还不值得去问」。
+
+        ❗这是**策略在等待**，不是故障，所以用 INFO 并按天去重 ——
+        但守望在它自己的心跳里仍会周期性自报，防止「在跑但没机会」与
+        「线程已死」混淆。
+        """
+        self._stats["watch_waiting"] += 1
+        reason = str(getattr(wscan, "why", lambda: "")() or "（无判据）")
+        unknown = bool(getattr(wscan, "unknown", False))
+        # unknown 时不参与去重：判据看不清这件事必须每轮可见
+        if unknown:
+            log.info(
+                f"[TRotationRunner] 🌫️ {spec.name}({spec.code}) 判据看不清，"
+                f"本轮不问 —— {reason}"
+            )
+            return
+        key = f"{date}|waiting"
+        if self._gate_noted.get(f"watch:{spec.code}") == key:
+            return
+        self._gate_noted[f"watch:{spec.code}"] = key
+        log.info(
+            f"[TRotationRunner] 🕰️ {spec.name}({spec.code}) 等待机会，本轮不问 —— "
+            f"持有 {carried:.0f} / 目标 {target:.0f}；{reason}"
+        )
+
+    def _note_gate_block(
+        self, spec: CoreHoldingSpec, verdict: Any, date: str,
+    ) -> None:
+        """补仓被决策中心拦下。
+
+        ❗两种"不许买"必须分开喊：
+
+        * ``source="decision_center"`` = Manas 没放行，**符合预期**，INFO + 按天去重；
+        * ``source="unavailable"`` = 决策中心取不到结论，这是**链路故障**，
+          必须 WARNING 且每轮都喊 —— 否则它会伪装成"行情不好所以没买"，
+          闸门故障与策略观望长得一模一样，正是本仓库头号病理。
+        """
+        src = str(getattr(verdict, "source", "") or "")
+        reason = str(getattr(verdict, "reason", "") or "（无理由）")
+        if src == "unavailable":
+            self._stats["gate_unavailable"] += 1
+            log.warning(
+                f"[TRotationRunner] 🚧 {spec.name}({spec.code}) {reason} —— "
+                f"看不到大环境判断时不冒险下单"
+            )
+            return
+
+        self._stats["gate_blocked"] += 1
+        key = f"{date}|{src}"
+        if self._gate_noted.get(spec.code) == key:
+            return
+        self._gate_noted[spec.code] = key
+        log.info(
+            f"[TRotationRunner] 🌤️ {spec.name}({spec.code}) 等待时机，本轮不补仓 —— "
+            f"{reason}"
         )
 
     # ------------------------------------------------------------------
