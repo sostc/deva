@@ -161,6 +161,14 @@ INJECTIONS = [
         "old": '            and r.get("acc_status", "ACTIVE").upper() == "ACTIVE"\n',
         "new": "",
     },
+    {
+        "name": "买入分支又改回只认 amount（计划股数被重算，实盘少买一手）",
+        "file": EXEC_PY,
+        "old": "            if quantity is not None:\n"
+               "                # ❗调用方（做 T 的补底仓",
+        "new": "            if False:\n"
+               "                # ❗调用方（做 T 的补底仓",
+    },
 ]
 
 
@@ -755,6 +763,30 @@ def check_backends(mod, sandbox) -> list:
         if not mod.slot_taken(taken):
             failures.append("成功后槽位应保持占用（否则当天会重复下单）")
     mod.release_order_slot(taken)
+
+    # ⑬ 买入：**给了计划股数就按计划股数下**，不许拿 amount 重算
+    #    ❗实盘教训（做 T 补底仓）：计划 5900 股 @0.9858 → 限价被对齐到最小价差
+    #    0.986 → 从 amount 反算成 5800 股，少买一手。成因是「同一个量算了两遍」。
+    _qty, _price, _tick, _lot = 5000.0, 1.2055, 0.001, 100
+    out, p = gate("买入按计划股数", _FakeSignal("06666"), side="buy", expect_ok=True,
+                  price=_price, tick=_tick, lot=_lot,
+                  quantity=_qty, amount=_qty * _price, slot_tag="g_buyqty")
+    _amt_derived = mod.floor_to_lot(
+        _qty * _price, mod.round_to_tick(_price, _tick), _lot
+    )
+    # ❗前提校验：本用例必须能「区分认股数 vs 从金额反算」，否则恒真 ——
+    #   挑参数时要保证两者不相等（这里刻意让限价向上取整制造偏差）。
+    if abs(_amt_derived - _qty) < 1e-9:
+        failures.append(
+            "用例失效：amount 反算与计划股数相同，无法区分两种实现（换参数）"
+        )
+    if not out.acted:
+        failures.append(f"买入给了计划股数应成交，实得 skipped={out.skipped} {out.reason!r}")
+    elif abs(out.quantity - _qty) > 1e-9:
+        failures.append(
+            f"买入未按计划股数执行：给 {_qty:.0f}，实得 {out.quantity:.0f}"
+            f"（从 amount 反算会得到 {_amt_derived:.0f} —— 正是本用例要防的偏差）"
+        )
 
     # 落流水：成功与跳过都要留痕（跳过也要可审计）
     journal = mod.read_journal(limit=50)

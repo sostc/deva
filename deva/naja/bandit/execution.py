@@ -688,9 +688,11 @@ class FutuSimBackend(ExecutionBackend):
         """下一笔模拟单。
 
         Args:
-            quantity: **要卖/买的股数**。做 T 的卖腿必须传 —— 卖多少是由
-                「这一轮计划多少股」决定的，不是一个金额能反推出来的。
-                不传时按 ``amount`` 折算（买入路径的既有行为）。
+            quantity: **要卖/买的股数**。买入与卖出**都认**：给了就按它下
+                （向下取整到整手），没给才按 ``amount`` 折算。做 T 的卖腿
+                **必须**传 —— 卖多少是由「这一轮计划多少股」决定的，不是一个
+                金额能反推出来的；买入侧同理，调用方已按手数取整好的计划股数
+                要原样执行，别再拿 amount 重算一遍（见下面买入分支的说明）。
             slot_tag: 幂等槽位的额外标签（做 T 传 round_id，见
                 :func:`order_slot_key`）。
         """
@@ -751,11 +753,26 @@ class FutuSimBackend(ExecutionBackend):
             log.info("[Execution] 限价对齐最小价差 %s: %s → %s", code, price, limit_price)
 
         if side_norm == "buy":
-            qty = floor_to_lot(amount, limit_price, lot_size)
-            if qty <= 0:
-                return skip(
-                    f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {limit_price:g}）"
-                )
+            if quantity is not None:
+                # ❗调用方（做 T 的补底仓 / 回购腿）已经把这一轮的计划股数按手数
+                #   取整好并**直接给了 quantity**，此时 amount 只是它的派生记账值
+                #   （见 FutuSimPortfolio.open_position：amt_for_call = qty * price）。
+                #   **必须按 quantity 下**。若改从 amount 反算，会因限价被对齐到
+                #   最小价差（round_to_tick 可能向上取整）而系统性少买最多一手 ——
+                #   实盘踩过：计划 5900 股 @0.9858 → 限价对齐成 0.986 → 反算成
+                #   5800 股。（限价向下取整时反向也可能多买，方向不可控 —— 这就是
+                #   「同一个量被算了两遍」的代价。）与卖出分支对称。
+                qty = int(float(quantity) // lot_size) * int(lot_size)
+                if qty <= 0:
+                    return skip(
+                        f"买入股数 {float(quantity):.0f} 不足一手（每手 {lot_size} 股）"
+                    )
+            else:
+                qty = floor_to_lot(amount, limit_price, lot_size)
+                if qty <= 0:
+                    return skip(
+                        f"金额 {amount:.0f} 买不起一手（每手 {lot_size} 股 @ {limit_price:g}）"
+                    )
         else:
             # 卖出：股数由调用方给定（做 T 的一轮计划），没有就用金额折算
             raw = float(quantity) if quantity is not None else (
