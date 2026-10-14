@@ -79,9 +79,14 @@ class WatchRegistry:
         max_wait_seconds: Optional[float] = None,
         max_silence_seconds: Optional[float] = None,
         bootstrap: bool = False,
+        recurring: bool = False,
         now: Optional[float] = None,
     ) -> Watch:
-        """挂一个守望上去。同 id 会覆盖（视为重新瞄准）。"""
+        """挂一个守望上去。同 id 会覆盖（视为重新瞄准）。
+
+        :param recurring: 循环守望。到期结算成 ``reviewed`` 之后由
+            :meth:`renew` 自动挂上下一期（长期配置意图专用）。
+        """
         watch = Watch(
             objective=objective,
             opportunities=allow_opportunities(opportunities),
@@ -90,6 +95,7 @@ class WatchRegistry:
             max_wait_seconds=max_wait_seconds,
             max_silence_seconds=max_silence_seconds,
             bootstrap=bootstrap,
+            recurring=recurring,
         )
         self._watches[watch.watch_id] = watch
         log.info(
@@ -149,22 +155,62 @@ class WatchRegistry:
     ) -> List[Watch]:
         """找出已经过了结算点却还没结算的守望。
 
-        :param settle: True 时顺手把它们结算成 ``expired``。
+        :param settle: True 时顺手结算它们。
             ❗过期必须**显式记录** —— 无声消失和从没遇到过机会是两种完全不同的事。
+
+        ❗循环守望**不能结算成 expired**：到期对它而言不是「没等到」，
+        而是「这一期看过了」（``reviewed``）。若一律判成 expired，
+        长期持仓在每一期结束时都会假装自己失败一次 ——
+        页面上看到的将是连续的红字，而实际上一切正常。
         """
         t = now if now is not None else time.time()
         out = [w for w in self._watches.values() if w.is_overdue(t)]
         if settle:
             for w in out:
-                w.settle(
-                    Settlement.EXPIRED,
-                    f"等 {w.age(t) / 60:.0f} 分钟未成交，到期结算",
-                    now=t,
-                )
-                log.info(
-                    "[WatchRegistry] 守望过期结算 %s：%s",
-                    w.watch_id, w.settlement_reason,
-                )
+                if w.recurring:
+                    w.settle(
+                        Settlement.REVIEWED,
+                        f"第 {w.cycles + 1} 期结束：扫 {w.scans} 次 / "
+                        f"问过 {w.asked} 次（放行 {w.granted_count} · "
+                        f"未批准 {w.denied_count} · 没人问 "
+                        f"{w.unanswered_count}）",
+                        now=t,
+                    )
+                    log.info(
+                        "[WatchRegistry] 循环守望 %s 第 %d 期结束：%s",
+                        w.watch_id, w.cycles + 1, w.settlement_reason,
+                    )
+                else:
+                    w.settle(
+                        Settlement.EXPIRED,
+                        f"等 {w.age(t) / 60:.0f} 分钟未成交，到期结算",
+                        now=t,
+                    )
+                    log.info(
+                        "[WatchRegistry] 守望过期结算 %s：%s",
+                        w.watch_id, w.settlement_reason,
+                    )
+        return out
+
+    def renew(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
+        """把已结算的**循环守望**挂上下一期。
+
+        ❗与 :meth:`due` 的分工：``due`` 负责判定「这一期结束了」，
+        本方法负责决定「还要继续」。拆成两步才能表达「最后一期」——
+        合成一步的话，撤下（``remove`` → ``abandoned``）就没法区分了：
+        看起来都像「到期」，但一个是继续、一个是终止。
+
+        :return: 本期归档列表（每个元素是一期的统计快照）
+        """
+        t = now if now is not None else time.time()
+        out: List[Dict[str, Any]] = []
+        for w in self._watches.values():
+            if not w.recurring or w.state != WatchState.SETTLED:
+                continue
+            if w.settlement != Settlement.REVIEWED:
+                # 被人工撤下（abandoned）或其他终态 —— 不续期，停在这里
+                continue
+            out.append(w.arm(t, reason="周期性续期"))
         return out
 
     def pending_asks(self, scans: Sequence[WatchScan]) -> List[WatchScan]:
