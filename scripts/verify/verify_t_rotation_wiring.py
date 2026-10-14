@@ -524,18 +524,21 @@ def check_budget_headroom_shared_with_other_strategies():
         filled += chunk
     assert abs(filled - total_other) < 1e-6, filled
 
-    err_lines = []
+    # 全级别都收，才能区分「分批过程的正常 INFO」与「真卡住的 ERROR」
+    recs = []
     handler = logging.Handler()
-    handler.emit = lambda rec: err_lines.append(rec.getMessage())
+    handler.setLevel(logging.DEBUG)
+    handler.emit = lambda rec: recs.append(rec)
     root = logging.getLogger("deva.naja.bandit.t_rotation_runner")
-    handler.setLevel(logging.ERROR)
     root.addHandler(handler)
+    err_lines = []
 
     try:
         for i in range(20):
             step(env)
             push_quote(env, 1.0, prev_close=1.0, cum_volume=1_000_000 * (i + 1))
             rnr.poll()
+            err_lines = [r.getMessage() for r in recs if r.levelno >= logging.ERROR]
     finally:
         root.removeHandler(handler)
 
@@ -554,18 +557,30 @@ def check_budget_headroom_shared_with_other_strategies():
     fails = [m for m in err_lines if "建仓失败" in m]
     assert not fails, f"仍撞到仓位限额被拒：{fails[:1]}"
 
-    # 额度不足属于配置冲突：必须说清楚，且**每天只说一次**
-    warned = [m for m in err_lines if "额度限制" in m]
+    # 分批进行**不允许**喊人 —— 它会在几轮内自愈；喊人属于制造假故障
+    all_msgs = [r.getMessage() for r in recs]
+    staged = [m for m in all_msgs if "需要人工介入" in m and "零增长" not in m]
+    assert not staged, f"把能自愈的分批报成了「需要人工介入」：{staged[:1]}"
+    # 分批过程必须留下可读痕迹（否则 UI/日志上看不出它在干活）
+    batches = [m for m in all_msgs if "分批" in m and "补足底仓" in m]
+    assert batches, "分批补仓过程完全没留痕 —— 静默的后台任务等于没有后台任务"
+    assert any("1/2" in m or "1/3" in m for m in batches), batches[:2]
+
+    # 真的卡住（额度被别的策略占死）必须说清楚，且**每天只说一次**
+    warned = [m for m in err_lines if "额度限制" in m or "底仓卡住" in m]
     assert warned, "额度不足却不告警 —— 用户会以为底仓已经到位"
     assert len(warned) == 1, f"额度告警刷屏了 {len(warned)} 条（应每天 1 条）"
     assert "总持仓额度只剩" in warned[0], warned[0]
+    assert "连续" in warned[0], (
+        f"告警没说清「连续几轮零增长」，读日志的人无法判断是真卡死还是正在分批：{warned[0]}"
+    )
 
     st = rnr.get_status()["symbols"][0]
     assert st["budget_warned"] == "2026-10-13", st["budget_warned"]
     assert st["held_shares"] == held, (st["held_shares"], held)
 
     print(f"3c) 额度被占用 OK —— 其它策略占 42 万，底仓按剩余 {headroom:,.0f} 元 "
-          f"买到 {held:.0f} 份，告警恰好 1 条且不刷屏")
+          f"买到 {held:.0f} 份，卡住告警恰好 1 条（分批过程零告警）")
 
 
 def check_bus_drives_engine():

@@ -68,6 +68,12 @@ class TRotationRunner:
     #: 连续多少次「毫无变化」就判定行情断流/休市
     DEFAULT_FLAT_LIMIT = 12
 
+    #: 连续多少轮「分批补底仓但份额零增长」才算真的卡住。
+    #: 底仓规模（默认 40% 总资产）本来就超过单笔上限（默认 20%），
+    #: **分批是设计意图，不是故障** —— 前几轮没补满属正常，
+    #: 只有一直原地踏步才值得占 ERROR 通道喊人。
+    DEFAULT_STALL_LIMIT = 3
+
     def __init__(
         self,
         portfolio=None,
@@ -82,6 +88,7 @@ class TRotationRunner:
         max_quote_age: Optional[float] = None,
         on_sim: Optional[bool] = None,
         portfolios: Optional[Dict[str, Any]] = None,
+        stall_limit: Optional[int] = None,
     ):
         self._specs = list(specs) if specs else load_core_holdings()
         self._by_code: Dict[str, CoreHoldingSpec] = {s.code: s for s in self._specs}
@@ -102,6 +109,12 @@ class TRotationRunner:
             else env_flag("NAJA_T_ROTATION_ESTABLISH", True)
         )
         self._flat_limit = int(flat_poll_limit or self.DEFAULT_FLAT_LIMIT)
+        # 底仓要分好几批才补得满，中间几轮"没补满"是计划的一部分；
+        # 只有连续这么多轮一分钱也没买进去，才按真故障处理。
+        self._stall_limit = int(
+            stall_limit if stall_limit is not None
+            else env_float("NAJA_T_ROTATION_STALL_LIMIT", self.DEFAULT_STALL_LIMIT)
+        )
 
         # ❗真仓开关：默认 **关**。关着的时候一切照旧走虚拟盘，
         # 装了新代码不代表可以自动开始往模拟账户报单 —— 要真下单必须
@@ -132,8 +145,12 @@ class TRotationRunner:
         # 守恒校验会变成「拿一把会伸缩的尺子量自己」。
         self._plan_targets: Dict[str, float] = {}
         self._plan_date: Dict[str, str] = {}
-        # 额度不足属于配置冲突，按天去重告警，别把日志刷满
+        # 真的卡住的额度冲突才告警，按天去重，别把日志刷满
         self._budget_warned: Dict[str, str] = {}
+        # 分批补底仓的进度追踪：(交易日, 上一轮持有份额, 连续零增长轮数)
+        self._fill_progress: Dict[str, tuple] = {}
+        # 当天已成交的分批笔数，仅用于日志可读性：(交易日, 笔数)
+        self._fill_batches: Dict[str, tuple] = {}
         self._last_price: Dict[str, float] = {}
         self._last_cum_vol: Dict[str, float] = {}
         self._flat_runs: Dict[str, int] = {}
@@ -681,6 +698,8 @@ class TRotationRunner:
         carried = self._ledger.effective_shares(spec.code, self._pf(spec.market))
         missing = target - carried
         if missing <= spec.round_lot:
+            # 底仓到位 —— 顺手销掉分批账，下次再出现缺口时重新计数
+            self._reset_fill_tracking(spec)
             return
 
         if not self._establish:
@@ -732,25 +751,26 @@ class TRotationRunner:
         qty = min(missing, affordable, cap_by_single, cap_by_total)
         qty = (int(qty / lot)) * lot
 
-        # 额度不够把目标买满，是**配置冲突**，不是行情问题 ——
-        # 每天只在首次识别时说一次，否则每 30 秒一条 error 会把真故障淹掉。
-        if qty + lot <= missing and self._budget_warned.get(spec.code) != date:
-            self._budget_warned[spec.code] = date
-            if headroom < (missing - carried * 0) * price * 0.999 and headroom <= missing * price:
-                why = (
-                    f"总持仓额度只剩 {headroom:,.0f} 元"
-                    f"（上限 {total_budget:,.0f}，其它策略已占用 {used:,.0f}）"
-                )
-            else:
-                why = (
-                    f"可用资金不足：{available:,.0f} 元"
-                    if affordable < missing else "单笔/总额度限制"
-                )
-            log.error(
-                f"[TRotationRunner] 🚨 {spec.name}({spec.code}) 底仓受额度限制，"
-                f"本轮只能补 {qty:.0f} 份、仍缺 {missing - qty:.0f} 份 —— {why}。"
-                f"需要人工介入：清理无用持仓，或调整虚拟仓的总持仓上限。"
+        # 本轮买不满目标 → 分批。这一步**不是故障**，而是设计意图。
+        #
+        # ❗历史教训（2026-10-14）：这里原本只要 "本轮买不满" 就发 ERROR
+        # 并写「需要人工介入」—— 结果首批就说"缺 21 万份"，60 秒后系统
+        # 自己分三批补满了。中间态被当成终态报，会把能自愈的分批伪装成
+        # 必须处理的故障，还因为它按天去重，看上去像是一直没解决。
+        #
+        # 判据改成「有没有进展」：份额在涨 = 分批正常，静默；
+        # 连续多轮份额一动不动 = 真的卡住（资金耗尽/额度见顶/下单被拒），
+        # 这时才升 ERROR 并按天去重。
+        if qty + lot <= missing:
+            self._note_fill_round(
+                spec, target=target, carried=carried, missing=missing, qty=qty,
+                price=price, date=date, headroom=headroom,
+                total_budget=total_budget, used=used, available=available,
+                affordable=affordable,
             )
+        else:
+            # 本轮就能补满 —— 把分批账销掉，别把旧计数带进下一次缺口
+            self._reset_fill_tracking(spec)
 
         if qty < lot:
             log.warning(
@@ -784,15 +804,91 @@ class TRotationRunner:
             )
             return
 
-        batch_note = (
-            f"（分批：受单笔限额 {single_budget:,.0f} / 可用额度 {headroom:,.0f} 限制，"
-            f"下一轮继续补）"
-            if qty < missing else ""
-        )
+        batch_note = ""
+        if qty < missing:
+            batch_no = self._bump_fill_batch(spec, date)
+            total_batches = self._expected_batches(missing, qty, lot)
+            batch_note = (
+                f"（分批 {batch_no}/{total_batches}：受单笔限额 "
+                f"{single_budget:,.0f} / 可用额度 {headroom:,.0f} 限制，"
+                f"下一轮继续补）"
+            )
         log.info(
             f"[TRotationRunner] 🏦 补足底仓 {spec.name}({spec.code}) "
             f"{qty:.0f} 份 @{price:.3f}，"
             f"累计 {carried + qty:.0f}/{target:.0f}（T+1，今日不可卖）{batch_note}"
+        )
+
+    # ------------------------------------------------------------------
+    # 分批补底仓的进度记账
+    # ------------------------------------------------------------------
+    def _reset_fill_tracking(self, spec: CoreHoldingSpec) -> None:
+        """底仓到位（或本轮即可到位）→ 销掉分批账。"""
+        self._fill_progress.pop(spec.code, None)
+        self._fill_batches.pop(spec.code, None)
+        self._budget_warned.pop(spec.code, None)
+
+    def _bump_fill_batch(self, spec: CoreHoldingSpec, date: str) -> int:
+        """记一笔成功的分批，返回它是今天的第几批。"""
+        last_date, n = self._fill_batches.get(spec.code, (None, 0))
+        if last_date != date:
+            n = 0
+        n += 1
+        self._fill_batches[spec.code] = (date, n)
+        return n
+
+    @staticmethod
+    def _expected_batches(missing: float, qty: float, lot: float) -> int:
+        """按本轮的规模粗估总共要分几批（只用于日志，不参与决策）。"""
+        if qty <= 0:
+            return 1
+        return max(1, int(missing / max(qty, lot) + 0.999))
+
+    def _note_fill_round(
+        self, spec: CoreHoldingSpec, *, target: float, carried: float,
+        missing: float, qty: float, price: float, date: str, headroom: float,
+        total_budget: float, used: float, available: float, affordable: float,
+    ) -> None:
+        """本轮补不满时的记账：有进展就沉默，连续原地踏步才升级成 ERROR。
+
+        分批是设计意图（40% 底仓必然超过 20% 单笔上限），所以**默认不说**；
+        只有「名额是该给它的，但连续 N 轮一分也买不进去」才值得占 ERROR
+        通道。判据是份额有没有涨，而不是本轮有没有买满。
+        """
+        prev_date, prev_shares, prev_rounds = self._fill_progress.get(
+            spec.code, (None, None, 0)
+        )
+        if prev_date != date or prev_shares is None:
+            # 当天第一轮：还没得比，先立个基准，不急着喊
+            self._fill_progress[spec.code] = (date, carried, 0)
+            return
+
+        progressed = carried > prev_shares + spec.round_lot / 2
+        rounds = 0 if progressed else prev_rounds + 1
+        self._fill_progress[spec.code] = (date, carried, rounds)
+
+        if rounds < self._stall_limit:
+            return
+
+        # 真的卡住了 —— 每天只说一次，否则 30 秒一条会把真故障淹掉
+        if self._budget_warned.get(spec.code) == date:
+            return
+        self._budget_warned[spec.code] = date
+
+        if headroom < missing * price * 0.999:
+            why = (
+                f"总持仓额度只剩 {headroom:,.0f} 元"
+                f"（上限 {total_budget:,.0f}，其它策略已占用 {used:,.0f}）"
+            )
+        elif affordable < missing:
+            why = f"可用资金不足：{available:,.0f} 元"
+        else:
+            why = "单笔/总额度限制"
+        log.error(
+            f"[TRotationRunner] 🚨 {spec.name}({spec.code}) 底仓卡住："
+            f"连续 {rounds} 轮份额零增长（持有 {carried:.0f}/目标 {target:.0f}，"
+            f"仍缺 {missing:.0f} 份，本轮只买得起 {qty:.0f} 份）—— {why}。"
+            f"需要人工介入：清理无用持仓，或调整虚拟仓的总持仓上限。"
         )
 
     # ------------------------------------------------------------------
@@ -826,8 +922,13 @@ class TRotationRunner:
                 "alloc_pct": spec.alloc_pct,
                 "target_budget": spec.target_budget(self.total_assets(spec.market)),
                 "target_resolved_date": self._plan_date.get(spec.code),
-                # 额度不够买满目标时，这里要能回答「为什么差这么多」
+                # 「真的卡住了」才会打上日期（分批进行中是不打的）
                 "budget_warned": self._budget_warned.get(spec.code),
+                # 分批进行到第几没有进展了 —— 0 表示上一轮有进展
+                "fill_stalled_rounds": self._fill_progress.get(
+                    spec.code, (None, None, 0)
+                )[2],
+                "fill_batches": self._fill_batches.get(spec.code, (None, 0))[1],
                 "held_shares": (
                     None if self._ledger is None else
                     self._ledger.effective_shares(spec.code, self._pf(spec.market))
