@@ -31,11 +31,15 @@ __all__ = [
     "WatchScan",
     "Watch",
     "ASK_LOG_MAXLEN",
+    "CYCLE_LOG_MAXLEN",
     "ask_verdict_text",
 ]
 
 #: 每个守望留多少条问询记录。够回看「最近为什么没买」，又不至于无限膨胀。
 ASK_LOG_MAXLEN = 30
+
+#: 循环守望留多少期归档。一期一条，够回看「这个长期持仓最近几周干了什么」。
+CYCLE_LOG_MAXLEN = 20
 
 
 def ask_verdict_text(granted: Optional[bool]) -> str:
@@ -60,6 +64,10 @@ class Settlement(str, Enum):
     REACHED = "reached"      # 目标达成了
     EXPIRED = "expired"      # 到点没达成 —— 必须显式记录，不是无声消失
     ABANDONED = "abandoned"  # 主动放弃（换策略、撤单、人工介入）
+    #: ★ 循环守望专用：**这一期看过了**，不是失败也不是达成。
+    #: 只有 :attr:`Watch.recurring` 的守望才会走到这里 —— 长期持有的
+    #: 语义就是「没有完成态」，但每一期都得有个终点（见类 docstring）。
+    REVIEWED = "reviewed"
 
 
 @dataclass
@@ -108,6 +116,19 @@ class Watch:
     #: 但**环境类判据必须开** —— 它的输入 ``action_type`` 只有问过才存在，
     #: 不 bootstrap 就是「永远拿不到第一份 → 永远 unknown → 再也不问」的死锁。
     bootstrap: bool = False
+    #: ★循环守望：**到期不是终点，而是「这一期看过了」**。
+    #:
+    #: 用户原话（2026-10-14）：「希望长期来说持有科创 ETF 腾讯 qqq」。
+    #: 这类意愿和「我想买英伟达」不是一回事 ——
+    #:     * 买英伟达是**机会型**：等一个进场点，买到了就完成，守望消失
+    #:     * 长期持有是**状态型**：买了不算完，跌了要回补、做 T 卖飞了要买回
+    #: 但守望系统有一条硬纪律：**不准有无限期的守望**（没有结算点的守望
+    #: 和死掉的线程长得一样）。循环守望就是这两者的和解办法 ——
+    #: 把「永远」切成**一串有终点的周期**：每期到点结算成 ``reviewed``，
+    #: 然后由 :meth:`WatchRegistry.renew` 自动挂上下一期。
+    #: 于是纪律没破（每期都有终点），长期也表达了（整体不结束），
+    #: 而且每一期都留痕 —— 事后能回答「这周它等了什么、问过几次」。
+    recurring: bool = False
 
     def __post_init__(self) -> None:
         if not self.opportunities:
@@ -138,6 +159,21 @@ class Watch:
         self.last_prod_at: float = self.armed_at
         self._bootstrapped: bool = False
         self.prods: int = 0
+
+        # -- 循环守望记账 -----------------------------------------------
+        #: 已完成的期数。第 1 期从 ``armed_at`` 开始算，每次续期 +1。
+        self.cycles: int = 0
+        #: 每期归档。看「这个长期持仓最近几周都干了什么」靠它。
+        self.cycle_log: deque = deque(maxlen=CYCLE_LOG_MAXLEN)
+        #: ❗「本期」与「累计」必须分开：UI 要能同时回答
+        #: 「这一期问过几次」和「这个长期持仓总共问过几次」。
+        #: ``scans`` / ``fires`` / ``asked`` 等是**本期**；下面是累计。
+        self.total_scans: int = 0
+        self.total_fires: int = 0
+        self.total_asked: int = 0
+        self.total_granted: int = 0
+        self.total_denied: int = 0
+        self.total_unanswered: int = 0
 
         # -- 执行记录 ---------------------------------------------------
         #: ❗「守望在等」这件事看不见就等于没发生：UI 要回答「这个想法问过
@@ -191,6 +227,7 @@ class Watch:
             「买了 HD 图的时间」和「守望诞生的时间」必须是同一把尺子。
         """
         self.scans += 1
+        self.total_scans += 1
         now = (
             now if now is not None
             else (ctx.now if ctx is not None else time.time())
@@ -249,6 +286,7 @@ class Watch:
 
         if decided:
             self.fires += 1
+            self.total_fires += 1
             self.last_prod_at = now
             natural = [r for r in reasons if not r.startswith("liveness:")]
             if natural:
@@ -307,13 +345,80 @@ class Watch:
         self.last_ask_at = t
         self.last_granted = verdict
         self.asked += 1
+        self.total_asked += 1
         if verdict is None:
             self.unanswered_count += 1
+            self.total_unanswered += 1
         elif verdict:
             self.granted_count += 1
+            self.total_granted += 1
         else:
             self.denied_count += 1
+            self.total_denied += 1
         return entry
+
+    def arm(self, now: Optional[float] = None, reason: str = "") -> Dict[str, Any]:
+        """给循环守望挂上**下一期**。只有 :attr:`recurring` 的守望能用。
+
+        ❗为什么结算和续期要分成两步：``settle`` 是事实（这一期结束了），
+        ``arm`` 是决定（还要继续）。合成一步的话，「最后一期」就没法表达了 ——
+        UI 上永远看不到「已经停了」，只能看到一个又一期的循环。
+
+        上一期的统计会被**归档**而不是丢弃：长期持仓最值钱的信息恰恰是
+        「这几期它都在等什么、问过几次、被否了几次」。
+        """
+        if not self.recurring:
+            raise ValueError(
+                f"守望 {self.watch_id} 不是循环守望（recurring=False），"
+                "不能续期 —— 一次性守望到期就该结束，重新挂请用 declare()"
+            )
+        t = now if now is not None else time.time()
+        summary = {
+            "cycle": max(1, self.cycles),
+            "armed_at": round(self.armed_at, 3),
+            "settled_at": (
+                round(self.settled_at, 3) if self.settled_at is not None else None
+            ),
+            "outcome": self.settlement.value if self.settlement else "",
+            "reason": self.settlement_reason or reason,
+            "scans": self.scans,
+            "fires": self.fires,
+            "asked": self.asked,
+            "granted_count": self.granted_count,
+            "denied_count": self.denied_count,
+            "unanswered_count": self.unanswered_count,
+        }
+        self.cycle_log.append(summary)
+        self.cycles += 1
+        self.state = WatchState.ARMED
+        self.armed_at = t
+        self.last_prod_at = t
+        self.last_state_change_at = t
+        self.settlement = None
+        self.settlement_reason = ""
+        self.settled_at = None
+        self._bootstrapped = False
+        # 本期计数归零（累计计数 total_* 保持不动）
+        self.scans = 0
+        self.fires = 0
+        self.unknown_scans = 0
+        self.prods = 0
+        self.asked = 0
+        self.granted_count = 0
+        self.denied_count = 0
+        self.unanswered_count = 0
+        log.info(
+            "[Watch] %s 进入第 %d 期（%s）",
+            self.watch_id, self.cycles, reason or "周期性续期",
+        )
+        return summary
+
+    def cycle_history(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """最近若干期的归档（新的在前）。"""
+        rows = list(self.cycle_log)
+        if limit and limit > 0:
+            rows = rows[-int(limit):]
+        return list(reversed(rows))
 
     def ask_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """最近若干条问询记录（新的在前）。"""
@@ -379,4 +484,14 @@ class Watch:
             "settlement": self.settlement.value if self.settlement else "",
             "settlement_reason": self.settlement_reason,
             "recent_asks": self.ask_history(5),
+            # -- 循环守望：长期持有的时间维度 --
+            "recurring": bool(self.recurring),
+            "cycles": self.cycles,
+            "total_scans": self.total_scans,
+            "total_fires": self.total_fires,
+            "total_asked": self.total_asked,
+            "total_granted": self.total_granted,
+            "total_denied": self.total_denied,
+            "total_unanswered": self.total_unanswered,
+            "recent_cycles": self.cycle_history(3),
         }

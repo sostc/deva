@@ -249,6 +249,9 @@ def to_objective(intent: Intent) -> Objective:
     """意向变成目标。金额留在参数里，不由意向层折算股数（那是决策中心的事）。"""
     params: Dict[str, Any] = {
         "side": intent.side,
+        #: ❗``name`` 必须进 params：UI 的守望表从 params 里读名字，
+        #: 漏了就只能显示代码。
+        "name": intent.name or intent.code,
         "rationale": intent.rationale,
         #: ❗意愿强度必须随目标一起走：决策中心那边要看得见「这笔是人想买的」，
         #: 否则它跟系统自动补底仓的信号长得一模一样，权重为 0。

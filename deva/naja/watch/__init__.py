@@ -70,6 +70,12 @@ from .intent import (
     intent_id,
     to_objective,
 )
+from .allocation import (
+    HORIZONS,
+    Allocation,
+    allocation_id,
+    declare_allocation,
+)
 from .desk import DeskTicket, WatchDesk
 from .registry import WatchRegistry
 from .watch import Settlement, Watch, WatchScan, WatchState
@@ -105,6 +111,10 @@ __all__ = [
     "intent_id",
     "to_objective",
     "declare_intent",
+    "HORIZONS",
+    "Allocation",
+    "allocation_id",
+    "declare_allocation",
     "WatchDesk",
     "DeskTicket",
 ]

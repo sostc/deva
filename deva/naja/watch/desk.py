@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
+from .allocation import Allocation, declare_allocation
 from .intent import Intent, clamp_confidence, declare_intent
 from .manas_lens import ManasLens, ManasReading
 from .objective import Objective, WatchContext
@@ -134,12 +135,19 @@ class WatchDesk:
         self._observers: Dict[str, Observer] = {}
         for side in ("buy", "sell", "trim"):
             self._observers[f"{side}_intent"] = self._intent_context
+        #: ★长期配置（循环守望）。观测面与意向类相同：行情 + 距收盘 + Manas 读数。
+        #: ❗**必须显式登记**：少了这一行，长期配置会因为找不到观测面工厂
+        #: 而每轮记成「本轮取不到观测」—— 不触发、不报错、日志里只留一行
+        #: 警告，和「这个想法从来没挂上过」长得一模一样。
+        self._observers["allocation"] = self._intent_context
 
         # -- 自证计数 ------------------------------------------------
         self.polls = 0
         self.unknown_scans = 0
         self.consumed = 0
         self.unanswered = 0
+        #: 循环守望续期次数。长期持仓的「心跳」—— 一直不涨说明台面卡住了。
+        self.renewals = 0
         self._warned_missing: set = set()
         self._warned_no_asker: set = set()
         self._last_sync_fetch: Dict[str, float] = {}
@@ -175,6 +183,25 @@ class WatchDesk:
         return declare_intent(
             self.registry, intent, now=now,
             max_silence_seconds=max_silence_seconds,
+        )
+
+    def declare_allocation(
+        self,
+        alloc: Allocation,
+        *,
+        now: Optional[float] = None,
+        max_silence_seconds: Optional[float] = None,
+        bootstrap: bool = True,
+    ) -> Watch:
+        """把一份长期配置挂上台。**循环守望**：到期自动续下一期。
+
+        ❗``bootstrap`` 默认开，与一次性意向不同：长期持仓的仓位可能早就够了，
+        这时它永远不会触发机会判据 —— 没有 bootstrap 就等于从第一天起完全隐形。
+        """
+        return declare_allocation(
+            self.registry, alloc, now=now,
+            max_silence_seconds=max_silence_seconds,
+            bootstrap=bootstrap,
         )
 
     def watches(self) -> Sequence[Watch]:
@@ -252,8 +279,21 @@ class WatchDesk:
             self._log_ticket(tk, t)
             tickets.append(tk)
         self.polls += 1
-        # 到期的守望这一轮就结算成 expired，不让它无声消失
+        # 到期的守望这一轮就结算，不让它无声消失
         self.registry.due(t, settle=True)
+        # ❗循环守望结算成 reviewed 之后**必须有人把它挂回下一期**。
+        # 少了这一步，「长期持有」会在第一期结束时变成一具尸体 ——
+        # 页面上显示「已结算」，跟「这个想法从没存在过」没有区别。
+        # 这正是「配置写好了、链路没接」那一类静默失效的标准形态。
+        summaries = self.registry.renew(t)
+        for s in summaries:
+            self.renewals += 1
+            log.info(
+                "[WatchDesk] 循环守望已续期 —— 第 %d 期：扫 %d 次 / 问过 %d 次"
+                "（放行 %d · 未批准 %d · 没人问 %d）",
+                s["cycle"], s["scans"], s["asked"],
+                s["granted_count"], s["denied_count"], s["unanswered_count"],
+            )
         return tickets
 
     def heartbeat(self, now: Optional[float] = None, *,

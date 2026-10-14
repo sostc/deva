@@ -7,20 +7,38 @@
 3. **最近怎么说**：最近一次决策中心给的理由（hold 就写 hold）。
 4. **我想改主意**：登记新意向、调意愿强度、撤下。
 
+两类守望，一个页面
+==================
+    ============  =========================  =========================
+                   长期配置（Allocation）      一次性意向（Intent）
+    ============  =========================  =========================
+    想表达什么     想一直持有它                想买 / 想卖，等个好价钱
+    有没有完成态   没有 —— 补到位也不算完      有 —— 成交即结束
+    到期意味着     **这期看过了**（reviewed）  没等到（expired）
+    到期之后       自动挂上下一期              守望消失
+    ============  =========================  =========================
+
 ❗三条纪律（与内核同源，UI 不许成为绕过它们的后门）
 ==================================================
 * **页面上没有任何下单按钮**。守望台只负责「等」和「问」，批不批在决策中心，
   真落单还需要另一道显式授权。这里的每个按钮都只改愿望，不改账户。
 * **意愿强度有硬顶**（0.75）。滑块拖到底也只是「更有分量」，
   ❗不是放行键 —— 上限由 :func:`~.intent.clamp_confidence` 兜住，UI 传 100 也没用。
-* **必须回答「等到什么时候为止」**。表单里的「最多等多少小时」是必填项，
-  不给就登记不上：一个永不过期的想法和一条死掉的线程长得一模一样。
+* **必须回答「等到什么时候为止」**。一次性意向的「最多等多少小时」是必填项，
+  长期配置则必须给回顾周期：一个永不过期的想法和一条死掉的线程长得一模一样。
+
+❗目标仓位由人拍板
+==================
+长期配置里的「目标占比」**不会**由代码替人决定。留空就是「还没定」，
+页面必须如实写「未设定」—— 拿一个默认值假装用户拍过板，
+正是幽灵配置的长法。
 
 落盘与在台
 ==========
-登记/改力度/撤下会同时写回声明式清单（``~/.naja/intents.json``）与运行中的
-守望台。只改内存的话，服务一重启页面就「什么都没发生过」—— 那正是本仓库
-最常犯的「UI 写好了、链路没接」。
+登记/改力度/撤下会同时写回声明式清单（``~/.naja/intents.json``、
+``~/.naja/allocations.json``）与运行中的守望台。只改内存的话，
+服务一重启页面就「什么都没发生过」—— 那正是本仓库最常犯的
+「UI 写好了、链路没接」。
 """
 
 from __future__ import annotations
@@ -28,7 +46,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pywebio.input import (
     NUMBER, input, input_group, select, slider, textarea,
@@ -44,7 +62,29 @@ __all__ = ["render_watch_desk"]
 
 _SIDE_ZH = {"buy": "买入", "sell": "卖出", "trim": "减仓"}
 _STATE_ZH = {"armed": "⏳ 在等", "triggered": "🔔 待问", "settled": "🏁 已结算"}
+_HORIZON_ZH = {"long": "长期", "swing": "波段"}
 _EMPTY_NOTE = "（守望台是空的 —— 想买想卖就点上面的「登记意向」）"
+_EMPTY_ALLOC_NOTE = (
+    "（还没有长期配置 —— 想长期持有的，比如科创 ETF / 腾讯 / QQQ，"
+    "点上面的「登记长期配置」）"
+)
+
+#: 目标占比的滑块上限。底仓不可能吃掉全部资金，这里给 0~60%。
+ALLOC_SLIDER_MAX = 60.0
+
+_ALLOC_INTRO = (
+    "<h4 style='margin:12px 0 4px'>🏛 长期配置（一直持有）</h4>"
+    "<div style='color:#94a3b8;font-size:13px;margin-bottom:8px'>"
+    "这类意愿<b>没有完成态</b> —— 补到位也不算完，跌了要回补、做 T 卖飞了要买回。"
+    "所以它<b>按周期挂</b>：每期到期结算成「看过了」，然后自动续下一期。"
+    "<b>长期 ≠ 无限期</b>：没有回顾周期的长期持仓，和守望线程死掉没法区分。</div>"
+)
+_INTENT_INTRO = (
+    "<h4 style='margin:12px 0 4px'>⏳ 一次性意向（等机会下手）</h4>"
+    "<div style='color:#94a3b8;font-size:13px;margin-bottom:8px'>"
+    "想买 / 想卖但还没下手的。机会成立只买到「去问决策中心一次」的资格，"
+    "到期没等到就结算成过期。</div>"
+)
 
 #: 滑块上限。**写死 0.75 而不是读常量**：页面上写多少，就是用户能拖到多少，
 #: 它必须和内核封顶是同一个数，且不随内核改动漂移。
@@ -148,6 +188,20 @@ def _overview_html(runner, desk) -> str:
     snap = desk.snapshot()
     manas = snap.get("manas") or {}
     unanswered = int(snap.get("unanswered") or 0)
+    #: 长期配置与一次性意向**分开数**：一个是状态、一个是机会，
+    #: 混成一个数就分不清「想持有」和「想下手」了。
+    allocs = [w for w in desk.watches() if w.objective.kind == "allocation"]
+    intents = [w for w in desk.watches() if w.objective.kind != "allocation"]
+    unset = sum(
+        1 for w in allocs
+        if not bool((w.objective.params or {}).get("target_set"))
+    )
+    renewals = int(getattr(desk, "renewals", 0) or 0)
+    unset_warn = (
+        f"<div style='color:#fbbf24;font-size:12px;margin-top:4px'>"
+        f"⚠️ {unset} 份还没定目标占比 —— 现在是「知道想持有，不知道持有多少」</div>"
+        if unset else ""
+    )
     asker = "✅ 已接决策中心" if snap.get("asker_attached") else (
         "⚠️ 没接执行器（票开出去没人领）"
     )
@@ -167,8 +221,9 @@ def _overview_html(runner, desk) -> str:
         f"<b>{snap.get('armed', 0)} 在等 · {snap.get('triggered', 0)} 待问 · "
         f"{snap.get('settled', 0)} 已结算</b>"
         f"<div style='color:#94a3b8;font-size:12px;margin-top:4px;'>"
-        f"共扫 {snap.get('polls', 0)} 轮 / 判据看不清 "
-        f"{snap.get('unknown_scans', 0)} 次</div></div>"
+        f"长期配置 {len(allocs)} 份 · 一次性意向 {len(intents)} 个 · "
+        f"已续期 {renewals} 次</div>"
+        f"{unset_warn}</div>"
         f"<div><div style='color:#94a3b8;font-size:12px;'>Manas 镜头</div>"
         f"<b>读数 {manas.get('reads', 0)} 次 / 看不清 "
         f"{manas.get('unknown_reads', 0)} 次</b>"
@@ -195,10 +250,135 @@ def _ask_summary(row: Dict[str, Any]) -> str:
     )
 
 
-def _watch_rows(desk, now: float) -> List[List[Any]]:
-    """表格行。**数据一律来自 Watch.to_row**，避免 UI 自己另算一套口径。"""
+def _ask_summary_html(row: Dict[str, Any]) -> str:
+    """问询统计的彩色版。**数字与** :func:`_ask_summary` **同源**，
+    只是这里负责上色 —— 守卫断言文案，页面负责显示。"""
+    g, d, u = (
+        int(row.get(k, 0) or 0)
+        for k in ("granted_count", "denied_count", "unanswered_count")
+    )
+    html = (
+        f"{row.get('asked', 0)} 次<br>"
+        f"<span style='color:#4ade80'>✓{g}</span> · "
+        f"<span style='color:#f87171'>✗{d}</span> · "
+        f"<span style='color:#fbbf24'>?{u}</span>"
+    )
+    if u:
+        html += ("<div style='color:#fbbf24;font-size:12px'>"
+                 "有票没人去问 —— 查日志</div>")
+    return html
+
+
+def _position_lookup() -> Optional[Dict[Tuple[str, str], Dict[str, Any]]]:
+    """取一份「标的 → 持仓」快照。
+
+    拿不到返回 ``None`` —— ❗**绝不能退化成空 dict**：那份「空」和
+    「查了一遍，确实一股都没有」在页面上长得一模一样，而前者是链路断了。
+    """
+    try:
+        from ..bandit.t_rotation_runner import get_t_rotation_runner
+
+        status = get_t_rotation_runner().get_status() or {}
+    except Exception as e:  # noqa: BLE001
+        log.debug("[WatchUI] 取持仓快照失败: %s:%s", type(e).__name__, e)
+        return None
+    rows = status.get("symbols")
+    if not isinstance(rows, list):
+        return None
+    out: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        key = (
+            str(row.get("code") or "").strip().upper(),
+            str(row.get("market") or "").strip().upper(),
+        )
+        out[key] = row
+    return out
+
+
+def _allocation_rows(
+    desk, now: float, positions: Optional[Dict[Tuple[str, str], Dict[str, Any]]],
+) -> List[List[Any]]:
+    """长期配置区。**循环守望**：到期结算成 reviewed 后自动续下一期。"""
     rows: List[List[Any]] = []
     for watch in desk.watches():
+        if watch.objective.kind != "allocation":
+            continue
+        r = watch.to_row(now)
+        p = watch.objective.params or {}
+        name = str(p.get("name") or "").strip()
+        who = (
+            f"{_cut(name, 18)} · {watch.objective.market}" if name
+            else watch.objective.market
+        )
+
+        pct = float(p.get("alloc_pct") or 0.0)
+        target_txt = (
+            _h(f"<b>{pct:.0f}%</b>"
+               f"<div style='color:#94a3b8;font-size:12px'>总资产</div>")
+            if r.get("target_set") or pct > 0
+            else _h("<b style='color:#fbbf24'>未设定</b>"
+                    "<div style='color:#94a3b8;font-size:12px'>点「改目标」</div>")
+        )
+
+        # 缺口：拿不到持仓就如实说未知，❗不拿 0 顶替
+        if positions is None:
+            gap = _h("<span style='color:#94a3b8'>未知</span>"
+                     "<div style='color:#94a3b8;font-size:12px'>取不到账户</div>")
+        else:
+            row = positions.get(
+                (watch.objective.subject.upper(), watch.objective.market.upper())
+            )
+            held = row.get("held_shares") if isinstance(row, dict) else None
+            if held is None:
+                gap = _h("<span style='color:#94a3b8'>未知</span>")
+            else:
+                tgt = float(row.get("target_shares") or 0.0) if isinstance(row, dict) else 0.0
+                diff = tgt - float(held)
+                color = "#4ade80" if diff <= 0 else "#fbbf24"
+                word = "已到位" if diff <= 0 else f"还差 {diff:,.0f}"
+                gap = _h(f"持 {float(held):,.0f}"
+                         f"<div style='color:{color};font-size:12px'>{word}</div>")
+
+        review = (
+            f"每 {float(p.get('review_seconds') or 0) / 86400:.0f} 天<br>"
+            f"已回顾 {r.get('cycles', 0)} 期"
+        )
+        rows.append([
+            _h(f"<b>{watch.objective.subject}</b>"
+               f"<div style='color:#94a3b8;font-size:12px'>{who}</div>"),
+            target_txt,
+            gap,
+            _h(f"<b>{_conf_text(p.get('confidence'))}</b>"
+               f"<div style='color:#94a3b8;font-size:12px'>"
+               f"{'手改' if p.get('confidence_explicit') else '默认'}</div>"),
+            _h(f"{_HORIZON_ZH.get(p.get('horizon') or '', str(p.get('horizon') or '-'))}"
+               f"<div style='color:#94a3b8;font-size:12px'>"
+               f"{_cut(p.get('rationale') or '无理由', 20)}</div>"),
+            _h(review),
+            _h(_ask_summary_html(r)),
+            _cut(r.get("last_reason") or "（还没问过）", 40),
+            put_buttons(
+                ["改目标", "调力度", "记录", "撤下"],
+                onclick=[
+                    lambda w=watch: _on_set_alloc(w),
+                    lambda w=watch: _on_tune(w),
+                    lambda w=watch: _on_history(w),
+                    lambda w=watch: _on_drop(w),
+                ],
+                small=True,
+            ),
+        ])
+    return rows
+
+
+def _watch_rows(desk, now: float) -> List[List[Any]]:
+    """一次性意向的表格行。**数据一律来自 Watch.to_row**，避免自己另算一套口径。"""
+    rows: List[List[Any]] = []
+    for watch in desk.watches():
+        if watch.objective.kind == "allocation":
+            continue
         r = watch.to_row(now)
         side = str(watch.objective.params.get("side") or "-")
         name14 = str(watch.objective.params.get("name") or "").strip()
@@ -207,17 +387,6 @@ def _watch_rows(desk, now: float) -> List[List[Any]]:
             else watch.objective.market
         )
         conf = watch.objective.params.get("confidence")
-        g, d, u = (int(r.get(k, 0) or 0) for k in
-                   ("granted_count", "denied_count", "unanswered_count"))
-        asks = (
-            f"{_ask_summary(r).split(' · ')[0]}<br>"
-            f"<span style='color:#4ade80'>✓{g}</span> · "
-            f"<span style='color:#f87171'>✗{d}</span> · "
-            f"<span style='color:#fbbf24'>?{u}</span>"
-        )
-        if u:
-            asks += ("<div style='color:#fbbf24;font-size:12px'>"
-                     "有票没人去问 —— 查日志</div>")
         rows.append([
             _h(
                 f"<b>{watch.objective.subject}</b> "
@@ -238,7 +407,7 @@ def _watch_rows(desk, now: float) -> List[List[Any]]:
                 f"剩 {_fmt_dur(r.get('remaining_sec'))}"
             ),
             f"扫 {r.get('scans', 0)} / 触发 {r.get('fires', 0)}",
-            _h(asks),
+            _h(_ask_summary_html(r)),
             _cut(r.get("last_reason") or "（还没问过）", 46),
             put_buttons(
                 ["调力度", "记录", "撤下"],
@@ -318,25 +487,45 @@ async def _on_tune(watch) -> None:
 
 
 def _persist_confidence(watch) -> None:
-    """把台上的新强度写回声明式清单。写失败要喊 —— 否则重启就悄悄回到旧值。"""
-    try:
-        from ..bandit.intent_runner import upsert_intent
-        from .intent import Intent
+    """把台上的新强度写回声明式清单。写失败要喊 —— 否则重启就悄悄回到旧值。
 
-        p = watch.objective.params
-        intent = Intent(
-            code=watch.objective.subject,
-            market=watch.objective.market,
-            side=str(p.get("side") or "buy"),
-            name=str(p.get("name") or ""),
-            budget=p.get("budget"),
-            max_wait_seconds=float(watch.max_wait_seconds or 0.0),
-            rationale=str(p.get("rationale") or ""),
-            confidence=p.get("confidence"),
-        )
-        upsert_intent(intent)
+    ❗按 ``kind`` 分流到**各自的清单文件**：长期配置写回
+    ``allocations.json``，一次性意向写回 ``intents.json``。
+    混着写会让另外一份清单里长出装载方不认得的条目。
+    """
+    obj = watch.objective
+    p = obj.params or {}
+    try:
+        if obj.kind == "allocation":
+            from ..bandit.intent_runner import upsert_allocation
+            from .allocation import DEFAULT_HORIZON, Allocation
+
+            upsert_allocation(Allocation(
+                code=obj.subject,
+                market=obj.market,
+                name=str(p.get("name") or ""),
+                alloc_pct=float(p.get("alloc_pct") or 0.0),
+                horizon=str(p.get("horizon") or DEFAULT_HORIZON),
+                review_seconds=float(watch.max_wait_seconds or 0.0) or None,
+                confidence=p.get("confidence"),
+                rationale=str(p.get("rationale") or ""),
+            ))
+        else:
+            from ..bandit.intent_runner import upsert_intent
+            from .intent import Intent
+
+            upsert_intent(Intent(
+                code=obj.subject,
+                market=obj.market,
+                side=str(p.get("side") or "buy"),
+                name=str(p.get("name") or ""),
+                budget=p.get("budget"),
+                max_wait_seconds=float(watch.max_wait_seconds or 0.0),
+                rationale=str(p.get("rationale") or ""),
+                confidence=p.get("confidence"),
+            ))
     except Exception as e:  # noqa: BLE001
-        log.warning("[WatchUI] 写回意向清单失败（台上已生效，重启会丢）: %s:%s",
+        log.warning("[WatchUI] 写回清单失败（台上已生效，重启会丢）: %s:%s",
                     type(e).__name__, e)
         toast(f"台上已生效，但写回清单失败：{type(e).__name__}", color="warn")
 
@@ -376,14 +565,19 @@ def _on_drop(watch) -> None:
 
     def _do():
         desk.settle(wid, "abandoned", "人工在守望台页面撤下")
+        obj = watch.objective
         try:
-            from ..bandit.intent_runner import remove_intent
+            if obj.kind == "allocation":
+                from ..bandit.intent_runner import remove_allocation
 
-            remove_intent(
-                watch.objective.subject,
-                watch.objective.market,
-                str(watch.objective.params.get("side") or "buy"),
-            )
+                remove_allocation(obj.subject, obj.market)
+            else:
+                from ..bandit.intent_runner import remove_intent
+
+                remove_intent(
+                    obj.subject, obj.market,
+                    str(obj.params.get("side") or "buy"),
+                )
         except Exception as e:  # noqa: BLE001
             log.warning("[WatchUI] 撤下时清清单失败: %s:%s", type(e).__name__, e)
         close_popup()
@@ -480,6 +674,121 @@ async def _on_new():
     _refresh()
 
 
+async def _on_set_alloc(watch) -> None:
+    """改一份长期配置的目标占比，并写回清单。
+
+    ❗async 的理由同 :func:`_on_tune`。
+    """
+    obj = watch.objective
+    p = obj.params or {}
+    cur = float(p.get("alloc_pct") or 0.0)
+    res = await input_group(
+        f"设定目标占比 —— {_cut(obj.subject, 24)}（现在 {cur:.0f}%）",
+        [
+            slider(
+                "目标占总资产 %", name="pct", value=cur, min_value=0.0,
+                max_value=ALLOC_SLIDER_MAX, step=1.0, required=True,
+                help_text=("由你拍板 —— 代码不替你决定动用多少资金。"
+                           "0 = 还没定，页面会如实标「未设定」"),
+            ),
+        ],
+    )
+    if res is None:
+        return
+    runner = _get_runner()
+    if runner is None:
+        toast("运行器不可用", color="error")
+        return
+    try:
+        got = runner.set_alloc_pct(watch.watch_id, res["pct"])
+    except (KeyError, ValueError) as e:
+        toast(f"没改成：{_cut(e, 80)}", color="error")
+        return
+    toast(f"目标占比已设为 {got:.0f}%", color="success")
+    _refresh()
+
+
+async def _on_new_allocation():
+    """登记一份长期配置：**循环守望**，到期自动挂上下一期。
+
+    ❗「最多等多少小时」在这里换成「每多少天回顾一次」—— 语义不同但同样必填：
+    长期不等于无限期。
+    """
+    res = await input_group("登记长期配置", [
+        input("代码", name="code", required=True,
+              placeholder="如 588200 / 00700 / QQQ"),
+        input("名称（可选）", name="name", placeholder="科创芯片ETF"),
+        select("市场", name="market", options=[
+            {"label": "A 股 CN", "value": "CN"},
+            {"label": "港股 HK", "value": "HK"},
+            {"label": "美股 US", "value": "US"},
+        ], value="CN", required=True),
+        select("时间尺度", name="horizon", options=[
+            {"label": "长期（每周回顾）", "value": "long"},
+            {"label": "波段（每天回顾）", "value": "swing"},
+        ], value="long", required=True),
+        input("每多少天回顾一次", name="days", type=NUMBER, value=7.0,
+              required=True,
+              help_text="必填。长期 ≠ 无限期 —— 每过这么久必须回头看一次"),
+        slider("目标占总资产 %", name="pct", value=0.0, min_value=0.0,
+               max_value=ALLOC_SLIDER_MAX, step=1.0, required=True,
+               help_text="由你拍板；0 = 还没定"),
+        slider("意愿强度", name="conf", value=CONFIDENCE_DEFAULT_SLIDER,
+               min_value=0.0, max_value=CONFIDENCE_SLIDER_MAX,
+               step=CONFIDENCE_STEP, required=True,
+               help_text="封顶 0.75，够不到放行阈值 —— 意愿只是加权"),
+        textarea("理由（可选）", name="rationale",
+                 placeholder="为什么想长期拿着"),
+    ])
+    if res is None:
+        return
+
+    runner = _get_runner()
+    if runner is None:
+        toast("运行器不可用，没登记上", color="error")
+        return
+
+    try:
+        from .allocation import Allocation
+
+        alloc = Allocation(
+            str(res["code"]).strip(),
+            str(res["market"]).strip(),
+            name=str(res.get("name") or "").strip(),
+            alloc_pct=float(res.get("pct") or 0.0),
+            horizon=str(res.get("horizon") or "long"),
+            review_seconds=float(res.get("days") or 0.0) * 86400.0,
+            confidence=res.get("conf"),
+            rationale=str(res.get("rationale") or "").strip(),
+        )
+    except Exception as e:  # noqa: BLE001 - 填坏了要把原因说给人听
+        log.info("[WatchUI] 长期配置构造失败: %s:%s", type(e).__name__, e)
+        toast(f"登记失败：{type(e).__name__}: {_cut(e, 80)}", color="error")
+        return
+
+    try:
+        wid = runner.declare_allocation(alloc)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[WatchUI] 长期配置没挂上守望台: %s:%s",
+                    type(e).__name__, e, exc_info=True)
+        toast(f"没挂上台：{type(e).__name__}: {_cut(e, 80)}", color="error")
+        return
+
+    try:
+        from ..bandit.intent_runner import upsert_allocation
+
+        upsert_allocation(alloc)
+    except Exception as e:  # noqa: BLE001
+        log.warning("[WatchUI] 已上台但没写进清单: %s:%s", type(e).__name__, e)
+        toast(f"已进守望台，但写清单失败（重启会丢）：{type(e).__name__}",
+              color="warn")
+        _refresh()
+        return
+
+    toast(f"已进守望台：{wid}", color="success")
+    _refresh()
+
+
 def _on_tick():
     """手工推一轮。真跑起来的是常驻线程，这里只是「现在就问一次」。"""
     runner = _get_runner()
@@ -500,12 +809,29 @@ def _on_tick():
 # ---------------------------------------------------------------- 页面
 
 def render_body():
-    """画表格 + 流水。**整页重画只走这两个 scope**，概览与按钮不动。"""
+    """画长期配置 + 一次性意向 + 开票流水。**整页重画只走这几个 scope**，
+    概览与按钮不动。"""
     runner = _get_runner()
     desk = _desk_of(runner)
     now = time.time()
+    positions = _position_lookup()
+
+    with use_scope("alloc_table", clear=True):
+        put_html(_ALLOC_INTRO)
+        if desk is None:
+            put_text("守望台桌面拿不到 —— 页面上没有可显示的数字。")
+        else:
+            rows = _allocation_rows(desk, now, positions)
+            if not rows:
+                put_text(_EMPTY_ALLOC_NOTE)
+            else:
+                put_table(rows, header=[
+                    "标的", "目标占比", "当前 / 缺口", "意愿强度",
+                    "尺度 / 理由", "回顾", "本期问询", "最近结论", "操作",
+                ])
 
     with use_scope("watch_table", clear=True):
+        put_html(_INTENT_INTRO)
         if desk is None:
             put_text("守望台桌面拿不到 —— 页面上没有可显示的数字。")
         else:
@@ -546,8 +872,11 @@ async def render_watch_desk(ctx: dict = None):
 
     put_row([
         put_column([
-            put_buttons(["🔄 刷新", "⚡ 立即扫一轮", "➕ 登记意向"],
-                        onclick=[_refresh, _on_tick, _on_new], small=True),
+            put_buttons(
+                ["🔄 刷新", "⚡ 立即扫一轮", "➕ 登记意向", "🏛 登记长期配置"],
+                onclick=[_refresh, _on_tick, _on_new, _on_new_allocation],
+                small=True,
+            ),
         ]),
     ], size="auto 1fr")
 
@@ -557,7 +886,6 @@ async def render_watch_desk(ctx: dict = None):
         put_html(_overview_html(runner, desk))
 
     put_text("")
-    put_html("<h4 style='margin:12px 0 4px'>在等的守望</h4>")
     render_body()
 
     put_text("")
@@ -565,12 +893,20 @@ async def render_watch_desk(ctx: dict = None):
         put_collapse("这个页面怎么读", [
             put_html(
                 "<div style='color:#94a3b8;font-size:13px;line-height:1.7'>"
-                "· <b>在等</b>：机会还没成立，守望安静地等着；<b>待问</b>：刚成立，正要去问决策中心。<br>"
+                "<b>两类守望</b><br>"
+                "· <b>长期配置</b>：想一直持有的（科创 ETF / 腾讯 / QQQ）。"
+                "没有完成态 —— 补到位也不算完，跌了要回补。所以它<b>按周期挂</b>，"
+                "每期到期记成「看过了」再自动续下一期。<br>"
+                "· <b>一次性意向</b>：想买 / 想卖但还没下手的。等一个进场点，"
+                "成交即结束；到期没等到就结算成过期。<br><br>"
+                "<b>各列怎么读</b><br>"
+                "· <b>在等</b>：机会还没成立；<b>待问</b>：刚成立，正要去问决策中心。<br>"
                 "· <b>问询记录</b>：✓ 放行 / ✗ 问了但没批 / ? 票开出去<b>没人去问</b>。"
                 "「?」是链路断了，跟策略在观望是两回事，看到它就要去查日志。<br>"
-                "· <b>意愿强度</b>：人的主动意愿，只影响决策中心的加权，封顶 0.75 —— 拖到底也不是放行键。<br>"
-                "· <b>最多等多少小时</b>：必填。到期没等到就结算成 expired，"
-                "「等了三天没进场」和「从没想过要买」在复盘时是两件事。"
+                "· <b>意愿强度</b>：人的主动意愿，只影响决策中心的加权，"
+                "封顶 0.75 —— 拖到底也不是放行键。<br>"
+                "· <b>最多等多少小时 / 每多少天回顾</b>：都必填。"
+                "<b>长期 ≠ 无限期</b> —— 没有结算点的守望和死掉的线程长得一模一样。"
                 "</div>"
             ),
                 ], open=False)

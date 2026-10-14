@@ -36,6 +36,10 @@ OBJECTIVE_KINDS = (
     "establish_core",   # 建立 / 补足底仓到目标占比
     "reduce_position",  # 减仓 / 止盈 / 止损
     "rotate_cost",      # 做 T：把持仓成本降下来
+    #: ★长期配置：我要长期持有它（没有「完成」态，靠周期性回顾续期）。
+    #: 与 ``establish_core`` 的区别：那条是「一次性把仓位补到位」，
+    #: 这条是「一直保持这个仓位状态」—— 补到位了也不算完。
+    "allocation",
 )
 
 
