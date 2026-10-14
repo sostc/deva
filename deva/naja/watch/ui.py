@@ -436,16 +436,26 @@ def _allocation_rows(
             raw = row.get("held_shares") if isinstance(row, dict) else None
             held = None if raw is None else float(raw)
 
-        if not r.get("target_set") and not (p.get("anchor_shares") is not None
-                                           and float(p.get("anchor_shares") or 0) > 0):
+        # ❗「取不到账户」必须**排在最前面**：链路故障比配置没填更该喊。
+        # 反过来的话，账户一断页面上就全变成「目标未设定」，
+        # 一次取数故障被改写成 N 条配置没填 —— 典型的静默失效。
+        if positions is None:
+            gap = _h("<span style='color:#94a3b8'>未知</span>"
+                     "<div style='color:#94a3b8;font-size:12px'>取不到账户</div>")
+        elif not p.get("target_set") and not (
+            p.get("anchor_shares") is not None
+            and float(p.get("anchor_shares") or 0) > 0
+        ):
+            # ❗判据必须取 ``objective.params`` 里的 ``target_set``，
+            # 不能取 ``to_row()`` 的 —— 守望行里根本没有这个键，
+            # 取到 None 会让一个**明明定过 40%** 的配置显示成「未设定」。
             # ❗守望台自己的目标没定时，**不许拿执行层折算的目标顶替**算缺口 ——
             # 那会演出「上面写着未设定、下面写着还差 543」的口径打架。
             gap = _h("<span style='color:#fbbf24'>算不出</span>"
                      "<div style='color:#94a3b8;font-size:12px'>"
                      "目标未设定</div>")
         elif held is None:
-            gap = _h("<span style='color:#94a3b8'>未知</span>"
-                     "<div style='color:#94a3b8;font-size:12px'>取不到账户</div>")
+            gap = _h("<span style='color:#94a3b8'>未知</span>")
         else:
             tgt = float(p.get("anchor_shares") or 0.0)
             if not tgt and positions is not None:
