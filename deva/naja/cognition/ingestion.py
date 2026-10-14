@@ -70,62 +70,57 @@ class CognitionIngestion:
         """
         接收全球市场事件，发布到 NajaEventBus
 
+        ❗2026-10-15 修复说明：原实现 `from deva.naja.events import GlobalMarketEvent`
+        引用的是一个**全库都不存在的类**（`cognition_events.py` 里没有它），
+        必然 ImportError → 直接落进 `_ingest_market_alert_legacy`。也就是说
+        总线路径**从未成功过一次**，一直是「降级路径」在扛。
+        现改走**认知信号通道**，用枚举里本就为它准备的
+        `CognitiveEventType.GLOBAL_MARKET_EVENT`。
+
+        ❗仍然保留 `_ingest_market_alert_legacy` 调用，而且从「仅 ImportError 时」
+        改为「**每次都调**」—— 因为历史上它本来就每次都在跑（总线路径必失败），
+        修好总线后若把它摘掉，等于**把 LiquidityCognition 的输入切断**。
+
         Args:
             event: RadarEvent（需要有 payload 属性）
         """
+        payload = event.payload if hasattr(event, "payload") else event
+        metadata = {
+            "market_id": payload.get("market_id", ""),
+            "current": payload.get("current", 0),
+            "change_pct": payload.get("change_pct", 0),
+            "volume": payload.get("volume", 0),
+            "is_abnormal": payload.get("is_abnormal", False),
+            "name": payload.get("name", ""),
+        }
+
+        market_id = metadata.get("market_id") or "US"
+        region = market_id.split("_")[0] if "_" in market_id else market_id
+        is_abnormal = bool(metadata.get("is_abnormal"))
+
+        # 1) 发布到认知总线（认知信号通道 / 枚举路由）
         try:
             from deva.naja.events import get_event_bus, CognitiveEventType
 
             bus = get_event_bus()
-            payload = event.payload if hasattr(event, "payload") else event
-
-            metadata = {
-                "market_id": payload.get("market_id", ""),
-                "current": payload.get("current", 0),
-                "change_pct": payload.get("change_pct", 0),
-                "volume": payload.get("volume", 0),
-                "is_abnormal": payload.get("is_abnormal", False),
-                "name": payload.get("name", ""),
-            }
-
-            from deva.naja.events import GlobalMarketEvent
-
-
-            event = GlobalMarketEvent(
-
-
+            bus.publish_cognitive_event(
                 source="RadarEngine",
-
-
-                event_type="global_market_event",
-
-
-                region=metadata.get("market_id", "US").split("_")[0] if ("market_id" in metadata and "_" in metadata.get("market_id", "")) else metadata.get("market_id", "US"),
-
-
-                event="market_snapshot",
-
-
-                market_impact=0.7 if metadata.get("is_abnormal") else 0.5,
-
-
-                timezone="UTC",
-
-
-                importance=0.7 if metadata.get("is_abnormal") else 0.5,
-
-
+                event_type=CognitiveEventType.GLOBAL_MARKET_EVENT,
+                importance=0.7 if is_abnormal else 0.5,
+                confidence=0.5,
+                metadata={
+                    **metadata,
+                    "region": region,
+                    "event": "market_snapshot",
+                    "timezone": "UTC",
+                },
             )
-
-
-            bus.publish(event)
-            log.debug(f"[Ingestion] 全球市场事件已发布: {metadata.get('market_id')}")
-
-        except ImportError:
-            log.debug("[Ingestion] NajaEventBus 未导入，降级为直接调用")
-            self._ingest_market_alert_legacy(event)
+            log.debug(f"[Ingestion] 全球市场事件已发布: {market_id}")
         except Exception as e:
             log.debug(f"[Ingestion] 发布全球市场事件失败: {e}")
+
+        # 2) 直接喂 LiquidityCognition（一直在此的路径，见上方说明，不可摘）
+        self._ingest_market_alert_legacy(event)
 
     def ingest_news(self, news_data: Dict[str, Any]) -> None:
         """

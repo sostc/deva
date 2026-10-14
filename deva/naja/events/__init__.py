@@ -17,10 +17,12 @@ Naja 事件系统 - 双总线 + 桥梁架构
     bus = get_trading_bus()
     bus.publish(StrategySignalEvent(symbol="000001", direction="buy"))
 
-    # 场景3：需要桥梁通信
-    from deva.naja.events import get_bus_bridge
-    bridge = get_bus_bridge()
-    bridge.enable_bridge(True)
+    # 场景3：需要桥梁通信（认知 ↔ 交易）
+    # ❗默认关闭，且**不要在业务代码里手动 enable**：
+    #   由容器装配期读环境开关 `NAJA_BUS_BRIDGE=1` 统一启用
+    #   （AppContainer 步骤 9b → events.bus_bridge.enable_bridge_from_env）。
+    #   手动 enable_bridge(True) 会绕过装配期日志与守卫，造成「又一处开了没人知道」。
+    #   背景与四层障碍见 events/bus_bridge.py 模块 docstring。
 
     # 场景4：简单选择（推荐新代码）
     from deva.naja.events import publish_event, subscribe_event
@@ -103,26 +105,47 @@ from .trading_events import (
 from .router import resolve_event_bus_type
 
 # 认知事件 dataclass（可选）
+#
+# ❗这里的名单必须与 `cognition_events.py` 的**实际定义逐名对齐**。
+# 历史事故（2026-10-15 审计）：清单里写了三个该模块并不存在的名字
+# （`GlobalMarketEvent` / `create_risk_alert` / `EVENT_TYPE_MAP`）。
+# `from X import (a, b, c)` 编译成逐名 IMPORT_FROM/STORE_NAME，
+# **在第一个缺失名处抛 ImportError**，于是：
+#   - 缺失名**之前**的名字侥幸已绑定（NarrativeUpdateEvent … RiskAlertEvent）；
+#   - 缺失名**之后**的名字全部没有绑定
+#     （PortfolioSignalEvent / CognitionResetEvent / create_narrative_update …）；
+#   - `COGNITION_EVENTS_AVAILABLE` 变 False。
+# 而所有消费方写的都是 `except ImportError: pass` → 整件事完全无声，
+# 表现为「认知 dataclass 事件家族半个不存在」。现按实际定义列名，
+# 并把失败从静默改成告警。
 try:
     from .cognition_events import (
         # 所有认知事件 dataclass
         NarrativeUpdateEvent,
         TimingNarrativeShiftEvent,
+        BlockNarrativeUpdateEvent,
         ResonanceDetectedEvent,
         SupplyChainRiskEvent,
-        RiskAlertEvent,
-        GlobalMarketEvent,
         PortfolioSignalEvent,
+        RiskAlertEvent,
         CognitionResetEvent,
         # 快捷创建函数
         create_narrative_update,
-        create_risk_alert,
+        create_timing_shift,
+        create_resonance_detected,
         # 映射
-        EVENT_TYPE_MAP,
+        EVENT_TYPE_MAPPING,
     )
+    # 兼容旧名：`__all__` 与历史引用用的是 EVENT_TYPE_MAP
+    EVENT_TYPE_MAP = EVENT_TYPE_MAPPING
     COGNITION_EVENTS_AVAILABLE = True
-except ImportError:
+except ImportError as _cog_evt_err:  # pragma: no cover - 仅在定义缺失时触发
     COGNITION_EVENTS_AVAILABLE = False
+    log.warning(
+        "[events] 认知事件 dataclass 导入失败，相关事件类型将不可用（"
+        "请核对 events/__init__.py 的导入名单与 cognition_events.py 的实际定义）: %s",
+        _cog_evt_err,
+    )
 
 # ============== 简单选择器（推荐新代码使用） ==============
 
@@ -269,15 +292,17 @@ if COGNITION_EVENTS_AVAILABLE:
     __all__.extend([
         "NarrativeUpdateEvent",
         "TimingNarrativeShiftEvent",
+        "BlockNarrativeUpdateEvent",
         "ResonanceDetectedEvent",
         "SupplyChainRiskEvent",
         "RiskAlertEvent",
-        "GlobalMarketEvent",
         "PortfolioSignalEvent",
         "CognitionResetEvent",
         "create_narrative_update",
-        "create_risk_alert",
+        "create_timing_shift",
+        "create_resonance_detected",
         "EVENT_TYPE_MAP",
+        "EVENT_TYPE_MAPPING",
     ])
 
 # 使用说明
