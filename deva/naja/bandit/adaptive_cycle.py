@@ -541,7 +541,14 @@ class AdaptiveCycle:
                 symbol=signal.stock_code,
                 price=signal.price,
                 confidence=signal.confidence,
-                quantity=amount,
+                # ❗这里必须是**股数**，不能是 amount（金额）。此前传的是 `amount`，
+                #   而平仓侧（_on_position_closed）传的是 `position.quantity` ——
+                #   同一个 `quantity` 字段在买入记录里装"元"、在卖出记录里装"股"，
+                #   而这张表（naja_bandit_decision_context）是**用来复盘的**：
+                #   量纲混用的历史数据事后无法解读。
+                #   正确值就在手边：`outcome.quantity` 是本次实际成交股数
+                #   （虚拟后端 = position.quantity，富途后端 = 取整后的 qty）。
+                quantity=float(getattr(outcome, "quantity", 0.0) or 0.0),
                 reason=f"信号触发: {signal.signal_type} from {signal.strategy_name}"
             )
         except Exception as e:
