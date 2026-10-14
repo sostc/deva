@@ -12,7 +12,7 @@ from tornado.web import RequestHandler, StaticFileHandler
 from .pages import (
     main, dsadmin, signaladmin, taskadmin, strategyadmin,
     radaradmin, insightadmin, cognition_page, memory_page,
-    llmadmin, banditadmin, bandit_attribution, market,
+    llmadmin, banditadmin, bandit_attribution, watchdesk, market,
     awakening_page, dictadmin, tableadmin, runtimestateadmin,
     souladmin, configadmin, tuningadmin, system_page, health_page,
     narrative_page, narrative_lifecycle_page, merrill_clock_page,
@@ -944,6 +944,7 @@ def create_handlers(cdn: str = None):
         (r'/llmadmin', webio_handler(llmadmin, cdn=cdn_url)),
         (r'/banditadmin', webio_handler(banditadmin, cdn=cdn_url)),
         (r'/bandit_attribution', webio_handler(bandit_attribution, cdn=cdn_url)),
+        (r'/watchdesk', webio_handler(watchdesk, cdn=cdn_url)),
         (r'/market', webio_handler(market, cdn=cdn_url)),
         (r'/awakening', webio_handler(awakening_page, cdn=cdn_url)),
         (r'/dictadmin', webio_handler(dictadmin, cdn=cdn_url)),

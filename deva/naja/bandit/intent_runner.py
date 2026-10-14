@@ -36,9 +36,10 @@ import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from ..watch import BuyIntent, Intent, SellIntent, WatchDesk, WatchScan
+from ..watch.intent import clamp_confidence
 from .core_holdings import env_flag, env_float
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,8 @@ log = logging.getLogger(__name__)
 __all__ = [
     "IntentRunner", "get_intent_runner", "decision_center_asker",
     "intent_file_path", "load_intents",
+    "read_intent_rows", "save_intents", "upsert_intent", "remove_intent",
+    "intent_row_of",
 ]
 
 DEFAULT_POLL_SECONDS = 60.0
@@ -214,6 +217,126 @@ def load_intents(path=None) -> List[Intent]:
             log.warning("[IntentRunner] 意向清单第 %d 条（%s）不可用：%s:%s",
                         i + 1, row.get("code"), type(e).__name__, e)
     return out
+
+
+# ---------------------------------------------------------------- 落盘
+
+def _read_doc(path: Path) -> Any:
+    """读清单原文。读不出来返回 ``None``（**不抛**），写回方据此决定怎么办。"""
+    if not Path(path).exists():
+        return None
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("[IntentRunner] 意向清单 %s 读不出来：%s:%s",
+                    path, type(e).__name__, e)
+        return None
+
+
+def read_intent_rows(path=None) -> List[Dict[str, Any]]:
+    """读清单里的**原始条目**（dict 列表），不做校验。
+
+    与 :func:`load_intents` 的分工：那个把条目变成 :class:`Intent`
+    （坏的跳过），这个保留原样 —— UI 要在不改坏条目的前提下改其中一行。
+    """
+    p = Path(path).expanduser() if path is not None else intent_file_path()
+    doc = _read_doc(p)
+    if doc is None:
+        return []
+    rows = doc if isinstance(doc, list) else (doc.get("intents") or [])
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def save_intents(rows, path=None) -> Path:
+    """整份写回。**原子替换**：先写同目录临时文件再 ``os.replace``，
+    避免写一半崩掉把清单变成空文件 —— 那等于把所有「想买」一次性抹掉。
+
+    :param rows: 原始条目列表。顶层原本是 ``{"intents": [...]}`` 的会保持原形状。
+    """
+    p = Path(path).expanduser() if path is not None else intent_file_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    doc = _read_doc(p)
+    body = list(rows)
+    payload: Any = body
+    if isinstance(doc, dict):
+        payload = dict(doc)
+        payload["intents"] = body
+    tmp = p.with_name(p.name + f".tmp{os.getpid()}")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    os.replace(tmp, p)
+    log.info("[IntentRunner] 意向清单已写回 %s（%d 条）", p, len(body))
+    return p
+
+
+def _row_key(row: Mapping[str, Any]) -> Tuple[str, str, str]:
+    return (
+        str(row.get("code") or "").strip().upper(),
+        str(row.get("market") or "").strip().upper(),
+        str(row.get("side") or "buy").strip().lower(),
+    )
+
+
+def intent_row_of(intent: Intent) -> Dict[str, Any]:
+    """把意向变回清单里的一行。**只写 load_intents 认得的键**，
+    免得存进一堆下次读不懂的字段（幽灵配置的标准长法）。"""
+    row: Dict[str, Any] = {
+        "code": intent.code,
+        "market": intent.market,
+        "side": intent.side,
+        "max_wait_seconds": float(intent.max_wait_seconds or 0.0),
+        "min_action": intent.min_action,
+        "reading_max_age": float(intent.reading_max_age),
+    }
+    if intent.name:
+        row["name"] = intent.name
+    if intent.budget is not None:
+        row["budget"] = float(intent.budget)
+    if intent.note:
+        row["note"] = intent.note
+    if intent.rationale:
+        row["rationale"] = intent.rationale
+    # ❗只有人手给过/改过的才写进文件：不然「系统默认 0.6」会被固化下来，
+    # 以后调默认值时旧清单会反过来把默认值钉死。
+    if intent.confidence_explicit:
+        row["confidence"] = clamp_confidence(intent.confidence)
+    return row
+
+
+def upsert_intent(intent: Intent, path=None) -> str:
+    """新增或更新一条，返回 ``"added"`` / ``"updated"``。
+
+    ❗**先落盘再挂台**的顺序交给调用方；这里只管文件。
+    认不出同款（code+market+side）就追加。
+    """
+    rows = read_intent_rows(path)
+    key = _row_key(
+        {"code": intent.code, "market": intent.market, "side": intent.side}
+    )
+    row = intent_row_of(intent)
+    for i, old in enumerate(rows):
+        if _row_key(old) == key:
+            merged = dict(old)
+            merged.update(row)
+            rows[i] = merged
+            save_intents(rows, path)
+            return "updated"
+    rows.append(row)
+    save_intents(rows, path)
+    return "added"
+
+
+def remove_intent(code: str, market: str, side: str = "buy", path=None) -> bool:
+    """从清单里删掉一条。找不到返回 ``False``（**不抛**）——
+    「本来就没有」和「删失败」对 UI 来说是两件事，但都不是错误。"""
+    rows = read_intent_rows(path)
+    key = _row_key({"code": code, "market": market, "side": side})
+    left = [r for r in rows if _row_key(r) != key]
+    if len(left) == len(rows):
+        return False
+    save_intents(left, path)
+    return True
 
 
 class IntentRunner:

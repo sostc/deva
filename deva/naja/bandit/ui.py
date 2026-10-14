@@ -316,6 +316,7 @@ async def render_bandit_admin(ctx: dict):
             ]),
             put_column([
                 put_link("📊 盈亏归因分析", url="/bandit_attribution", new_window=False),
+                put_link("🌗 守望台", url="/watchdesk", new_window=False),
             ]),
         ], size="auto 1fr")
 
