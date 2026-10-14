@@ -129,8 +129,30 @@ class Watch:
     #: 于是纪律没破（每期都有终点），长期也表达了（整体不结束），
     #: 而且每一期都留痕 —— 事后能回答「这周它等了什么、问过几次」。
     recurring: bool = False
+    #: ★★常驻守望：**问过一次就立刻重挂，永远在等下一次机会**。
+    #:
+    #: 用户原话（2026-10-14）：「这个做 t 的守望应该是持续一直存在的，
+    #: 一直在等待机会来买卖」。
+    #:
+    #: 它和 :attr:`recurring` 回答的是**两个不同的问题**，不能混：
+    #:     * ``recurring`` 是**时间到了就续**（定期回头看一眼）——
+    #:       长期配置自己：不管有没有机会，一周期满就记「这期看过了」
+    #:     * ``standing`` 是**抓到机会就续**（一直等下一次）——
+    #:       做 T：这期抓到一个价差机会、问过决策中心了，下一期立刻继续等
+    #:
+    #: ❗结算语义也不同：常驻守望到期是「这期没轮到我」（``expired``，
+    #: 不是失败）；被问过一次是「这期抓到了」（``reached``）。两者都会
+    #: 重挂，唯独人工撤下（``abandoned``）不重挂 ——
+    #: 撤下必须是**真终止**，否则它只是个视觉动作。
+    standing: bool = False
 
     def __post_init__(self) -> None:
+        if self.recurring and self.standing:
+            # 一个是「到期续」、一个是「抓到就续」，同时为真时续期时机无法判定
+            raise ValueError(
+                f"守望 {self.objective.id} 不能既是循环（recurring）又是常驻"
+                "（standing）—— 两者的续期时机冲突，只能选一个"
+            )
         if not self.opportunities:
             raise ValueError(f"守望 {self.objective.id} 没有挂任何机会判据")
         if str(self.mode) not in ("any", "all"):
@@ -307,15 +329,29 @@ class Watch:
             reasons=reasons,
         )
 
-    def acknowledge(self, granted: bool, reason: str = "",
+    def acknowledge(self, granted: Optional[bool], reason: str = "",
                     now: Optional[float] = None) -> None:
         """把「问完了」这件事回写给守望。
 
         ``granted=False`` 不是失败，是**继续等**；守望回到 ARMED。
+
+        ★常驻守望（:attr:`standing`）在这里**立刻结算**：对它而言
+        「问过一次」本身就是这一期的终点 —— 抓到了机会、去问了、有结论了，
+        下一期重新开始等。所以这里结算成 ``reached``，等 :meth:`arm` 重挂。
+
+        ❗``granted=None``（**没人去问**）绝不能走到这一步：那是链路断了，
+        把它记成「这期抓到了」是假成功 —— 守望必须继续挂着等。
         """
         t = now if now is not None else time.time()
         self.last_reason = reason
         self._to(WatchState.ARMED if not granted else WatchState.TRIGGERED, t)
+        if self.standing and granted is not None:
+            self.settle(
+                Settlement.REACHED,
+                f"第 {self.cycles + 1} 期抓到机会并问过决策中心"
+                f"（{'放行' if granted else '未批准'}）",
+                now=t,
+            )
 
     def record_ask(
         self,
@@ -358,7 +394,7 @@ class Watch:
         return entry
 
     def arm(self, now: Optional[float] = None, reason: str = "") -> Dict[str, Any]:
-        """给循环守望挂上**下一期**。只有 :attr:`recurring` 的守望能用。
+        """给**循环 / 常驻**守望挂上下一期。只有这两类能用。
 
         ❗为什么结算和续期要分成两步：``settle`` 是事实（这一期结束了），
         ``arm`` 是决定（还要继续）。合成一步的话，「最后一期」就没法表达了 ——
@@ -367,10 +403,11 @@ class Watch:
         上一期的统计会被**归档**而不是丢弃：长期持仓最值钱的信息恰恰是
         「这几期它都在等什么、问过几次、被否了几次」。
         """
-        if not self.recurring:
+        if not (self.recurring or self.standing):
             raise ValueError(
-                f"守望 {self.watch_id} 不是循环守望（recurring=False），"
-                "不能续期 —— 一次性守望到期就该结束，重新挂请用 declare()"
+                f"守望 {self.watch_id} 既不是循环（recurring）也不是常驻"
+                "（standing），不能续期 —— 一次性守望到期就该结束，"
+                "重新挂请用 declare()"
             )
         t = now if now is not None else time.time()
         summary = {
@@ -484,8 +521,9 @@ class Watch:
             "settlement": self.settlement.value if self.settlement else "",
             "settlement_reason": self.settlement_reason,
             "recent_asks": self.ask_history(5),
-            # -- 循环守望：长期持有的时间维度 --
+            # -- 循环 / 常驻守望：这两类的时间维度 --
             "recurring": bool(self.recurring),
+            "standing": bool(self.standing),
             "cycles": self.cycles,
             "total_scans": self.total_scans,
             "total_fires": self.total_fires,
