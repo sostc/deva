@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Union
 
@@ -28,7 +30,24 @@ __all__ = [
     "Settlement",
     "WatchScan",
     "Watch",
+    "ASK_LOG_MAXLEN",
+    "ask_verdict_text",
 ]
+
+#: 每个守望留多少条问询记录。够回看「最近为什么没买」，又不至于无限膨胀。
+ASK_LOG_MAXLEN = 30
+
+
+def ask_verdict_text(granted: Optional[bool]) -> str:
+    """把三态结论翻成人话。
+
+    ❗``None``（没人去问）必须跟 ``False``（问了但没批）**分开写**：
+    这两个都表现为「没有成交」，但前者是链路断了、后者是决策在观望，
+    混在一起就会把「票没人消费」这种静默失效伪装成「策略在等」。
+    """
+    if granted is None:
+        return "没人去问"
+    return "放行" if granted else "未批准"
 
 
 class WatchState(str, Enum):
@@ -119,6 +138,17 @@ class Watch:
         self.last_prod_at: float = self.armed_at
         self._bootstrapped: bool = False
         self.prods: int = 0
+
+        # -- 执行记录 ---------------------------------------------------
+        #: ❗「守望在等」这件事看不见就等于没发生：UI 要回答「这个想法问过
+        #: 几次、每次决策中心怎么说的」，所以问询必须留痕。
+        self.ask_log: deque = deque(maxlen=ASK_LOG_MAXLEN)
+        self.asked: int = 0
+        self.granted_count: int = 0
+        self.denied_count: int = 0
+        self.unanswered_count: int = 0
+        self.last_ask_at: Optional[float] = None
+        self.last_granted: Optional[bool] = None
         self.max_silence_seconds = (
             600.0
             if self.max_silence_seconds is None
@@ -249,6 +279,49 @@ class Watch:
         self.last_reason = reason
         self._to(WatchState.ARMED if not granted else WatchState.TRIGGERED, t)
 
+    def record_ask(
+        self,
+        granted: Optional[bool],
+        reason: str = "",
+        now: Optional[float] = None,
+        fired_kinds: Optional[Sequence[str]] = None,
+    ) -> Dict[str, Any]:
+        """记一次「去问了，结果是这样」。
+
+        :param granted: ``True`` 放行 / ``False`` 问了但没批 / ``None`` **没人去问**。
+            ❗三态：``None`` 是链路断了（没接执行器、或执行器没给结论），
+            跟「问过、决策中心说再等等」是两回事。合成两态的话，UI 上就分不清
+            「守望在耐心等」和「票开出去没人领」—— 后者是本仓库头号病理。
+        """
+        t = now if now is not None else time.time()
+        verdict = None if granted is None else bool(granted)
+        entry = {
+            "ts": round(t, 3),
+            "time": datetime.fromtimestamp(t).strftime("%m-%d %H:%M:%S"),
+            "granted": verdict,
+            "verdict": ask_verdict_text(verdict),
+            "reason": str(reason or ""),
+            "fired": list(fired_kinds or ()),
+        }
+        self.ask_log.append(entry)
+        self.last_ask_at = t
+        self.last_granted = verdict
+        self.asked += 1
+        if verdict is None:
+            self.unanswered_count += 1
+        elif verdict:
+            self.granted_count += 1
+        else:
+            self.denied_count += 1
+        return entry
+
+    def ask_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """最近若干条问询记录（新的在前）。"""
+        rows = list(self.ask_log)
+        if limit and limit > 0:
+            rows = rows[-int(limit):]
+        return list(reversed(rows))
+
     def settle(
         self,
         outcome: Union[Settlement, str],
@@ -293,6 +366,17 @@ class Watch:
             "silence_sec": round(t - self.last_prod_at, 1),
             "unknown_scans": self.unknown_scans,
             "last_reason": self.last_reason,
+            # -- 执行记录：问过几次、放行/被否/没人问各多少 --
+            "asked": self.asked,
+            "granted_count": self.granted_count,
+            "denied_count": self.denied_count,
+            "unanswered_count": self.unanswered_count,
+            "last_ask_at": self.last_ask_at,
+            "last_granted": self.last_granted,
+            "last_ask_age_sec": (
+                None if self.last_ask_at is None else round(t - self.last_ask_at, 1)
+            ),
             "settlement": self.settlement.value if self.settlement else "",
             "settlement_reason": self.settlement_reason,
+            "recent_asks": self.ask_history(5),
         }

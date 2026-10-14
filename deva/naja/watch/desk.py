@@ -27,18 +27,23 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
-from .intent import Intent, declare_intent
+from .intent import Intent, clamp_confidence, declare_intent
 from .manas_lens import ManasLens, ManasReading
 from .objective import Objective, WatchContext
 from .registry import WatchRegistry
-from .watch import Watch, WatchScan, WatchState
+from .watch import Watch, WatchScan, WatchState, ask_verdict_text
 
 log = logging.getLogger(__name__)
 
-__all__ = ["DeskTicket", "WatchDesk"]
+__all__ = ["DeskTicket", "WatchDesk", "TICKET_LOG_MAXLEN"]
+
+#: 全局开票流水留多少条。这是「守望台到底在干什么」的唯一物证。
+TICKET_LOG_MAXLEN = 200
 
 #: 观测面工厂：``(守望, 本轮时刻) -> 观测面``。返回 None = 本轮没拿到观测。
 Observer = Callable[[Watch, float], Optional[WatchContext]]
@@ -138,6 +143,8 @@ class WatchDesk:
         self._warned_missing: set = set()
         self._warned_no_asker: set = set()
         self._last_sync_fetch: Dict[str, float] = {}
+        #: 开票流水（全局，含已撤下的守望留下的痕迹）
+        self._ticket_log: deque = deque(maxlen=TICKET_LOG_MAXLEN)
 
     # ----------------------------------------------------------------
     @property
@@ -181,6 +188,41 @@ class WatchDesk:
         watch.settle(outcome, reason)
 
     # ----------------------------------------------------------------
+    def set_confidence(self, watch_id: str, value: Any) -> float:
+        """改一个守望的意愿强度（UI「调力度」走这里）。
+
+        ❗只能改强度，**封顶仍在** :func:`~.intent.clamp_confidence` 手里：
+        人在 UI 上拖到 100 也拿不到 1.0 —— 「主动想买 ≠ 放行」这条纪律
+        靠的就是这个上限，UI 不能成为绕过它的后门。
+
+        :raises KeyError: 台上没有这个守望。认不出来就抛，不静默返回 0。
+        """
+        watch = self.registry.get(watch_id)
+        if watch is None:
+            raise KeyError(f"守望 {watch_id} 不在台上，改不了它的意愿强度")
+        conf = clamp_confidence(value)
+        params = watch.objective.params
+        old = params.get("confidence")
+        params["confidence"] = conf
+        # 人手改过就必须标成 explicit：审计时「用户拖过」与「系统默认」要分得开
+        params["confidence_explicit"] = True
+        log.info(
+            "[WatchDesk] %s 意愿强度 %.2f → %.2f（人工调整，封顶 %.2f）",
+            watch_id,
+            float(old) if isinstance(old, (int, float)) else 0.0,
+            conf,
+            float(clamp_confidence(9.9)),
+        )
+        return conf
+
+    def ticket_log(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """最近若干条开票流水（新的在前）。"""
+        rows = list(self._ticket_log)
+        if limit and limit > 0:
+            rows = rows[-int(limit):]
+        return list(reversed(rows))
+
+    # ----------------------------------------------------------------
     def poll(self, now: Optional[float] = None) -> List[DeskTicket]:
         """扫一轮，给到期的守望开票。"""
         t = float(now if now is not None else self._clock())
@@ -206,7 +248,9 @@ class WatchDesk:
                 self.unknown_scans += 1
             if not scan.should_ask:
                 continue
-            tickets.append(self._consume(watch, ctx, scan, t))
+            tk = self._consume(watch, ctx, scan, t)
+            self._log_ticket(tk, t)
+            tickets.append(tk)
         self.polls += 1
         # 到期的守望这一轮就结算成 expired，不让它无声消失
         self.registry.due(t, settle=True)
@@ -237,6 +281,7 @@ class WatchDesk:
                 "consumed": self.consumed,
                 "unanswered": self.unanswered,
                 "asker_attached": self._asker is not None,
+                "tickets_recent": self.ticket_log(20),
                 "manas": (
                     {
                         "reads": self.lens.reads,
@@ -267,6 +312,7 @@ class WatchDesk:
                     "[WatchDesk] %s 机会成立（%s）—— %s",
                     watch.watch_id, scan.why(), reason,
                 )
+            watch.record_ask(None, reason, now=now, fired_kinds=scan.fired_kinds)
             watch.acknowledge(False, reason, now=now)
             return DeskTicket(
                 watch.watch_id, watch.objective, scan, ctx,
@@ -283,11 +329,33 @@ class WatchDesk:
             res = (False, f"问决策中心失败: {type(e).__name__}: {e}")
 
         granted, reason = _normalize_verdict(res)
+        watch.record_ask(
+            granted, reason, now=now, fired_kinds=scan.fired_kinds
+        )
         watch.acknowledge(granted, reason, now=now)
         self.consumed += 1
         return DeskTicket(
             watch.watch_id, watch.objective, scan, ctx,
             granted=granted, reason=reason,
+        )
+
+    def _log_ticket(self, tk: DeskTicket, now: float) -> None:
+        """开票流水。已撤下的守望也会留痕 —— 复盘时要看得到「它曾经问过」。"""
+        self._ticket_log.append(
+            {
+                "ts": round(now, 3),
+                "time": datetime.fromtimestamp(now).strftime("%m-%d %H:%M:%S"),
+                "watch_id": tk.watch_id,
+                "subject": tk.objective.subject,
+                "market": tk.objective.market,
+                "kind": tk.objective.kind,
+                "side": str(tk.objective.params.get("side") or ""),
+                "confidence": tk.objective.params.get("confidence"),
+                "granted": tk.granted,
+                "verdict": ask_verdict_text(tk.granted),
+                "fired": list(tk.scan.fired_kinds or ()),
+                "reason": tk.reason,
+            }
         )
 
     def _note_missing_observer(self, watch: Watch) -> None:
