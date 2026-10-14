@@ -60,6 +60,7 @@ EVENTS_DIR = ROOT / "deva" / "naja" / "events"
 
 AWAK_PY = WATCH_DIR / "awakener.py"
 DESK_PY = WATCH_DIR / "desk.py"
+UI_PY = WATCH_DIR / "ui.py"
 RUNNER_PY = BANDIT_DIR / "intent_runner.py"
 MANAS_PY = KERNEL_DIR / "manas_engine.py"
 COG_PY = EVENTS_DIR / "cognitive_bus.py"
@@ -115,6 +116,13 @@ REQUIRED_RULES = [
      "❗唤醒器的自证必须有人调用（health_line 写了没人读 = 静默失效）"),
     ("awakener.py", r"被 %s 叫醒",
      "❗被事件叫醒必须留痕（否则事件腿有没有在起作用只能靠猜）"),
+    # -- 页面：看不见的事件腿等于不存在 ---------------------------------
+    # ❗同样要匹配**调用**不是定义：光搜函数名的话，把调用删掉、函数留在
+    # 那里，守卫照样绿 —— 而页面上的块已经没了。
+    ("ui.py", r"\{_wake_html\(runner, desk\)\}",
+     "❗页面概览卡必须渲染「唤醒」块（只写轮询 60s 会让人以为它还是定时腿）"),
+    ("ui.py", r"\{_market_state_html\(desk, watch\)\}",
+     "❗守望表必须显示市场状态（否则「关着没问」与「链路断了」分不开）"),
     # ❗要匹配**代码**而不是「bootstrap」这四个字：注释里也会提到它，
     # 光搜字样的话把 wake 那行删掉照样绿（静态扫描的老坑）。
     ("awakener.py", r'detail="bootstrap"',
@@ -439,6 +447,12 @@ INJECTIONS = [
         "file": AWAK_PY,
         "old": '            self.wake(WAKE_MANAS, detail="bootstrap")',
         "new": "            pass",
+    },
+    {
+        "name": "页面去掉唤醒块（事件腿在页面上不存在）",
+        "file": UI_PY,
+        "old": "        f\"{_wake_html(runner, desk)}\"\n",
+        "new": "",
     },
     {
         "name": "唤醒器自证没人调用（health_line 写了没人读）",

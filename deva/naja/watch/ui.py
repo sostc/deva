@@ -248,8 +248,96 @@ def _overview_html(runner, desk) -> str:
         f"<div><div style='color:#94a3b8;font-size:12px;'>开票</div>"
         f"<b>{snap.get('consumed', 0)} 张已问</b>"
         f"<div style='color:#94a3b8;font-size:12px;margin-top:4px;'>{asker}</div></div>"
+        f"{_wake_html(runner, desk)}"
         f"{warn}"
         "</div>"
+    )
+
+
+def _market_state_html(desk, watch) -> str:
+    """这一行守望所在市场**现在**开不开。盘中返回空串（不刷存在感）。
+
+    ❗不能拿 ``last_skip_reason`` 直接显示：那是**上一次**跳过的原因，
+    现在开盘了它还会留着「已收盘」—— 那是拿旧状态冒充现在。
+    """
+    mc = getattr(desk, "market_clock", None)
+    if mc is None:
+        return ""
+    try:
+        ready, why = mc.ask_ready(watch.objective.market, time.time())
+    except Exception:  # noqa: BLE001
+        # ❗时钟自己坏了不许把整页搞挂，也不许假装市场开着
+        return (
+            "<div style='color:#fca5a5;font-size:12px;margin-top:2px'>"
+            "⚠️ 市场时钟坏了</div>"
+        )
+    if ready:
+        return ""
+    return (
+        f"<div style='color:#fbbf24;font-size:12px;margin-top:2px'>"
+        f"💤 {_cut(why or '闭市', 28)}</div>"
+    )
+
+
+def _wake_html(runner, desk) -> str:
+    """概览卡的「唤醒」块：守望是被什么叫做醒的。
+
+    ❗为什么必须有这一块：
+
+    * 事件腿接上之后，页面上若只写「轮询 60s」，人就只能按**定时腿**理解
+      这个系统 —— 而它其实已经是事件驱动的了。看不见的部分等于不存在。
+    * 闭市跳过的次数不上页面，「市场关着所以没问」和「链路断了所以没问」
+      在页面上长得一模一样 —— 这正是静默失效家族的标准形态。
+    """
+    aw = getattr(runner, "_awakener", None) if runner is not None else None
+    counts = dict(getattr(desk, "wake_counts", None) or {})
+    skipped = int(getattr(desk, "skipped_closed", 0) or 0)
+    other = int(getattr(desk, "skipped_other_market", 0) or 0)
+
+    if aw is None:
+        legs = "⚠️ 事件腿没挂"
+        leg_color = "#fca5a5"
+        detail = "只剩定时轮询（看 naja.log 找挂载失败原因）"
+        alert = ""
+    else:
+        st = aw.status()
+        ok = [k for k, v in (st.get("attached") or {}).items() if v]
+        legs = ("✅ " + " · ".join(ok)) if ok else "⚠️ 事件源都没挂上"
+        leg_color = "#e2e8f0" if ok else "#fca5a5"
+        reason = st.get("last_wake_reason") or ""
+        q = st.get("quiet_sec_now")
+        if reason:
+            detail = f"最近被 {reason} 叫醒"
+            if q is not None:
+                detail += f"（{_fmt_dur(q)}前）"
+        else:
+            detail = "还没被事件叫醒过"
+        try:
+            line = aw.health_line()
+        except Exception:  # noqa: BLE001
+            line = "自证本身坏了"
+        alert = (
+            f"<div style='color:#fca5a5;font-size:12px;margin-top:4px;'>"
+            f"{_cut(line, 46)}</div>"
+            if line else ""
+        )
+
+    manas_n = int(counts.get("manas", 0) or 0)
+    clock_n = int(counts.get("clock", 0) or 0)
+    timer_n = int(counts.get("timer", 0) or 0)
+    skipped_text = (
+        f"<div style='color:#94a3b8;font-size:12px;margin-top:4px;'>"
+        f"闭市跳过 {skipped} 次 · 别的市场 {other} 次</div>"
+    )
+    return (
+        "<div><div style='color:#94a3b8;font-size:12px;'>唤醒</div>"
+        f"<b style='color:{leg_color};'>{legs}</b>"
+        f"<div style='color:#94a3b8;font-size:12px;margin-top:4px;'>"
+        f"manas {manas_n} · 时钟 {clock_n} · 定时 {timer_n}</div>"
+        f"<div style='color:#94a3b8;font-size:12px;margin-top:2px;'>"
+        f"{_cut(detail, 40)}</div>"
+        f"{skipped_text}"
+        f"{alert}</div>"
     )
 
 
@@ -541,6 +629,7 @@ def _watch_rows(desk, now: float) -> List[List[Any]]:
             _h(
                 f"已等 {_fmt_dur(r.get('age_sec'))}<br>"
                 f"剩 {_fmt_dur(r.get('remaining_sec'))}"
+                f"{_market_state_html(desk, watch)}"
             ),
             f"扫 {r.get('scans', 0)} / 触发 {r.get('fires', 0)}",
             _h(_ask_summary_html(r)),
