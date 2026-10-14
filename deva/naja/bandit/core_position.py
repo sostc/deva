@@ -327,6 +327,36 @@ class CorePositionLedger:
             if getattr(p, "stock_code", None) == stock_code
         ]
 
+    @staticmethod
+    def _sellable_cap(positions) -> Optional[float]:
+        """组合给出的**真实可卖上限**（富途 ``can_sell_qty``），虚拟盘为 None。
+
+        为什么要有它
+        ------------
+        本账本判断"哪些份额能卖"一直靠 ``entry_time < 今日开盘``。虚拟盘里
+        每个持仓都有建仓时间，这个判据成立；但**富途的持仓接口根本没有
+        建仓时间字段**（:mod:`futu_sim_portfolio` 只能把 entry_time 填成 0，
+        一律判成"昨夜传承"）。
+
+        于是 A 股当日买入的份额会被误判成可卖 —— 卖单发出去被富途以 T+1
+        为由直接拒单，做 T 的卖腿悬空，而买入腿已经成交，份额凭空多出来。
+
+        ``can_sell_qty`` 是富途自己算好的权威值（已扣 T+1 冻结），用它做
+        上限最可靠。虚拟盘没有这个字段 → 返回 None → 行为完全不变。
+        """
+        vals: List[float] = []
+        for p in positions or []:
+            raw = getattr(p, "sellable_qty", None)
+            if raw is None:
+                continue
+            try:
+                vals.append(max(0.0, float(raw)))
+            except (TypeError, ValueError):
+                continue
+        if not vals:
+            return None
+        return sum(vals)
+
     def carried_in_shares(
         self,
         stock_code: str,
@@ -344,11 +374,17 @@ class CorePositionLedger:
         session_open = self.resolve_session_open(now, session_open_ts)
         session_key = self.session_key(now, session_open_ts)
 
+        positions = self._open_positions(portfolio, stock_code)
         inherited = sum(
             float(getattr(p, "quantity", 0.0) or 0.0)
-            for p in self._open_positions(portfolio, stock_code)
+            for p in positions
             if float(getattr(p, "entry_time", 0.0) or 0.0) < session_open
         )
+        # ❗真实可卖上限（富途 can_sell_qty）：A 股当日买入的份额在券商眼里
+        # 卖不掉，必须在这里扣掉，不能只信 entry_time。见 _sellable_cap。
+        cap = self._sellable_cap(positions)
+        if cap is not None:
+            inherited = min(inherited, cap)
         # 今日卖出但**尚未**买回的份额虽然已从 OPEN 持仓里扣掉，
         # 但它们约定要回来，必须加回来才是"今日开盘时手里有的份额"。
         # ⚠️ 只加 OPEN 状态的义务：已 FULFILLED 的份额已经躺在 OPEN 持仓里了，
@@ -397,11 +433,16 @@ class CorePositionLedger:
         """
         now = time.time() if now is None else now
         session_open = self.resolve_session_open(now, session_open_ts)
-        return sum(
+        positions = self._open_positions(portfolio, stock_code)
+        inherited = sum(
             float(getattr(p, "quantity", 0.0) or 0.0)
-            for p in self._open_positions(portfolio, stock_code)
+            for p in positions
             if float(getattr(p, "entry_time", 0.0) or 0.0) < session_open
         )
+        cap = self._sellable_cap(positions)
+        if cap is not None:
+            inherited = min(inherited, cap)
+        return inherited
 
     def current_shares(self, stock_code: str, portfolio) -> float:
         """当前真实持仓份额（不含尚未买回的义务）。"""

@@ -292,6 +292,26 @@ class TRotationEngine:
     def _thresholds_for(self, code: str) -> RotationThresholds:
         return self._thr_by_code.get(code, self._thresholds)
 
+    def _set_leg_tag(self, tag: Optional[str]) -> None:
+        """把本轮做 T 的轮次号注入组合（幂等槽位的标签）。
+
+        为什么需要
+        ----------
+        富途模拟仓的幂等槽位默认是「日期+市场+标的+方向」—— 一个标的
+        一天只能各买一次卖一次。做 T 一天要跑好几轮，**第二轮起会被
+        静默挡掉**（跳过日志只有一行 info，看起来就是"今天没机会"）。
+        传 round_id 后：同一轮重复提交仍被挡（防重放），不同轮各自成槽。
+
+        虚拟盘没有这个概念 → 用 hasattr 探测，缺失即忽略。
+        """
+        setter = getattr(self._portfolio, "set_slot_tag", None)
+        if not callable(setter):
+            return
+        try:
+            setter(tag)
+        except Exception as e:  # pragma: no cover
+            log.warning("[TRotation] 注入轮次标签失败（幂等可能误拦）: %s", e)
+
     def _config_for(self, code: str) -> TRotationConfig:
         return self._cfg_by_code.get(code, self._config)
 
@@ -514,6 +534,10 @@ class TRotationEngine:
         before = self._ledger.effective_shares(
             code, self._portfolio, now=now, session_open_ts=session_open
         )
+        # ❗轮次号必须在下单**之前**定下来：这一腿本身就是本轮的第一笔，
+        # 等开完仓再生成 round_id，这一腿就没有幂等标签了。
+        rid = f"tr_{uuid.uuid4().hex[:10]}"
+        self._set_leg_tag(rid)
         pos = self._portfolio.open_position(
             strategy_id=cfg.strategy_id,
             strategy_name=cfg.strategy_name,
@@ -531,7 +555,7 @@ class TRotationEngine:
             return False, f"虚拟开仓失败（可能撞仓位限额）", None
 
         rnd = RotationRound(
-            round_id=f"tr_{uuid.uuid4().hex[:10]}",
+            round_id=rid,
             stock_code=code,
             kind=KIND_FORWARD,
             planned_qty=qty,
@@ -592,6 +616,9 @@ class TRotationEngine:
         if not allowed:
             return False, why, None
 
+        # 轮次号先定下来：卖腿是本轮第一笔，晚了就没幂等标签（见 _set_leg_tag）
+        rid = f"tr_{uuid.uuid4().hex[:10]}"
+        self._set_leg_tag(rid)
         sold = self._reduce_symbol(code, qty, snapshot.last, now, session_open)
         if sold <= 0:
             return False, f"实际减仓失败（可卖份额不足）", None
@@ -611,7 +638,7 @@ class TRotationEngine:
         )
 
         rnd = RotationRound(
-            round_id=f"tr_{uuid.uuid4().hex[:10]}",
+            round_id=rid,
             stock_code=code,
             kind=KIND_REVERSE,
             planned_qty=sold,
@@ -732,6 +759,7 @@ class TRotationEngine:
         ))
         if qty <= 0:
             return False, "暂无昨日可卖份额，正T无法在今天了结"
+        self._set_leg_tag(rnd.round_id)
         sold = self._reduce_symbol(code, qty, snapshot.last, now, session_open)
         if sold <= 0:
             return False, "减仓失败"
@@ -760,6 +788,7 @@ class TRotationEngine:
         cfg = self._config_for(code)
         qty = ob.quantity
 
+        self._set_leg_tag(rnd.round_id)
         pos = self._portfolio.open_position(
             strategy_id=cfg.strategy_id,
             strategy_name=cfg.strategy_name,
@@ -897,6 +926,7 @@ class TRotationEngine:
         cfg = self._config_for(stock_code)
         for ob in list(self._ledger.outstanding(stock_code)):
             rnd = self._round_for_obligation(ob.obligation_id)
+            self._set_leg_tag(rnd.round_id if rnd else None)
             pos = self._portfolio.open_position(
                 strategy_id=cfg.strategy_id,
                 strategy_name=cfg.strategy_name,
