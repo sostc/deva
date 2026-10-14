@@ -45,8 +45,11 @@ def render_stats_cards(ctx: dict, ds_stats: dict, task_stats: dict,
     wisdom_trigger_count = 0
     wisdom_last_focus = "-"
     try:
-        connector = SR('connector')
-        w_stats = connector.get_wisdom_stats()
+        # ❗真身是 WisdomRetriever（注册名 wisdom_retriever），方法叫 get_stats()。
+        #   原名写的是 SR('connector').get_wisdom_stats() —— 单例名与方法名**都**
+        #   不存在，被下面的 except 吞掉 →「智慧陪伴」卡片永远显示 0 /「静默中」。
+        retriever = SR('wisdom_retriever')
+        w_stats = retriever.get_stats()
         wisdom_trigger_count = w_stats.get("trigger_count", 0)
         wisdom_last_focus = w_stats.get("last_focus", "-") or "-"
     except Exception:

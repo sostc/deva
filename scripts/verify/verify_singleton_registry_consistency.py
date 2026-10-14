@@ -8,7 +8,8 @@
 
   * **取了没注册** → `SR()` 抛 `KeyError`；本项目大量取用点在 `try/except` 里，
     于是退化成「功能永久缺失、不报错、也没人发现」。2026-10-15 审计发现 3 例
-    （`connector` / `replay_scheduler` / `block_noise_detector`）。
+    （`connector` / `replay_scheduler` / `block_noise_detector`），**当日已全部
+    处置**：前者补注册真身、中者删死读、后者补注册。
   * **注册了没人取** → 装配阶段一切正常、`print_registry_status()` 也漂亮，
     但没有任何消费者。容易让人误以为「链路已通」。
     同一轮审计发现 `strategy_result_store` / `signal_dispatcher` / `cognition_bus`
@@ -56,19 +57,14 @@ SCAN_ROOT = REPO_ROOT / "deva"
 # ① 已知「取了但从未注册」的名单。每一项都必须写清「为什么还没修」。
 #    ❗不要为了让守卫变绿而往这里加东西 —— 只有确认是既定取舍才进得来，
 #      且必须在对应调用点留同样的注释。
-KNOWN_UNREGISTERED: Dict[str, str] = {
-    "connector": (
-        "home/ui/stats.py:48、knowledge/wisdom/ui.py:19。全库不存在 Connector 类，"
-        "且它调用的 get_wisdom_stats() 也无定义 —— 纯死路径，UI 靠 except 兜底显示 0。"
-        "需先决定「智慧统计」这个能力做不做（审计 P1-1）。"
-    ),
-    "replay_scheduler": (
-        "infra/observability/auto_tuner.py:32、web_ui/modes.py:365、"
-        "bandit/market_observer.py:91。无任何生产者注册它；"
-        "调用方 `if scheduler:` 判空安全降级，代价是「回放间隔调优」子功能永久失效"
-        "（审计 P1-1）。"
-    ),
-}
+#
+#    2026-10-15：原有两项豁免，均已在代码里处置，本表清空 ——
+#      * `connector`         → 真身是 WisdomRetriever（get_stats）；已注册
+#                              `wisdom_retriever` 懒单例，两处 UI 改指向它。
+#      * `replay_scheduler`  → 该模块确已下线（全库无任何生产者）；三处调用点
+#                              删掉「永远命不中」的 SR 查询，改为显式 None。
+#    再加名字前请先自问：是真取舍，还是又一个没接上的链路？
+KNOWN_UNREGISTERED: Dict[str, str] = {}
 
 # ② 「注册了没人取」里被判定为**预留**（不算黄）的名字。宁缺毋滥。
 KNOWN_RESERVED: Set[str] = set()

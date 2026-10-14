@@ -16,8 +16,11 @@ async def render_wisdom_status(ctx: dict):
     """渲染智慧系统状态"""
     
     try:
-        connector = SR('connector')
-        wisdom_stats = connector.get_wisdom_stats()
+        # ❗真身是 WisdomRetriever（注册名 wisdom_retriever），方法叫 get_stats()。
+        #   原名写的是 SR('connector').get_wisdom_stats() —— 单例名与方法名**都**
+        #   不存在，被下面的 except 吞掉 → 本页永远显示「静默中」。
+        retriever = SR('wisdom_retriever')
+        wisdom_stats = retriever.get_stats()
     except Exception as e:
         wisdom_stats = {}
 

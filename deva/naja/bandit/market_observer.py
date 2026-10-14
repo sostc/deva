@@ -92,15 +92,14 @@ class MarketDataObserver:
         self._trading_clock = clock
     
     def _get_replay_scheduler(self):
-        """获取已注册的 ReplayScheduler；该模块已下线时返回 None。"""
-        if self._replay_scheduler is not None:
-            return self._replay_scheduler
-        try:
-            from ..register import SR
-            return SR('replay_scheduler')
-        except Exception as e:
-            log.debug(f"[MarketObserver] ReplayScheduler 不可用: {e}")
-            return None
+        """取 ReplayScheduler：只认显式注入（``set_replay_scheduler``）。
+
+        ❗该模块已下线（全库没有任何生产者），故**不再回落到
+        ``SR('replay_scheduler')``** —— 那个查询永远命不中，只会掩盖
+        「根本没人注册」这件事。保留 DI 入口是为了将来恢复时能直接注入
+        （恢复步骤见 ``auto_tuner._get_replay_scheduler`` 的说明）。
+        """
+        return self._replay_scheduler
     
     def _init_phase_from_trading_clock(self):
         """从 TradingClock 初始化当前 phase，避免错过初始信号"""
