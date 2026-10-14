@@ -79,6 +79,13 @@ class TaskManager:
         description: str = "",
         tags: List[str] = None,
     ) -> dict:
+        # ❗本方法碰 ``self._items`` / ``self._items_lock``（见下方 "任务名称已存在" 判重）。
+        # 其它公开方法都显式调了 `_ensure_initialized()`，只有这里漏了 ——
+        # 冷启动时若 `create()` 先于任何读方法被调到就会 AttributeError，
+        # 而调用方一律 `except Exception` 吞掉 → 「点了创建没反应」。
+        # 与 datasource 侧的 `@_require_initialized` 对齐。
+        self._ensure_initialized()
+
         from ..config import get_task_config
 
         entry_id = hashlib.md5(f"{name}_{time.time()}".encode()).hexdigest()[:12]
