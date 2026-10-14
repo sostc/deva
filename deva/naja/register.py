@@ -183,6 +183,25 @@ def _register_custom_singletons():
     register_singleton('scheduler_manager', _create_scheduler_manager, deps=[])
     logger.debug("  ✓ scheduler_manager (复用 datasource.models 模块级实例)")
 
+    # --- wisdom_retriever: 「智慧陪伴」知识库检索器 ---
+    # ❗此前 home/ui/stats.py 与 knowledge/wisdom/ui.py 都写的是
+    #   ``SR('connector').get_wisdom_stats()`` —— 单例名与方法名**两个都不存在**，
+    #   两处都被 except 吞掉 → 页面永远显示 0 /「静默中」。真身其实是本类：
+    #   ``WisdomRetriever.get_stats()`` 返回的键（trigger_count / last_focus /
+    #   last_bias …）与 UI 期望逐字吻合。这里补上注册，UI 改指向它。
+    #   注：构造会连 IMA（外部服务），故必须留成**懒加载**（本表是懒的，
+    #   首次 SR 才建），且 UI 侧原有的 except 兜底保留。
+    #   ⚠️ 如实说明：``retrieve_wisdom`` / ``format_wisdom_for_speech`` /
+    #   ``WisdomSpeaker.retrieve`` 目前**全仓零调用** —— 即计数器的唯一推进入口
+    #   （``retrieve()``）没人走，所以注册后 UI 仍会显示 0。但那已经是**如实的 0**
+    #   （「从没触发过」），而不是修前的「查询永远失败」。要让它真的动起来，
+    #   得先把检索接进 Manas 触发链（另议）。
+    def _create_wisdom_retriever():
+        from .knowledge.wisdom.wisdom_retriever import WisdomRetriever
+        return WisdomRetriever()
+    register_singleton('wisdom_retriever', _create_wisdom_retriever, deps=[])
+    logger.debug("  ✓ wisdom_retriever")
+
     # --- datasource_manager: 需要 _ensure_initialized() ---
     def _create_datasource_manager():
         from .datasource import DataSourceManager
