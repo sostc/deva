@@ -411,6 +411,10 @@ class PositionMonitor:
 
         return signals
 
+    # 默认数据源按名字解析（数据源重建后 ID 会变，硬编码 ID 会失效，
+    # 历史教训：旧 ID 189e3042171a 已随 realtime_tick_5s 重建而失效）
+    DEFAULT_DATASOURCE_NAME = 'realtime_tick_5s'
+
     def _connect_to_datasource(self):
         """连接到数据源"""
         try:
@@ -421,19 +425,22 @@ class PositionMonitor:
         except Exception:
             datasource_id = None
 
-        if datasource_id is None:
-            datasource_id = '189e3042171a'
-
         try:
             from deva.naja.datasource import get_datasource_manager
             mgr = get_datasource_manager()
             mgr.load_from_db()
-            ds = mgr.get(datasource_id)
+            if datasource_id:
+                ds = mgr.get(datasource_id)
+            else:
+                # 无实验模式：按名字解析默认数据源
+                ds = mgr.get_by_name(self.DEFAULT_DATASOURCE_NAME)
         except Exception as e:
             log.debug(f"[PositionMonitor] 获取数据源失败: {e}")
             return
 
         if ds is None:
+            log.debug(f"[PositionMonitor] 数据源不存在（experiment={datasource_id or '无'}, "
+                      f"默认名={self.DEFAULT_DATASOURCE_NAME}），跳过连接")
             return
 
         self._current_datasource = ds

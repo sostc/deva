@@ -25,7 +25,12 @@ log = logging.getLogger(__name__)
 MARKET_DATA_CONFIG_TABLE = "naja_bandit_market_config"
 
 # 默认数据源配置
-DEFAULT_TRADING_DATASOURCE = '189e3042171a'  # realtime_tick_5s
+# 注意：数据源 ID 在重建时会重新生成（md5(name + timestamp)），硬编码 ID 会在
+# 数据源被删除重建后失效（历史教训：旧 ID 189e3042171a 已随 realtime_tick_5s
+# 的重建而失效，导致 MarketObserver 反复告警「未找到数据源」）。
+# 因此默认数据源一律按名字解析，ID 仅作兜底。
+DEFAULT_TRADING_DATASOURCE = 'e626eecd0b86'  # realtime_tick_5s 当前 ID（兜底用）
+DEFAULT_TRADING_DATASOURCE_NAME = 'realtime_tick_5s'
 
 
 class MarketDataObserver:
@@ -71,6 +76,10 @@ class MarketDataObserver:
         self._last_datasource_available = True
 
         self._errors = {"config_load": 0, "config_save": 0, "datasource_acquire": 0, "process_data": 0}
+
+        # 默认数据源 ID 按名字解析的缓存（60s TTL）
+        self._default_ds_resolved_id: Optional[str] = None
+        self._default_ds_resolved_at: float = 0.0
 
         self._load_config()
 
@@ -190,6 +199,27 @@ class MarketDataObserver:
             log.debug(f"[MarketObserver] 获取实验模式信息失败: {e}")
             return {"active": False}
 
+    def _resolve_default_datasource_id(self) -> str:
+        """按名字解析默认数据源 ID（60s 缓存）
+
+        数据源重建后 ID 会变，硬编码 ID 必然失效；按名字解析才能长期稳定。
+        解析失败时退回兜底常量。
+        """
+        now = time.time()
+        if now - self._default_ds_resolved_at < 60 and self._default_ds_resolved_id:
+            return self._default_ds_resolved_id
+        try:
+            from deva.naja.datasource import get_datasource_manager
+            mgr = get_datasource_manager()
+            mgr.load_from_db()
+            ds = mgr.get_by_name(DEFAULT_TRADING_DATASOURCE_NAME)
+            if ds is not None and getattr(ds, 'id', None):
+                self._default_ds_resolved_id = ds.id
+        except Exception as e:
+            log.debug(f"[MarketObserver] 按名字解析默认数据源失败: {e}")
+        self._default_ds_resolved_at = now
+        return self._default_ds_resolved_id or DEFAULT_TRADING_DATASOURCE
+
     def _get_active_datasource_id(self) -> str:
         """获取当前活跃的数据源ID"""
         import os
@@ -211,7 +241,7 @@ class MarketDataObserver:
             if datasource_id:
                 return datasource_id
 
-        return DEFAULT_TRADING_DATASOURCE
+        return self._resolve_default_datasource_id()
 
     def _is_experiment_mode(self) -> bool:
         """检查是否处于实验模式"""
