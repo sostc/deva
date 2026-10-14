@@ -1,5 +1,6 @@
 """Bandit 自适应交易系统 UI"""
 
+import logging
 from datetime import datetime
 from pywebio.output import *
 from pywebio import session
@@ -17,6 +18,8 @@ from deva.naja.bandit.data_freshness import (
 )
 
 _auto_refresh_enabled = True
+
+log = logging.getLogger(__name__)
 
 
 def _get_adaptive_cycle():
@@ -799,6 +802,12 @@ def _do_sync_futu():
         )
         from pywebio.session import run_js
 
+        # 点击留痕：这个按钮以前是「静默执行」的 —— 无论是同步真的失败，
+        # 还是页面会话已随 Naja 重启失效（此时点击根本到不了服务端），
+        # naja.log 里都一行痕迹都留不下，排查时只能靠猜。
+        # （2026-10-14 的「富途持仓同步失败」告警就卡在这一步。）
+        log.info("[BanditUI] 用户点击「同步富途持仓」")
+
         # 真实 + 模拟各同步一份。
         # 为什么模拟要单独再跑一次：模拟账户是**全局共享、不分品牌**的，
         # 直接混进真实那轮会被 7 个品牌各返回一遍。两轮的账户块靠
@@ -814,6 +823,7 @@ def _do_sync_futu():
             try:
                 results.append((env_label, syncer.sync()))
             except Exception as e:
+                log.warning("[BanditUI] [%s] 同步异常: %s", env_label, e, exc_info=True)
                 put_text(f"  ❌ [{env_label}] 同步异常: {e}")
 
         for env_label, result in results:
@@ -830,15 +840,33 @@ def _do_sync_futu():
 
         real_results = [r for label, r in results if label == "真实"]
         if real_results and not real_results[0].accounts:
-            put_text("⚠️ 富途持仓同步失败，请检查 OpenD 是否运行/已登录")
+            # ❗不要一口咬定「OpenD 没运行」：账号为空也可能是账户枚举被
+            # 服务端限流、或页面会话已失效导致这次调用压根没落到底层。
+            # 把真实原因一并抛出，否则提示会把排查带偏到 OpenD 上。
+            reason = (
+                real_results[0].failure_reason()
+                or "；".join(real_results[0].probe_errors)
+                or "未返回任何账户（OpenD 未运行/未登录，或账户列表查询被拒）"
+            )
+            log.warning("[BanditUI] 富途持仓同步失败（真实环境）: %s", reason)
+            put_text(f"⚠️ 富途持仓同步失败：{reason}")
+            put_text(
+                "   👉 若原因是「账户列表查询失败」，先确认 OpenD 在运行且已登录；"
+                "否则请刷新本页后重试 —— Naja 重启后旧页面的会话会失效，点击不会生效。"
+            )
             return
 
         if results and all(r.ok for _, r in results):
+            log.info("[BanditUI] 富途持仓同步成功: %s",
+                     "；".join(r.summary() for _, r in results))
             put_text("✅ 富途持仓同步成功，正在刷新页面...")
         else:
+            log.warning("[BanditUI] 富途持仓同步部分失败: %s",
+                        "；".join(f"[{lab}] {r.failure_reason()}" for lab, r in results if not r.ok))
             put_text("⚠️ 部分账户同步失败（见上方），已更新的数据仍会刷新")
         run_js("setTimeout(function(){location.reload();}, 1200);")
     except Exception as e:
+        log.warning("[BanditUI] 同步入口异常: %s", e, exc_info=True)
         put_text(f"❌ 同步失败: {e}")
 
 
