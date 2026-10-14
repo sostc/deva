@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -33,6 +34,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .allocation import Allocation, declare_allocation
+from .clock import MarketClock
 from .intent import Intent, clamp_confidence, declare_intent
 from .manas_lens import ManasLens, ManasReading
 from .objective import Objective, WatchContext
@@ -45,6 +47,15 @@ __all__ = ["DeskTicket", "WatchDesk", "TICKET_LOG_MAXLEN"]
 
 #: 全局开票流水留多少条。这是「守望台到底在干什么」的唯一物证。
 TICKET_LOG_MAXLEN = 200
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    """读「开关型」环境变量。空串一律当没设 —— 否则 plist 里留了个空值
+    会把功能整个关掉，而日志里一点痕迹都没有。"""
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == "":
+        return default
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
 
 #: 观测面工厂：``(守望, 本轮时刻) -> 观测面``。返回 None = 本轮没拿到观测。
 Observer = Callable[[Watch, float], Optional[WatchContext]]
@@ -115,13 +126,26 @@ class WatchDesk:
         quote_max_age: Optional[float] = None,
         heartbeat_sec: Optional[float] = None,
         clock: Optional[Callable[[], float]] = None,
+        market_clock: Optional[MarketClock] = None,
     ) -> None:
+        #: ★市场时钟：**守望的时间按所属市场的在场时间算，闭市时钟停走**。
+        #: 默认开（回滚 ``NAJA_WATCH_MARKET_CLOCK=0``）。
+        #:
+        #: ❗为什么不是省资源这么简单：闭市时行情是**不动的快照**，判据拿它
+        #: 算「涨过头/跌过头」会问出一张**基于停摆价格的票**；而常驻守望的
+        #: 一期窗口若按墙上时钟走，会在半夜白白走完 —— 开盘那一刻它正好
+        #: 刚过期，最该被问到的波动反而漏掉。
+        if market_clock is None and _env_flag("NAJA_WATCH_MARKET_CLOCK", True):
+            market_clock = MarketClock()
+        self.market_clock: Optional[MarketClock] = market_clock
         #: ❗心跳间隔必须能一路传进 registry。上一版 IntentRunner 读到了
         #: ``NAJA_INTENT_HEARTBEAT_SEC`` 却没人用它 —— 配置项写了没人读，
         #: 跟「UI 写好了链路没接」是同一种静默失效。
         self.registry: WatchRegistry = registry or WatchRegistry(
             heartbeat_sec=heartbeat_sec
         )
+        if self.registry.clock is None:
+            self.registry.clock = self.market_clock
         self.lens: Optional[ManasLens] = ManasLens() if lens is None else lens
         self._quote_fn = quote_fn
         self._mtc_fn = minutes_to_close_fn
@@ -148,6 +172,15 @@ class WatchDesk:
         self.unanswered = 0
         #: 循环守望续期次数。长期持仓的「心跳」—— 一直不涨说明台面卡住了。
         self.renewals = 0
+        #: 「这一轮故意没问」的轮次计数。❗与 ``unknown_scans`` 分开：
+        #: 一个是**决定**（市场关着），一个是**故障**（取不到观测）。
+        self.skipped_closed = 0
+        #: 因为「这次唤醒的是别的市场」而跳过的守望次数（不是故障）
+        self.skipped_other_market = 0
+        #: 每一轮求值都记下**被什么唤醒的**。❗没有它就无法回答「这个守望
+        #: 三天没问过，是没机会还是压根没人叫它」。
+        self.last_wake_reason = ""
+        self.wake_counts: Dict[str, int] = {}
         self._warned_missing: set = set()
         self._warned_no_asker: set = set()
         self._last_sync_fetch: Dict[str, float] = {}
@@ -250,13 +283,48 @@ class WatchDesk:
         return list(reversed(rows))
 
     # ----------------------------------------------------------------
-    def poll(self, now: Optional[float] = None) -> List[DeskTicket]:
-        """扫一轮，给到期的守望开票。"""
+    def poll(
+        self,
+        now: Optional[float] = None,
+        *,
+        wake_reason: str = "",
+        markets: Optional[set] = None,
+    ) -> List[DeskTicket]:
+        """扫一轮，给到期的守望开票。
+
+        :param wake_reason: 这一轮是**被什么唤醒的**（manas / clock /
+            timer / manual）。❗必须记：否则事后无法区分「没机会」与
+            「没人叫得醒」，那正是静默失效唯一的入口。
+        :param markets: 只求这几个市场的守望；None = 全量（默认，与原来
+            的行为完全一致）。交易时钟只报「CN 开盘」时，不必把美股的
+            守望也吵起来。
+        """
         t = float(now if now is not None else self._clock())
+        if wake_reason:
+            self.last_wake_reason = wake_reason
+            self.wake_counts[wake_reason] = (
+                self.wake_counts.get(wake_reason, 0) + 1
+            )
         tickets: List[DeskTicket] = []
         for watch in list(self.registry.watches()):
             if watch.state == WatchState.SETTLED:
                 continue
+            if markets is not None and watch.objective.market not in markets:
+                self.skipped_other_market += 1
+                continue
+            # -- 市场闸门：闭市不问，但**必须留痕** ---------------------
+            # ❗这里不是「性能优化」。闭市时现价是一份不动的快照，拿它判
+            # 「涨过头」等于拿停摆的钟判断时间 —— 问出票比不问更危险。
+            # ❗跳过要 note_skip：否则「市场关着所以没问」和「链路断了所以
+            # 没问」在页面上长得一模一样，那是标准的静默失效。
+            if self.market_clock is not None:
+                ready, why = self.market_clock.ask_ready(
+                    watch.objective.market, t
+                )
+                if not ready:
+                    watch.note_skip(why, now=t)
+                    self.skipped_closed += 1
+                    continue
             builder = self._observers.get(watch.objective.kind)
             if builder is None:
                 self._note_missing_observer(watch)
@@ -320,6 +388,10 @@ class WatchDesk:
                 "unknown_scans": self.unknown_scans,
                 "consumed": self.consumed,
                 "unanswered": self.unanswered,
+                "skipped_closed": self.skipped_closed,
+                "skipped_other_market": self.skipped_other_market,
+                "last_wake_reason": self.last_wake_reason,
+                "wake_counts": dict(self.wake_counts),
                 "asker_attached": self._asker is not None,
                 "tickets_recent": self.ticket_log(20),
                 "manas": (
