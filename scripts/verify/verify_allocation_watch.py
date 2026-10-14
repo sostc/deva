@@ -36,6 +36,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Dict
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -145,6 +146,29 @@ def _desk(action="act_carefully", ts=1000.0, asker=None):
 
 def _tmp_alloc_file(directory: str) -> Path:
     return Path(directory) / "allocations.json"
+
+
+class _SilentHtml:
+    """``put_html`` 的替身：收起 HTML，**不建 Output、不碰会话**。
+
+    ❗为什么不能只换 ``put_buttons``：``watch/ui._h()`` 用 ``put_html`` 给
+    表格单元格包一层（``put_table`` 的字符串单元格按**纯文本**渲染，
+    ``<b>x</b>`` 会原样显示标签）。而 ``put_html`` → ``get_scope`` →
+    ``get_current_session``，在**没有会话**的脚本模式下会退化成
+    ``_start_script_mode_server``：真起一个 tornado server，然后永久阻塞在
+    ``threading.wait()``。表现就是「守卫跑到超时」，看着像产品慢，其实是
+    用例自己开了一个服务器。（同一个坑，触发点从 ``put_buttons`` 换成了
+    ``put_html``。）
+
+    ``.spec["content"]`` 保留原始 HTML —— ㉑/㉒ 那种「文案里有没有『未知』」
+    的断言要能查到里面的字。
+    """
+
+    def __init__(self, html: str):
+        self.spec = {"content": html, "type": "html"}
+
+    def __str__(self) -> str:
+        return self.spec["content"]
 
 
 def behavior_checks() -> list:
@@ -375,11 +399,13 @@ def behavior_checks() -> list:
     # ⑲ UI：空台面不崩、有配置时列数对
     import deva.naja.watch.ui as ui
 
-    # ❗必须先换掉 ``put_buttons``：PyWebIO 的按钮要注册回调并等待事件，
-    # 在脚本模式下会真的起一个 tornado server，然后**卡在进程退出处**
-    # 等非守护线程结束 —— 表现为「守卫跑到超时」，看起来像产品慢，
-    # 实际是用例自己起了一个服务器。
+    # ❗两个输出口都得换掉：``put_buttons`` 要注册回调并等待事件，
+    # ``put_html``（见 ``_h``）要取当前会话 —— 在**没有会话**的脚本模式下
+    # 两者都会真的起一个 tornado server，然后**卡在进程退出处**等非守护
+    # 线程结束。表现为「守卫跑到超时」，看起来像产品慢，实际是用例自己
+    # 起了一个服务器。只换 ``put_buttons`` 是本守卫此前卡死的真因。
     ui.put_buttons = lambda *a, **k: "<操作>"
+    ui.put_html = lambda html, *a, **k: _SilentHtml(html)
 
     desk19, _ = _desk()
     if ui._allocation_rows(desk19, 1000.0, {}):
@@ -442,6 +468,65 @@ def behavior_checks() -> list:
         f.append(f"㉓ 续期后应有 1 期归档，实际 {len(hist)}")
     elif hist[0].get("outcome") != "reviewed":
         f.append("㉓ 归档里记的结算结果不对")
+
+    # ㉔ 登记意向的**写回链路**：点一下必须真的落盘
+    #
+    # ❗为什么非测不可：⑭~㉓ 全在测「渲染」—— 页面画得出来 ≠ 点下去会落盘。
+    # 「UI 写好了、链路没接」是本仓库头号病理，它最典型的形态就是：
+    # 登记一次、toast 说成功、**重启之后清单里空空如也**。
+    #
+    # ❗为什么连 ``input`` / ``select`` / ``slider`` / ``textarea`` 也要换：
+    # Python 先把实参算完再调用 ``input_group``，所以 ``await input_group(
+    # [...])`` 里那一串控件**在 input_group 被调用之前就已经执行了** ——
+    # 真控件在没有会话的脚本模式下同样会起 tornado server 并阻塞（栈上
+    # 看到的就是卡在 ``pywebio/input.py`` 的 ``input``）。四个都得换成替身。
+    #
+    # ``upsert_intent`` 必须**接管**：真身默认写 ``~/.naja/intents.json``，
+    # 守卫不得写生产数据。这里只记录「有没有被调用、写了什么」。
+    import asyncio
+
+    import deva.naja.bandit.intent_runner as ir
+
+    async def _fake_input_group(*a, **k):
+        return {"code": "nvda", "market": "us", "name": "英伟达",
+                "side": "buy", "budget": None, "hours": 72.0,
+                "conf": 0.66, "rationale": "写回链路自检"}
+
+    def _no_control(*a, **k):
+        return None
+
+    desk24, _ = _desk(ts=1000.0)
+    written: list = []
+    patched = ("input", "select", "slider", "textarea",
+               "input_group", "toast", "_refresh", "_get_runner")
+    saved = {n: getattr(ui, n) for n in patched}
+    saved_upsert = ir.upsert_intent
+    try:
+        for _n in ("input", "select", "slider", "textarea"):
+            setattr(ui, _n, _no_control)
+        ui.input_group = _fake_input_group
+        ui.toast = _no_control
+        ui._refresh = _no_control
+        ui._get_runner = lambda: SimpleNamespace(desk=desk24)
+        ir.upsert_intent = lambda intent, *a, **k: written.append(intent) or "ok"
+        asyncio.run(ui._on_new())
+    except Exception as e:  # noqa: BLE001
+        f.append(f"㉔ 登记回调抛异常：{type(e).__name__}: {e}")
+    finally:
+        for _n, _v in saved.items():
+            setattr(ui, _n, _v)
+        ir.upsert_intent = saved_upsert
+
+    if not written:
+        f.append("㉔ ❗登记回调没把意向写回清单（点一下看着成功，重启就什么都没发生过）")
+    else:
+        it = written[0]
+        if str(getattr(it, "code", "")) != "NVDA":
+            f.append(f"㉔ 写回清单的代码不对：{getattr(it, 'code', None)!r}")
+        if abs(float(getattr(it, "confidence", 0) or 0) - 0.66) > 1e-9:
+            f.append("㉔ 写回清单的意愿强度与表单填的不一致（写了个别的）")
+        if not desk24.watches():
+            f.append("㉔ 意向只写回了清单、没挂上守望台（页面上看不到）")
 
     return f
 
@@ -539,15 +624,13 @@ INJECTIONS = [
     {
         "name": "❗arm() 不分循环与否，一次性守望也能续",
         "file": WATCH_PY,
-        "old": (
-            "            raise ValueError(\n"
-            "                f\"守望 {self.watch_id} 不是循环守望"
-            "（recurring=False），\"\n"
-            "                \"不能续期 —— 一次性守望到期就该结束，"
-            "重新挂请用 declare()\"\n"
-            "            )"
-        ),
-        "new": "            pass  # 注入：一次性守望也能续期",
+        # ❗锚点钉在**条件行**上，不钉报错文案：这条报错在引入「常驻
+        # （standing）守望」时改过措辞（旧文案是「不是循环守望（recurring=False）」，
+        # 现在是「既不是循环（recurring）也不是常驻（standing）」），钉文案的
+        # 旧锚点当场失配 —— 守卫悄悄退化成「锚点不存在」。这类腐烂只有跑
+        # `--exercise-injections` 才看得见。条件行是语义本身，措辞变它不变。
+        "old": "        if not (self.recurring or self.standing):",
+        "new": "        if False:  # 注入：一次性守望也能 arm()",
         "count": -1,
     },
     {
