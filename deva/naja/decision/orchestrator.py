@@ -1,9 +1,35 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional
 
 from .fusion import DecisionFusion, FusionOutput
+
+ENV_FP_NARRATIVES = "NAJA_FP_NARRATIVES"
+
+
+def fp_narratives_enabled() -> bool:
+    """FirstPrinciplesMind 是否接收**真实叙事列表**（回归开关，默认开）。
+
+    历史 bug：调用点原为 ``think(market_state, snapshot)``，而 ``think`` 的第二个
+    形参是 ``narratives: List[str]`` —— 于是 ``snapshot``（``{'symbol':…, 'price':…}``）
+    被当成叙事列表传了下去：
+
+      * ``FirstPrinciplesAnalyzer.analyze:896`` ``if narratives:`` 为真（dict 非空）
+      * ``_analyze_narratives:990`` ``enumerate(dict)`` 遍历出 ``'symbol'`` / ``'price'``
+        两个"叙事"，凭空生成洞察
+
+    结果是**双向伤害**：认知层真实叙事进不来，而噪音（键名）反过来影响了决策
+    （FP 洞察在 ``DecisionFusion`` 里会调 ``position_adjustment`` / ``fp_confidence``）。
+
+    修法：``market_state["narratives"]`` 本就有真实叙事（``TradingCenter`` 写入），
+    直接取用即可。置 ``NAJA_FP_NARRATIVES=0`` 回到「不传叙事」的干净降级
+    （**不再注入噪音**，也不再分析叙事）。
+    """
+    return os.environ.get(ENV_FP_NARRATIVES, "1").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
 
 
 class DecisionOrchestrator:
@@ -46,7 +72,18 @@ class DecisionOrchestrator:
         fp_insights = []
         if fp_mind and market_state:
             try:
-                fp_result = fp_mind.think(market_state, snapshot)
+                # ❗参数错位修复（2026-10-15）：``think`` 的第二个形参是
+                # ``narratives: List[str]``，**不是** snapshot。原写法
+                # ``think(market_state, snapshot)`` 把 ``{'symbol':…, 'price':…}``
+                # 当成叙事列表传下去 → 真实叙事丢失，且键名 ``'symbol'``/``'price'``
+                # 被 ``_analyze_narratives`` 当作两个叙事生成伪洞察，反噬决策。
+                # ``market_state["narratives"]`` 是 TradingCenter 写入的真实叙事。
+                # snapshot 已在 ``_process_sensation_modules`` 内被消费，此处不再传。
+                _fp_narratives = (
+                    list(market_state.get("narratives") or [])
+                    if fp_narratives_enabled() else None
+                )
+                fp_result = fp_mind.think(market_state, narratives=_fp_narratives or None)
                 fp_insights = fp_result.get("insights", []) if fp_result else []
             except Exception as e:
                 self.log.warning(f"[DecisionOrchestrator] FirstPrinciplesMind.think 失败: {e}")

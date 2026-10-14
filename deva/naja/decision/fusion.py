@@ -1,9 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping
 
 from .plan import action_severity, more_conservative
+
+
+def _normalize_fp_insight(insight: Any) -> Dict[str, Any]:
+    """把一条 FP 洞察归一化成 dict（本模块统一按 dict 字段访问）。
+
+    为什么需要：生产者 ``FirstPrinciplesAnalyzer.analyze`` 返回的是
+    ``FirstPrinciplesInsight`` **dataclass 对象**，而本融合层全程用
+    ``insight.get("level")`` 访问。历史上由于上游 ``DecisionOrchestrator``
+    的参数错位（``think(market_state, snapshot)`` 把 snapshot 当叙事列表传下去，
+    见 ``decision/orchestrator.py``），``fp_insights`` **恒为空列表**，
+    于是这个类型不匹配从未暴露；上游一旦修好就会立刻抛
+    ``AttributeError: 'FirstPrinciplesInsight' object has no attribute 'get'``。
+
+    字段映射：对象属性 ``insight_type`` → 融合层期望的 ``type``；
+    ``ThoughtLevel`` 枚举 → 其 ``.value``（如 ``"pattern"``）。
+    """
+    if isinstance(insight, Mapping):
+        return dict(insight)
+    level = getattr(insight, "level", None)
+    level_value = getattr(level, "value", level) or "surface"
+    return {
+        "type": getattr(insight, "insight_type", None)
+        or getattr(insight, "type", None)
+        or "unknown",
+        "level": str(level_value),
+        "confidence": float(getattr(insight, "confidence", 0.5) or 0.5),
+        "content": getattr(insight, "content", "") or "",
+    }
 
 
 @dataclass
@@ -88,6 +116,12 @@ class DecisionFusion:
         reasoning = []
         risk_warnings = []
         fp_confidence = 0.5
+
+        # ❗归一化：上游产出的是 FirstPrinciplesInsight **对象**，本层按 dict 访问。
+        # 见 _normalize_fp_insight 的说明 —— 本修复与 orchestrator 的参数错位修复
+        # **必须成对存在**：只改上游会让 fp_insights 首次非空，随即在此处
+        # AttributeError；只改此处则上游永远传空列表，本行无实际输入。
+        fp_insights = [_normalize_fp_insight(_i) for _i in (fp_insights or [])]
 
         if fp_insights:
             by_level: Dict[str, list] = {}
