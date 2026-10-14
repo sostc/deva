@@ -27,12 +27,15 @@ log = logging.getLogger(__name__)
 
 
 def _get_replay_scheduler():
-    """ReplayScheduler 已下线时返回 None，避免调优日志持续报警。"""
-    try:
-        return SR('replay_scheduler')
-    except Exception as e:
-        log.debug(f"[AutoTuner] ReplayScheduler 不可用: {e}")
-        return None
+    """ReplayScheduler 已下线：返回 None，**不再查注册表**。
+
+    ❗原实现是 ``SR('replay_scheduler')``，但全库没有任何生产者注册这个名字 →
+    每次必然 KeyError 被吞掉。一个永远命不中的单例查询只会让人以为这个能力还在，
+    所以直接返回 None，把「已下线」从注释变成**代码事实**。
+    若要恢复回放间隔调优：先落地 ReplayScheduler 并 ``register_singleton``，
+    再把这里改回 ``SR('replay_scheduler')``。
+    """
+    return None
 
 
 @dataclass

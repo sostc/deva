@@ -6,7 +6,6 @@ import logging
 from typing import Any
 
 from deva import NB
-from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
 
@@ -361,12 +360,10 @@ def _init_tune_mode(tune_config: dict):
     tuner.start()
     tuner.register_callback(_on_tuner_event)
 
-    try:
-        scheduler = SR('replay_scheduler')
-    except Exception as e:
-        log.debug(f"[TuneMode] ReplayScheduler 不可用，跳过回放完成回调注册: {e}")
-        scheduler = None
-    if scheduler:
+    # ReplayScheduler 已下线（全库无生产者）—— 不再做「永远命不中」的
+    # SR('replay_scheduler') 查询。恢复步骤见 auto_tuner._get_replay_scheduler。
+    scheduler = None
+    if scheduler is not None:
         scheduler.register_finished_callback(_on_replay_finished)
 
     print(f"🎯 调参器已启动，等待信号...")
