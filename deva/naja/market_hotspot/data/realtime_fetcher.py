@@ -970,8 +970,10 @@ class RealtimeDataFetcher:
                     )
 
                 if requested_stock_codes:
+                    # 统一小写：新浪美股代码区分大小写（gb_NVDA 返回空串），
+                    # 且下方要与 stock_codes（小写 gb_ 键）取交集，大小写不一致会整批为空。
                     normalized_requested = {
-                        code if code.startswith('gb_') else f"gb_{code}"
+                        (code if code[:3].lower() == 'gb_' else f"gb_{code}").lower()
                         for code in requested_stock_codes
                     }
                     stock_codes = {

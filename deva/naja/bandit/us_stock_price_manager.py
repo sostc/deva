@@ -190,15 +190,17 @@ class USStockPriceManager:
         from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
 
         results = {}
-        sina_codes = [f"gb_{code}" for code in stock_codes]
+        # 新浪美股代码必须小写（gb_NVDA 返回空串）；fetch() 返回的 key 是不带 gb_ 前缀的
+        # 小写裸码（如 nvda），所以回填时也要按小写取，否则会静默拿不到数据而回落雪球。
+        sina_codes = [f"gb_{str(code).lower()}" for code in stock_codes]
 
         try:
             api = GlobalMarketAPI()
             data = await api.fetch(sina_codes)
 
             for code in stock_codes:
-                if code in data:
-                    md = data[code]
+                md = data.get(str(code).lower())
+                if md is not None:
                     snapshot = PriceSnapshot(
                         code=code,
                         current=md.current,
