@@ -386,6 +386,18 @@ class AppContainer:
             self._event_registrar = self._create_event_registrar()
             self._event_registrar.register_all()
 
+            # 9b. 认知↔交易桥梁装配。
+            # ❗此前本模块**从未被实例化**（全库无调用方，enable_bridge(True) 只存在
+            # 于 docstring 示例）→ 四条转换规则永不执行。这里接上装配点，
+            # 但**默认仍关闭**：开关是 NAJA_BUS_BRIDGE=1，原因是「叙事/板块 →
+            # 买还是卖」的方向口径没有权威依据（见 events/bus_bridge.py 模块 docstring）。
+            # 无论开关如何都会打印一行状态，避免又变成「只能靠读代码才知道」。
+            try:
+                from ..events.bus_bridge import enable_bridge_from_env
+                enable_bridge_from_env()
+            except Exception as e:
+                log.warning(f"[AppContainer] BusBridge 装配失败: {e}")
+
             # 10. 装配 SignalExecutor 依赖
             try:
                 from ..attention.orchestration.signal_executor import get_signal_executor

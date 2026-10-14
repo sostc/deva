@@ -181,12 +181,21 @@ class TimingNarrativeTracker:
         self._narrative_history.append(new_narrative)
 
     def _publish_cognitive_update(self, event):
-        """发布市场叙事更新事件到 NajaEventBus"""
+        """发布市场叙事更新事件到 NajaEventBus
+
+        ❗**当前没有调用方**（2026-10-15 全链路审计，见
+        docs/naja/p0_linkage_design_2026-10-15.md）：本方法全库零引用，
+        因此 `TimingNarrativeShiftEvent` 一类事件**从未真正发布过**。
+        保留并把构造写对，是为了将来接上时不用再考古；但它此刻属于
+        「写了没接」——别误以为时机叙事已经在驱动下游。
+
+        另注：原实现给 `TimingNarrativeShiftEvent` 传了 `event_type=...`，
+        而 `BaseCognitiveEvent.event_type` 是 **property（只读，无 setter）**、
+        不是字段 → dataclass `__init__` 收到未知 kwarg 直接 TypeError，
+        被下方 `except Exception` 吞成一句 debug。即使将来接上也不会成功。
+        """
         try:
-            from deva.naja.events import (
-                get_event_bus,
-                CognitiveEventType,
-            )
+            from deva.naja.events import get_event_bus, TimingNarrativeShiftEvent
 
             bus = get_event_bus()
 
@@ -199,13 +208,17 @@ class TimingNarrativeTracker:
             narratives = list(dict.fromkeys(narratives))
 
             importance = getattr(event, 'importance_score', 0.5)
+            new_regime = getattr(event, 'new_regime', '') or getattr(event, 'regime', '')
 
-            from deva.naja.events import TimingNarrativeShiftEvent
-            event = TimingNarrativeShiftEvent(
+            shift_event = TimingNarrativeShiftEvent(
                 source="TimingNarrative",
-                event_type="timing_narrative_update",
+                importance=importance,
+                market=str(getattr(event, 'market', '') or 'CN'),
+                new_regime=new_regime,
+                narrative_id=("|".join(narratives[:3]) if narratives else "timing"),
+                metadata={"narratives": narratives[:20]},
             )
-            bus.publish(event)
+            bus.publish(shift_event)
         except ImportError:
             pass
         except Exception as e:

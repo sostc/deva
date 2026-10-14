@@ -450,57 +450,45 @@ class NarrativeTracker:
             log.info(f"[NarrativeTracker] 处理 TextFocusedEvent 失败: {e}")
 
     def _publish_cognitive_update(self, event, signal):
-        """发布认知事件到 NajaEventBus"""
+        """发布叙事更新事件（`NarrativeUpdateEvent`）到 NajaEventBus
+
+        ❗**当前没有调用方**（2026-10-15 全链路审计）：本方法全库零引用，
+        因此 `NarrativeUpdateEvent` —— **唯一一个自带 `symbols`（股票代码）
+        字段的认知事件** —— 从未被发布过。叙事状态实际是走
+        `_publish_narrative_state_event()`（只带叙事名、不带股票代码）发出去的。
+        保留本方法并把参数写对，便于将来直接启用；但它此刻属于「写了没接」。
+
+        另注：原实现 `narrative_id="narratives..."` 是**字面量垃圾值**，且参数之间
+        夹着大量空行（疑似编辑器误操作留下的残渣）。现在按语义填。
+        """
         try:
-            from deva.naja.events import (
-                get_event_bus,
-                CognitiveEventType,
-            )
+            from deva.naja.events import get_event_bus, create_narrative_update
 
             bus = get_event_bus()
 
-            narratives = list(signal.get('topics', []) if isinstance(signal, dict) else [])
-            narratives.extend(list(signal.get('keywords', []) if isinstance(signal, dict) else []))
+            sig = signal if isinstance(signal, dict) else {}
 
-            importance = signal.get('importance_score', 0.5) if isinstance(signal, dict) else 0.5
+            narratives = list(sig.get('topics', []) or [])
+            narratives.extend(list(sig.get('keywords', []) or []))
+            narratives = list(dict.fromkeys(narratives))
 
-            from deva.naja.events import create_narrative_update
+            importance = sig.get('importance_score', 0.5)
+            symbols = list(sig.get("stock_codes", []) or [])
 
-
-            event = create_narrative_update(
-
-
-                narrative_id="narratives...",
-
-
-                narrative_type="block",
-
-
-                summary="外部叙事更新",
-
-
+            update_event = create_narrative_update(
                 source="NarrativeTracker",
-
-
+                # 叙事ID 取本次信号的主题/关键词，而不是假的占位串
+                narrative_id=("|".join(narratives[:3]) if narratives else "external"),
+                narrative_type="block",
+                summary="外部叙事更新",
                 confidence=0.5,
-
-
-                symbols=signal.get("stock_codes", []) if isinstance(signal, dict) else [],
-
-
+                symbols=symbols,
                 strength_change=0.0,
-
-
                 market="CN",
-
-
-                importance=importance
-
-
+                importance=importance,
             )
 
-
-            bus.publish(event)
+            bus.publish(update_event)
         except ImportError:
             pass
         except Exception as e:
