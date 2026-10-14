@@ -20,6 +20,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+from .clock import MarketClock
 from .objective import Objective, WatchContext
 from .opportunity import Opportunity, OpportunityHit
 
@@ -145,6 +146,17 @@ class Watch:
     #: 重挂，唯独人工撤下（``abandoned``）不重挂 ——
     #: 撤下必须是**真终止**，否则它只是个视觉动作。
     standing: bool = False
+    #: ★市场时钟：**闭市时时钟停走**（``watch/clock.py``）。
+    #:
+    #: 守望的窗口量的是「等多久才算白等」，而这个数只在开盘时有意义。
+    #: 做 T 守望一期 30 分钟，若半夜挂上，墙上时钟半小时后到期 —— 那半小时
+    #: 市场根本没开，「这期没轮到我」是一次纯记账的白记，而且开盘那一刻它
+    #: 正好刚过期，最该问到的开盘波动反而漏了。
+    #:
+    #: ``None`` = 用墙上时钟（**原行为**，也是所有既有用例的口径）。
+    #: ❗认不出的市场由时钟自己退回墙上差，守望不猜 —— 把「市场不认识」
+    #: 当「市场关着」会让一个拼错 market 的守望永远安静。
+    clock: Optional[MarketClock] = None
 
     def __post_init__(self) -> None:
         if self.recurring and self.standing:
@@ -207,6 +219,14 @@ class Watch:
         self.unanswered_count: int = 0
         self.last_ask_at: Optional[float] = None
         self.last_granted: Optional[bool] = None
+        # -- 「这一轮故意没问」的留痕 ------------------------------------
+        #: ❗省掉的问询必须留痕。闭市不问是**决定**，链路没取到是**故障**，
+        #: 两者若都表现为「这一轮没问」，页面上就再也分不清了 —— 那正是
+        #: 静默失效家族的标准形态。所以跳过要计数、要带原因、要显示。
+        self.skipped_closed: int = 0
+        self.total_skipped: int = 0
+        self.last_skip_reason: str = ""
+        self.last_skip_at: Optional[float] = None
         self.max_silence_seconds = (
             600.0
             if self.max_silence_seconds is None
@@ -218,17 +238,45 @@ class Watch:
     def watch_id(self) -> str:
         return self.objective.id
 
+    # -- 时间：一律走「算数的时间」，有市场时钟就按在场时间 ------------
+    def _elapsed(self, t0: float, t1: float) -> float:
+        """``t0 → t1`` 之间**算数**的秒数。
+
+        有市场时钟时是**在场秒数**（闭市/午休/周末不算），没有就是墙上差。
+        ❗所有时间量都必须过这个方法 —— 直接拿 ``now - armed_at`` 会在闭市
+        期间照走，把窗口悄悄耗光。
+        """
+        if self.clock is None:
+            return max(0.0, float(t1) - float(t0))
+        return self.clock.elapsed(self.objective.market, t0, t1)
+
+    def _wall_at(self, t0: float, seconds: float) -> float:
+        """从 ``t0`` 起、算数时间走过 ``seconds`` 秒之后的**墙上时刻**。"""
+        if self.clock is None:
+            return float(t0) + float(seconds)
+        return self.clock.wall_at(self.objective.market, t0, seconds)
+
+    @property
+    def market_clock_on(self) -> bool:
+        return self.clock is not None
+
     @property
     def deadline(self) -> float:
-        return self.armed_at + float(self.max_wait_seconds or 0.0)
+        """到期的**墙上时刻**。在场时钟下它可能是次日开盘后某刻。
+
+        ❗不要拿 ``deadline - now`` 当剩余时间 —— 中间隔着闭市，那段不算数。
+        剩余时间一律用 :meth:`remaining`。
+        """
+        return self._wall_at(self.armed_at, float(self.max_wait_seconds or 0.0))
 
     def remaining(self, now: Optional[float] = None) -> float:
-        """距结算还剩多少秒。负数 = 已超时待结算。"""
-        return self.deadline - (now if now is not None else time.time())
+        """距结算还剩多少**算数秒**。负数 = 已超时待结算。"""
+        t = now if now is not None else time.time()
+        return float(self.max_wait_seconds or 0.0) - self._elapsed(self.armed_at, t)
 
     def age(self, now: Optional[float] = None) -> float:
         t = now if now is not None else time.time()
-        return t - self.armed_at
+        return self._elapsed(self.armed_at, t)
 
     def is_overdue(self, now: Optional[float] = None) -> bool:
         return self.state != WatchState.SETTLED and self.remaining(now) <= 0
@@ -289,7 +337,8 @@ class Watch:
             self.unknown_scans += 1
 
         # -- 活性兜底：bootstrap 或沉默太久就强制托一次 ------------------
-        silence = now - self.last_prod_at
+        # ❗沉默按**在场时间**算：闭市干等不算沉默，开盘那一刻才该被催。
+        silence = self._elapsed(self.last_prod_at, now)
         need_seed = self.bootstrap and not self._bootstrapped
         if (
             not decided
@@ -444,6 +493,10 @@ class Watch:
         self.granted_count = 0
         self.denied_count = 0
         self.unanswered_count = 0
+        # 本期「故意没问」的计数归零（累计 total_skipped 保持不动）
+        self.skipped_closed = 0
+        self.last_skip_reason = ""
+        self.last_skip_at = None
         log.info(
             "[Watch] %s 进入第 %d 期（%s）",
             self.watch_id, self.cycles, reason or "周期性续期",
@@ -456,6 +509,18 @@ class Watch:
         if limit and limit > 0:
             rows = rows[-int(limit):]
         return list(reversed(rows))
+
+    def note_skip(self, reason: str, now: Optional[float] = None) -> None:
+        """记一次「这一轮**故意**没问」。
+
+        ❗闭市不问是决定，链路没取到是故障。两者都表现为「这一轮没问」，
+        只有**带原因的计数**能把它们分开：看见「已收盘，距开盘 9h12min」
+        就知道是有意跳过，看见计数不动而行情也取不到，才是链路断了。
+        """
+        self.skipped_closed += 1
+        self.total_skipped += 1
+        self.last_skip_reason = str(reason or "")
+        self.last_skip_at = now if now is not None else time.time()
 
     def ask_history(self, limit: int = 10) -> List[Dict[str, Any]]:
         """最近若干条问询记录（新的在前）。"""
@@ -505,9 +570,14 @@ class Watch:
             "scans": self.scans,
             "fires": self.fires,
             "prods": self.prods,
-            "silence_sec": round(t - self.last_prod_at, 1),
+            "silence_sec": round(self._elapsed(self.last_prod_at, t), 1),
             "unknown_scans": self.unknown_scans,
             "last_reason": self.last_reason,
+            # -- 时间与市场状态：为什么这一轮可能根本没问 --
+            "market_clock": bool(self.clock is not None),
+            "skipped_closed": self.skipped_closed,
+            "last_skip_reason": self.last_skip_reason,
+            "last_skip_at": self.last_skip_at,
             # -- 执行记录：问过几次、放行/被否/没人问各多少 --
             "asked": self.asked,
             "granted_count": self.granted_count,

@@ -1269,6 +1269,13 @@ class ManasEngine:
 
         self._last_output: Optional[ManasOutput] = None
         self._last_update = 0.0
+        # ❗MANAS_STATE_CHANGED 的**去重基准**：只在上一次发过的档位上比对。
+        # 没有它，每轮 compute 都会发一次事件，事件腿立刻退化成定时轮询 ——
+        # 那就白改了。首次（None → 有值）也发：守望刚挂上需要知道当前档位。
+        self._published_action_type: Optional[str] = None
+        self._state_change_published = 0
+        self._state_change_failures = 0
+        self._state_change_unknown = 0
         self._update_interval = self.config.update_interval
         self._current_narratives: List[str] = []
         self._recent_pnl = RollingWindow(self.config.pnl_window)
@@ -1382,15 +1389,29 @@ class ManasEngine:
             if partial_state:
                 state_data.update(partial_state)
 
+            # ❗入参是 ``metadata`` 不是 ``data``。原来写成 ``data=`` →
+            # TypeError → 被下面的 except 用 log.debug 吞掉 → 这条通道
+            # 从来没有真正发出过一个事件（订阅方一直空转却没人发现）。
             bus.publish_cognitive_event(
                 source="ManasEngine",
                 event_type=CognitiveEventType.MANAS_STATE_CHANGED,
-                data=state_data,
+                metadata=state_data,
                 importance=0.6,
             )
+            self._state_change_published += 1
             log.debug(f"[ManasEngine] 发布 MANAS_STATE_CHANGED 事件")
+            return True
         except Exception as e:
-            log.debug(f"[ManasEngine] 发布状态变化事件失败: {e}")
+            # ❗原来是 log.debug —— 通道坏了会**完全隐形**：订阅方（叙事追踪 /
+            # 守望台）只是「一直没收到」，而没人知道是「没变」还是「发不出去」。
+            # 这正是「合法的空比异常更危险」。发布失败必须 WARNING + 计数。
+            self._state_change_failures += 1
+            log.warning(
+                "[ManasEngine] 发布 MANAS_STATE_CHANGED 失败（第 %d 次）——"
+                "订阅方收不到档位变化，会退化成定时拉取: %s",
+                self._state_change_failures, e, exc_info=True,
+            )
+            return False
 
     def subscribe_cognitive_events(self, event_bus=None) -> bool:
         """
@@ -2049,10 +2070,43 @@ class ManasEngine:
         self._last_output = output
         self._last_update = current_time
 
+        # -- 档位变化的**唯一生产者** ------------------------------------
+        # 通道（事件类型 + 数据结构）和订阅方（叙事追踪、守望台）早就都
+        # 在，唯独缺一个生产者 → MANAS_STATE_CHANGED 一直空转。
+        self._publish_action_type_change(output)
+
         # 行动门留痕（旁路：失败只降级为「少一条记录」，绝不影响决策）
         self._record_gate_audit(output)
 
         return output
+
+    def _publish_action_type_change(self, output: "ManasOutput") -> bool:
+        """档位**变了**才发一次 MANAS_STATE_CHANGED。
+
+        ❗只发变化、不发重复：守望台订阅它是为了「你变了我就醒」，每轮
+        compute 都发一次等于把事件腿变回定时轮询，那就不如不改。
+
+        ❗认不出档位时**不发**而不是发空 —— 「档位变成空」是一次**假的
+        变化**，订阅方会据此做一次无谓的唤醒。
+        """
+        new_type = getattr(output, "action_type", None)
+        if new_type is None:
+            self._state_change_unknown += 1
+            return False
+        val = new_type.value if hasattr(new_type, "value") else str(new_type)
+        prev = self._published_action_type
+        if val == prev:
+            return False
+        self._published_action_type = val
+        ok = self._publish_manas_state_change(
+            {"action_type": val, "prev_action_type": prev}
+        )
+        if ok:
+            log.info(
+                "[ManasEngine] 行动档位 %s → %s（已通知订阅方）",
+                prev or "（无）", val,
+            )
+        return bool(ok)
 
     def _record_gate_audit(self, output: "ManasOutput") -> None:
         """把本次判定留给行动门审计，见 manas_gate_audit.py。

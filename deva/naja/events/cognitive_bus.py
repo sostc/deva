@@ -93,6 +93,19 @@ class CognitiveSignalEvent:
     risk_level: str = "unknown"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def data(self) -> Dict[str, Any]:
+        """``metadata`` 的别名。
+
+        ❗为什么要有这个别名：发布函数的入参叫 ``metadata``，而已有订阅
+        方（叙事追踪、守望唤醒器）按 ``event.data`` 读载荷。两个名字对
+        不上，于是有发布方按 ``data=...`` 去调发布函数 → TypeError →
+        被 ``except`` 里的 ``log.debug`` 吞掉 → **通道空转且完全隐形**。
+        给一个别名让「写 metadata、读 data」两边对得上；真正的修法是把
+        发布调用改对（见 manas_engine._publish_manas_state_change）。
+        """
+        return self.metadata
+
     def __str__(self) -> str:
         return (
             f"CognitiveSignalEvent(source={self.source}, "

@@ -47,6 +47,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+# ❗守卫用例必须**确定性**：守望台默认开着市场时钟，闭市时守望会被闸门
+# 跳过 —— 于是「现在几点」决定了用例的成败（半夜跑绿、收盘后跑红）。
+# 市场时钟自身的行为由 verify_watch_awakener / 市场时钟守卫负责，
+# 这里的用例只测守望语义，一律关掉闸门。
+os.environ["NAJA_WATCH_MARKET_CLOCK"] = "0"
+
 import deva.naja.watch as W  # noqa: E402
 
 WATCH_DIR = REPO / "deva/naja/watch"
