@@ -24,6 +24,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
+from .clock import MarketClock
 from .objective import Objective, WatchContext
 from .opportunity import Opportunity, build_opportunity
 from .watch import Settlement, Watch, WatchScan, WatchState
@@ -55,9 +56,17 @@ class WatchRegistry:
 
     :param heartbeat_sec: 自证心跳间隔，默认 600 秒（对齐做 T 的做法）。
         设为 0 表示不自动心跳。
+    :param clock: 市场时钟。挂上来的守望会共用它 —— 于是「一期多久」
+        一律按**所属市场的在场时间**算，闭市时钟停走。``None`` = 墙上时钟。
     """
 
-    def __init__(self, *, heartbeat_sec: Optional[float] = None) -> None:
+    def __init__(
+        self,
+        *,
+        heartbeat_sec: Optional[float] = None,
+        clock: Optional[MarketClock] = None,
+    ) -> None:
+        self._clock = clock
         self._watches: Dict[str, Watch] = {}
         self._beat_sec = (
             _env_float(_HEARTBEAT_ENV, 600.0)
@@ -66,6 +75,18 @@ class WatchRegistry:
         )
         self._last_beat: Optional[float] = None
         self._beats: int = 0
+
+    # ------------------------------------------------------------------
+    @property
+    def clock(self) -> Optional[MarketClock]:
+        """台面上守望共用的市场时钟。"""
+        return self._clock
+
+    @clock.setter
+    def clock(self, value: Optional[MarketClock]) -> None:
+        """后接时钟。❗只对**之后**挂上来的守望生效 —— 已经在台上的守望
+        换钟会让它前一期的在场时长与后一期对不上（两把尺子量同一段等待）。"""
+        self._clock = value
 
     # ------------------------------------------------------------------
     # 登记
@@ -101,6 +122,7 @@ class WatchRegistry:
             bootstrap=bootstrap,
             recurring=recurring,
             standing=standing,
+            clock=self._clock,
         )
         self._watches[watch.watch_id] = watch
         log.info(

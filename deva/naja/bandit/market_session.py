@@ -28,11 +28,15 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Optional, Tuple
+from datetime import datetime, time as dtime, timedelta
+from typing import List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
+
+#: 向前找开盘/累计在场时间时最多翻多少天。
+#: 正常一轮只翻 1~2 天；这个上限是防「市场永远不开放」时死循环。
+MAX_DAYS = 400
 
 PHASE_MORNING = "morning"
 PHASE_AFTERNOON = "afternoon"
@@ -183,14 +187,167 @@ def session_date(market: str, dt: Optional[datetime] = None) -> str:
     return now.strftime("%Y-%m-%d")
 
 
+def _key(market: str) -> str:
+    return str(market or "").strip().upper()
+
+
+def _day_start(market: str, ts: float) -> Optional[datetime]:
+    """``ts`` 那天在该市场本地的 00:00。换不出来返回 None。"""
+    loc = market_local(market, datetime.fromtimestamp(ts))
+    if loc is None:
+        return None
+    return loc.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _next_day(day: datetime) -> datetime:
+    """次日本地 00:00。❗用 date 相加而不是 timedelta(days=1)：后者在夏令时
+    切换日会整整差一小时，累计多天就会把开盘时刻算偏。"""
+    return datetime.combine(
+        day.date() + timedelta(days=1), dtime(0, 0), tzinfo=day.tzinfo
+    )
+
+
+def _day_segments(market: str, day: datetime) -> List[Tuple[float, float]]:
+    """某一天（本地 00:00 的 datetime）所有交易段，换算成 epoch 秒区间。
+
+    ❗周末返回空表。这条是实测抓出来的：漏了它的话「周六 10:00–10:30」
+    会被算成**在场 30 分钟**，于是跨周末的窗口时钟白白走了半个钟头 ——
+    而且不报错，只是守望的到期时刻悄悄提前。
+    """
+    if day.weekday() >= 5:
+        return []
+    segments = MARKET_SESSIONS.get(_key(market))
+    if not segments:
+        return []
+    out: List[Tuple[float, float]] = []
+    for (sh, sm), (eh, em) in segments:
+        s = day.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        e = day.replace(hour=eh, minute=em, second=0, microsecond=0)
+        out.append((s.timestamp(), e.timestamp()))
+    return out
+
+
+def market_elapsed_seconds(
+    market: str, t0: float, t1: float
+) -> Optional[float]:
+    """``[t0, t1]`` 之间该市场**在场了多少秒**（闭市、午休、周末不算）。
+
+    ❗认不出市场返回 ``None``，不是 0 —— 0 的真语义是「这一整段它都没开」，
+    把它当成"认不出"会让守望的窗口在未知市场下一动不动地停住。
+    调用方拿到 ``None`` 的保守行为是**退回墙上时钟**。
+    """
+    if t1 <= t0:
+        return 0.0
+    if _key(market) not in MARKET_SESSIONS:
+        return None
+    day = _day_start(market, t0)
+    if day is None:
+        return None
+
+    total = 0.0
+    for _ in range(MAX_DAYS):
+        for s, e in _day_segments(market, day):
+            a = max(s, float(t0))
+            b = min(e, float(t1))
+            if b > a:
+                total += b - a
+        if day.timestamp() > float(t1):
+            break
+        day = _next_day(day)
+    return total
+
+
+def market_wall_at(
+    market: str, t0: float, seconds: float
+) -> Optional[float]:
+    """从 ``t0`` 起、该市场**在场满 ``seconds`` 秒**之后的墙上时刻。
+
+    这是 :func:`market_elapsed_seconds` 的反函数，用来算「一期 30 分钟在场
+    时间」到底落在哪个墙上时刻（可能跨夜、跨周末）。认不出市场返回 None。
+    """
+    left = float(seconds)
+    if left <= 0:
+        return float(t0)
+    if _key(market) not in MARKET_SESSIONS:
+        return None
+    day = _day_start(market, t0)
+    if day is None:
+        return None
+
+    for _ in range(MAX_DAYS):
+        for s, e in _day_segments(market, day):
+            a = max(s, float(t0))
+            if e <= a:
+                continue
+            avail = e - a
+            if avail >= left:
+                return a + left
+            left -= avail
+        day = _next_day(day)
+    # 翻了 MAX_DAYS 天还凑不够在场时间 —— 只可能是配置出了鬼。
+    # ❗不静默返回 t0+seconds：那会把「算不出来」伪装成一个正常到期时刻。
+    log.warning(
+        "[MarketSession] %s 从 %s 起累计 %.0fs 在场时间算不出来",
+        market, t0, seconds,
+    )
+    return None
+
+
+def next_open_dt(market: str, dt: Optional[datetime] = None) -> Optional[datetime]:
+    """该市场**下一次开盘**的时刻（带时区）。
+
+    ❗**正在盘中就返回当前时刻** —— 调用方问的是「还要多久才能问」，
+    盘中的答案是 0，而不是"等明天"。周末/休市会一直往后翻到下一个交易日。
+    认不出市场返回 ``None``（不是 now —— 那会让它看起来永远开着）。
+    """
+    if _key(market) not in MARKET_SESSIONS:
+        return None
+    now = market_local(market, dt or datetime.now())
+    if now is None:
+        return None
+
+    for _ in range(MAX_DAYS):
+        if now.weekday() < 5:
+            for (sh, sm), (eh, em) in MARKET_SESSIONS[_key(market)]:
+                s = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                e = now.replace(hour=eh, minute=em, second=0, microsecond=0)
+                if s <= now < e:
+                    return now
+                if now < s:
+                    return s
+        now = _next_day(now)
+    return None
+
+
+def next_open_ts(market: str, dt: Optional[datetime] = None) -> Optional[float]:
+    """下一次开盘的 POSIX 时间戳；认不出市场返回 ``None``。"""
+    d = next_open_dt(market, dt)
+    return d.timestamp() if d is not None else None
+
+
+def seconds_to_open(
+    market: str, dt: Optional[datetime] = None
+) -> Optional[float]:
+    """距下一次开盘还有多少秒。**盘中 = 0**。认不出市场返回 ``None``。"""
+    ts = next_open_ts(market, dt)
+    base = (dt or datetime.now()).timestamp()
+    return max(0.0, ts - base) if ts is not None else None
+
+
 __all__ = [
     "MARKET_SESSIONS",
     "MARKET_TZ",
+    "MAX_DAYS",
     "TRADING_PHASES",
     "is_trading",
+    "market_elapsed_seconds",
     "market_local",
     "market_phase",
+    "market_wall_at",
     "minutes_to_close",
+    "next_open_dt",
+    "next_open_ts",
+    "seconds_to_open",
     "session_date",
     "session_open_dt",
     "session_open_ts",

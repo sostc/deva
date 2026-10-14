@@ -577,6 +577,11 @@ class IntentRunner:
         }
         #: 派生守望同步的节流时刻。持仓不会每秒变，没必要每轮都去读。
         self._last_sync: float = 0.0
+        #: 事件腿唤醒器。在 :meth:`start` 里才挂 —— 构造阶段 desk 还没
+        #: 建（它是惰性的），提前取会把「建守望台」的副作用拽进构造函数。
+        self._awakener: Optional[Any] = None
+        #: 上一次喊过的异常（用来避免同一条异常每轮刷屏）
+        self._last_awake_alert: str = ""
 
     # ----------------------------------------------------------------
     @property
@@ -869,6 +874,7 @@ class IntentRunner:
                           exc_info=True)
                 return False
             seeded = self.seed()
+            self._attach_awakener()
             self._stop.clear()
             self._thread = threading.Thread(
                 target=self._run_loop, name="intent-watch", daemon=True
@@ -896,6 +902,52 @@ class IntentRunner:
                     "errors": dict(self._errors)})
         return out
 
+    def _attach_awakener(self) -> None:
+        """挂上事件腿（Manas 档位变化 + 交易时钟）。
+
+        ❗显式把 desk 传进去：不传的话唤醒器会反过来找 IntentRunner
+        单例，两个模块互相 import 就是循环依赖。
+        """
+        try:
+            from deva.naja.watch.awakener import get_watch_awakener
+
+            aw = get_watch_awakener(self.desk)
+        except Exception as e:  # noqa: BLE001
+            self._errors["awakener"] = str(e)
+            log.warning(
+                "[IntentRunner] 守望唤醒器未挂上，守望只剩定时轮询: %s",
+                e, exc_info=True,
+            )
+            return
+        if aw is None:
+            log.info("[IntentRunner] NAJA_WATCH_AWAKENER=0，事件腿已关闭")
+            return
+        self._awakener = aw
+        st = aw.attach()
+        ok = [k for k, v in st.items() if v]
+        log.info(
+            "[IntentRunner] 事件腿已挂：%s（%s）",
+            "、".join(ok) or "无", aw.attach_errors or "全部就绪",
+        )
+
+    def _collect(self, t: float) -> List[Any]:
+        """本轮要统计的票：事件腿已经求过的 + （必要时）定时腿补一遍。"""
+        aw = self._awakener
+        if aw is None:
+            return list(self.desk.poll(t, wake_reason="timer"))
+        # 补做被节流合并掉的唤醒（❗合并只延后，不取消）
+        try:
+            aw.flush(t)
+        except Exception as e:  # noqa: BLE001
+            log.error(f"[IntentRunner] 唤醒补做失败: {e}", exc_info=True)
+        tickets = aw.drain_tickets()
+        last = aw.last_eval_at
+        # 事件腿刚求过值就不必立刻再全量跑一遍 —— 否则「更省」会变成
+        # 「多跑一次」。半轮内算「刚求过」。
+        if last is not None and (t - last) < max(1.0, self._poll_seconds * 0.5):
+            return tickets
+        return tickets + list(self.desk.poll(t, wake_reason="timer"))
+
     def tick(self, now: Optional[float] = None) -> List[Any]:
         """跑一轮。与心跳分离是为了便于测试与手工推动。"""
         t = now if now is not None else time.time()
@@ -907,7 +959,10 @@ class IntentRunner:
                 self.sync_allocations(now=t)
             except Exception as e:  # noqa: BLE001
                 log.error(f"[IntentRunner] 派生守望同步失败: {e}", exc_info=True)
-        tickets = self.desk.poll(t)
+        # -- 事件腿：把被唤醒时开出的票并入本轮统计 --------------------
+        # ❗不做这一步，事件腿求出的值会「问过了但没记账」，页面显示问过
+        # 0 次。事件腿是**提前**求值，不是**另起一套账**。
+        tickets = self._collect(t)
         for tk in tickets:
             self.stats["tickets"] += 1
             if tk.unanswered:
@@ -930,7 +985,35 @@ class IntentRunner:
         beat = self.desk.heartbeat(t)
         if beat:
             log.info("[IntentRunner] %s", beat)
+        self._report_awakener(t)
         return tickets
+
+    def _report_awakener(self, t: float) -> None:
+        """把事件腿的健康状况说出来。
+
+        ❗``health_line()`` 是事件腿**唯一**的观测面，没人读它就等于没写
+        —— 「接口写好了、没人调用」是本仓库头号病理。异常只在**状态变化**
+        时喊一次，避免持续刷屏（假警报比不报警更伤）。
+        """
+        aw = self._awakener
+        if aw is None:
+            return
+        try:
+            line = aw.health_line(t)
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "[IntentRunner] 唤醒器自证失败（自证本身坏了也要喊）: %s",
+                e, exc_info=True,
+            )
+            return
+        if not line:
+            if self._last_awake_alert:
+                log.info("[IntentRunner] 事件腿已恢复正常")
+            self._last_awake_alert = ""
+            return
+        if line != self._last_awake_alert:
+            self._last_awake_alert = line
+            log.warning("[IntentRunner] ⚠️ %s", line)
 
     # ----------------------------------------------------------------
     def _run_loop(self) -> None:
