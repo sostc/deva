@@ -115,10 +115,15 @@ class RotationThresholds:
     min_samples: int = 15           # VWAP 预热所需样本数
 
     # --- 风控 ---
-    #: 右侧确认：低吸前必须已出现上行 bar（连跌被打断），
-    #: 高抛前必须已出现下行 bar。**不等极值，等转折**——省下的那一点点收益，
-    #: 远不及接飞刀的代价。设为 False 则变成无条件抄最后一根 Turkey tail
+    #: 右侧确认：低吸前连跌必须已被打断，高抛前连涨必须已被打断。
+    #: **不等极值，等转折**——省下的那一点点收益，远不及接飞刀的代价。
+    #: 设为 False 则变成无条件抄最后一根 Turkey tail
     require_stabilize: bool = True
+    #: 企稳要**连续几根 bar** 才算数（配合 require_stabilize 使用）。
+    #: ❗曾经只要求「最后一根没跌」：轮询默认 30 秒一根，那等于只确认了
+    #: **30 秒**没创新低 —— 在真正的下跌里，30 秒的喘息毫无意义，
+    #: 这是接飞刀的主敞口。2026-10-14 收紧为 3 根（约 90 秒）。
+    stabilize_bars: int = 3
     #: 相对昨收偏离超过此值(%)时不动手。极端偏离通常意味着基本面事件
     #: （停牌、退市风险、政策黑天鹅），均值回归的假设不再成立
     max_dev_close: float = 8.0
@@ -150,6 +155,8 @@ class RotationThresholds:
             errs.append("min_net_edge 不能为负")
         if self.min_samples < 2:
             errs.append("min_samples 至少为 2")
+        if self.stabilize_bars < 1:
+            errs.append("stabilize_bars 至少为 1")
         if self.max_dev_close <= max(self.buy_dev_close, self.sell_dev_close):
             errs.append("max_dev_close 必须大于触发阈值，否则永远不会触发")
         if self.round_trip_cost_pct() > 1.0:
@@ -184,6 +191,11 @@ class DeviationSnapshot:
     consecutive_down: int = 0
     #: 连续上行 bar 数，与 consecutive_down 对称
     consecutive_up: int = 0
+    #: ❗自最近一次**创新低**以来经过的 bar 数 —— 低吸的企稳确认口径。
+    #: 比 consecutive_up 严格：价格持平也算「没创新低」，一样计入。
+    bars_since_low: int = 0
+    #: 自最近一次**创新高**以来经过的 bar 数 —— 高抛的回落确认口径
+    bars_since_high: int = 0
     samples: int = 0
     timestamp: float = 0.0
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -203,6 +215,8 @@ class DeviationSnapshot:
             "amplitude": self.amplitude,
             "gap": self.gap,
             "consecutive_down": self.consecutive_down,
+            "bars_since_low": self.bars_since_low,
+            "bars_since_high": self.bars_since_high,
             "samples": self.samples,
             "timestamp": self.timestamp,
             "extra": dict(self.extra),
@@ -268,6 +282,8 @@ class IntradayDeviationTracker:
         self._cum_amount: float = 0.0
         self._consecutive_down: int = 0
         self._consecutive_up: int = 0
+        self._bars_since_low: int = 0
+        self._bars_since_high: int = 0
 
     # ------------------------------------------------------------------
     def set_prev_close(self, prev_close: float):
@@ -291,6 +307,10 @@ class IntradayDeviationTracker:
             self._low = price
         else:
             prev_price = self._bars[-1].price
+            # ❗必须先判「这一根有没有创新低/新高」再更新 high/low。
+            # 顺序反了的话极值会被自己刷新，计数永远是 0，企稳闸形同虚设。
+            new_low = price <= self._low
+            new_high = price >= self._high
             if price < prev_price:
                 self._consecutive_down += 1
                 self._consecutive_up = 0
@@ -299,6 +319,8 @@ class IntradayDeviationTracker:
                 self._consecutive_up += 1
             self._high = max(self._high, price)
             self._low = min(self._low, price)
+            self._bars_since_low = 0 if new_low else self._bars_since_low + 1
+            self._bars_since_high = 0 if new_high else self._bars_since_high + 1
 
         self._bars.append(bar)
         self._cum_vol += volume
@@ -352,6 +374,8 @@ class IntradayDeviationTracker:
             gap=gap,
             consecutive_down=self._consecutive_down,
             consecutive_up=self._consecutive_up,
+            bars_since_low=self._bars_since_low,
+            bars_since_high=self._bars_since_high,
             samples=len(self._bars),
             timestamp=self._bars[-1].timestamp,
         )
@@ -366,6 +390,8 @@ class IntradayDeviationTracker:
         self._cum_amount = 0.0
         self._consecutive_down = 0
         self._consecutive_up = 0
+        self._bars_since_low = 0
+        self._bars_since_high = 0
         if prev_close is not None:
             self._prev_close = float(prev_close)
 
@@ -439,10 +465,13 @@ def evaluate_deviation(
     # ---- 低吸（正 T 买入腿）----
     if snapshot.ret <= -thresholds.buy_dev_close:
         # 闸门：右侧确认 —— 连跌必须已经被打断，否则就是在接下落的刀
-        if thresholds.require_stabilize and snapshot.consecutive_down > 0:
+        if thresholds.require_stabilize and (
+            snapshot.bars_since_low < thresholds.stabilize_bars
+        ):
             base.reason = (
                 f"相对昨收 {snapshot.ret:.2f}% 已够低，"
-                f"但仍在连跌第 {snapshot.consecutive_down} 根，未企稳，不抄底"
+                f"但创新低后仅 {snapshot.bars_since_low} 根 bar"
+                f"(需 ≥{thresholds.stabilize_bars})，未企稳，不抄底"
             )
             return base
         # 闸门：极端偏离不参与 —— 多半有基本面事件，均值回归假设失效
@@ -479,10 +508,13 @@ def evaluate_deviation(
 
     # ---- 高抛（倒 T 卖出腿）----
     if snapshot.ret >= thresholds.sell_dev_close:
-        if thresholds.require_stabilize and snapshot.consecutive_up > 0:
+        if thresholds.require_stabilize and (
+            snapshot.bars_since_high < thresholds.stabilize_bars
+        ):
             base.reason = (
                 f"相对昨收 {snapshot.ret:.2f}% 已够高，"
-                f"但仍在连涨第 {snapshot.consecutive_up} 根，未见回落，不高抛"
+                f"但创新高后仅 {snapshot.bars_since_high} 根 bar"
+                f"(需 ≥{thresholds.stabilize_bars})，未见回落，不高抛"
             )
             return base
         if abs(snapshot.ret) > thresholds.max_dev_close:

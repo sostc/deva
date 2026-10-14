@@ -316,7 +316,10 @@ class TRotationRunner:
                 spec.code,
                 thresholds=prof.thresholds,
                 config=replace(
-                    TRotationConfig(),
+                    # ❗从**市场档**取，而不是裸 TRotationConfig()：
+                    # 了结/买回的回撤容忍度必须与当日振幅同量级，
+                    # 三市场共用 0.3% 会让 QQQ 几乎无法自然买回
+                    prof.config,
                     max_round_amount=prof.max_round_amount,
                     round_lot=spec.round_lot,
                     # 最少做**一手**：A股/港股 100 份，美股 1 股。
