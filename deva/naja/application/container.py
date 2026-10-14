@@ -510,6 +510,17 @@ class AppContainer:
             t_runner.start()
         except Exception as e:
             log.warning(f"[AppContainer] TRotationRunner 启动失败: {e}", exc_info=True)
+
+        # 守望台：「想买但不知道什么时候下手」的人工意向也常驻盯盘。
+        # ❗同样必须显式 start() —— 注册进单例表不等于会跑。
+        # 启动时守望台是空的（意向由 UI / 命令行登记），所以这里起的是
+        # **节拍与心跳**，真正的守望随后 declare 进来即可被扫到。
+        try:
+            from ..bandit.intent_runner import get_intent_runner
+            intent_runner = get_intent_runner()
+            intent_runner.start()
+        except Exception as e:
+            log.warning(f"[AppContainer] IntentRunner 启动失败: {e}", exc_info=True)
         
         # 注册所有 TaskManager 管理的定时任务
         self._register_ai_daily_report_task()
