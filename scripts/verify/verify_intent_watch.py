@@ -392,11 +392,27 @@ def behavior_checks() -> list:
         f.append(f"⑭ 清单里 1 条坏掉应只跳过那一条，实际装载 {len(rows14)} 条")
     if not any("不可用" in r and "OOPS" in r for r in rec14):
         f.append("⑭ 坏掉的那条没有喊出来（静默跳过 = 想买的想法不见了）")
-    r14 = _IR(poll_seconds=1, heartbeat_sec=0)
-    if r14.seed(tmp) != 2:
-        f.append("⑭ 启动播种的条数不对")
-    if len(r14.desk.watches()) != 2:
-        f.append("⑭ 播种后守望台上的守望数不对")
+    # ❗``seed()`` 会**同时**装载长期配置清单（``allocations.json``）。
+    # 本用例只隔离了意向清单，若不把配置清单也指向一个不存在的路径，
+    # 它会去读**生产**的 ~/.naja/allocations.json，把真实配置（以及它们
+    # 派生出的补缺口 / 做 T 守望）一起挂上台 —— 于是「播种条数」和
+    # 「台上守望数」两个断言都被别处的生产数据顶歪。
+    import os  # noqa: E402
+
+    _alloc_env = "NAJA_ALLOCATION_FILE"
+    _old_alloc = os.environ.get(_alloc_env)
+    os.environ[_alloc_env] = str(Path(tempfile.mkdtemp()) / "no_alloc.json")
+    try:
+        r14 = _IR(poll_seconds=1, heartbeat_sec=0)
+        if r14.seed(tmp) != 2:
+            f.append("⑭ 启动播种的条数不对")
+        if len(r14.desk.watches()) != 2:
+            f.append("⑭ 播种后守望台上的守望数不对")
+    finally:
+        if _old_alloc is None:
+            os.environ.pop(_alloc_env, None)
+        else:
+            os.environ[_alloc_env] = _old_alloc
     # 文件不存在是合法的空，不能报错
     if load_intents(Path(tempfile.mkdtemp()) / "nope.json"):
         f.append("⑭ 清单文件不存在应当返回空列表（合法的空）")

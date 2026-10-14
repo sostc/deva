@@ -368,6 +368,12 @@ def behavior_checks() -> list:
     # ⑲ UI：空台面不崩、有配置时列数对
     import deva.naja.watch.ui as ui
 
+    # ❗必须先换掉 ``put_buttons``：PyWebIO 的按钮要注册回调并等待事件，
+    # 在脚本模式下会真的起一个 tornado server，然后**卡在进程退出处**
+    # 等非守护线程结束 —— 表现为「守卫跑到超时」，看起来像产品慢，
+    # 实际是用例自己起了一个服务器。
+    ui.put_buttons = lambda *a, **k: "<操作>"
+
     desk19, _ = _desk()
     if ui._allocation_rows(desk19, 1000.0, {}):
         f.append("⑲ 空守望台渲染出了长期配置行")
@@ -377,8 +383,12 @@ def behavior_checks() -> list:
     rows19 = ui._allocation_rows(desk19, 1000.0, {})
     if len(rows19) != 1:
         f.append(f"⑲ 长期配置行数不对：{len(rows19)}")
-    elif len(rows19[0]) != 9:
-        f.append(f"⑲ ❗长期配置表列数应为 9，实际 {len(rows19[0])}")
+    # 10 列 = 标的 / 目标 / 当前·缺口 / **旗下的守望** / 意愿强度 /
+    #        尺度·理由 / 回顾 / 本期问询 / 最近结论 / 操作
+    # ❗「旗下的守望」是「一份目标 → 一组守望」那一层加上去的：
+    # 一份长期配置下面挂着补缺口、卖 T、买 T，没有这一列它们就无处可显。
+    elif len(rows19[0]) != 10:
+        f.append(f"⑲ ❗长期配置表列数应为 10，实际 {len(rows19[0])}")
 
     # ⑳ 一次性意向不出现在长期配置区（反方向：两类不许混）
     desk20, _ = _desk()
