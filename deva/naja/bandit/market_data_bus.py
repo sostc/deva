@@ -62,12 +62,20 @@ def _normalize_code(code: str) -> str:
 
     A股格式: sh600519, sz000001 (无下划线)
     美股格式: gb_nvda, gb_aapl (有下划线)
+
+    ⚠️ 统一转小写。本函数的返回值同时充当**缓存键**和**去重键**，而上游符号来源
+    大小写不一（portfolio 传 ``NVDA``、有些地方传 ``gb_NVDA``）。此前不做大小写
+    归一，导致 ``get_quote("NVDA")`` 永远查不到以 ``nvda`` 存储的缓存 —— 永久未命中，
+    每次调用都回落新浪拉取，且拼出的 ``gb_NVDA`` 被新浪判为空，形成每分钟一轮的
+    WARNING。A股代码是纯数字/带数字前缀，转小写无副作用。
     """
-    if code.startswith("gb_"):
-        return code.split("_", 1)[-1]
-    if code.startswith(("sh", "sz", "bj")):
-        return code[2:]
-    return code
+    c = code.strip()
+    lower = c.lower()
+    if lower.startswith("gb_"):
+        return lower[3:]
+    if lower.startswith(("sh", "sz", "bj")):
+        return c[2:]
+    return lower
 
 
 def format_exchange_code(code: str) -> str:
@@ -83,15 +91,17 @@ def format_exchange_code(code: str) -> str:
     新浪返回空行，整个 A 股拉取链路静默返回 ``{}``。
     报错信息还被 ``log.debug`` 吞掉，表现为「取不到行情」而不是「代码错了」。
     """
-    if code.startswith("gb_"):
-        return code
-    if code.startswith("sh") or code.startswith("sz") or code.startswith("bj"):
-        return code
+    if code[:3].lower() == "gb_":
+        # 新浪美股代码必须小写，gb_NVDA 会返回空串
+        return f"gb_{code[3:].lower()}"
+    if code[:2].lower() in ("sh", "sz", "bj"):
+        return code[:2].lower() + code[2:]
     if len(code) == 6 and code.isdigit():
         if code[0] in ("5", "6", "9"):
             return f"sh{code}"
         return f"sz{code}"
-    return code
+    # 裸美股符号（NVDA / nvda）走到这里，统一小写，便于上层拼 gb_ 前缀
+    return code.lower()
 
 
 def _format_code(code: str) -> str:
@@ -479,7 +489,8 @@ class MarketDataBus:
                     if code.startswith("gb_"):
                         sina_codes.append(code)
                     else:
-                        sina_codes.append(f"gb_{code}")
+                        # 新浪美股代码必须小写
+                        sina_codes.append(f"gb_{code.lower()}")
 
                 async with GlobalMarketAPI() as api:
                     data = await api.fetch(sina_codes)

@@ -71,7 +71,8 @@ def _get_us_stock_codes() -> Dict[str, str]:
         for code in us_codes:
             info = bd.get_stock_info(code)
             if info:
-                result[f"gb_{code}"] = info.name
+                # 一律小写：新浪美股接口区分大小写，gb_NVDA 会返回空串
+                result[f"gb_{str(code).lower()}"] = info.name
         return result
     except Exception as e:
         log.warning(f"[_get_us_stock_codes] 获取失败: {e}, 返回空字典")
@@ -176,6 +177,8 @@ US_INDUSTRY_MAP = {
     for code, info in US_STOCK_BLOCKS.items()
 }
 
+# 注：行业维度目前**没有**接入 market_id（market_id 只承载市场标识，见下方 ALL_CODES）。
+# 下面的行业表与 US_INDUSTRY_LIST 当前全仓库无消费方，保留供后续行业聚合适配器使用。
 US_INDUSTRY_LIST = list(dict.fromkeys(info.get("industry_code", "other") for info in US_STOCK_BLOCKS.values()))
 
 # 构建只包含活跃美股的映射
@@ -183,9 +186,18 @@ _active_us_stocks = _get_us_stock_codes()
 # 过滤掉已知无法获取数据的代码
 _invalid_codes = {'gb_lucid', 'gb_lam', 'gb_netf', 'gb_googl_class_a', 'gb_ubnt'}
 _valid_us_stocks = {code: name for code, name in _active_us_stocks.items() if code not in _invalid_codes}
-_active_us_industry_map = {code: US_INDUSTRY_MAP.get(code, "other") for code in _valid_us_stocks}
 
-ALL_CODES = {**FUTURES_CODES, **_active_us_industry_map}
+# ALL_CODES 的 value 是 **market_id** —— 必须是下游认得出来的市场标识，不是行业码：
+#   期货：hf_NQ → nasdaq100（radar/global_market_config 与 cognition/liquidity 的 id）
+#   美股：gb_nvda → nvda（同上下游配置，见 propagation_engine.MARKET_ID_MAP["nvda"] = "us_equity"）
+# ⚠️ 此处原先写成 US_INDUSTRY_MAP.get(code, "other")，但该表的键是**不带 gb_ 前缀**的小写
+# 符号（"nvda"），而这里传进去的是 "gb_nvda"，必然全部落空 —— 于是 ALL_CODES 的美股值
+# 一律退化成 "other"，MARKET_ID_TO_CODE 里连一个美股键都没有，get_market_data("nvda")
+# 恒返回 None。同时 market_data_bus.MarketQuote.from_market_data 是把 market_id 当
+# **报价代码**用的，若真填行业码会把报价缓存到 "ai_chip" 这类键上，因此这里必须是裸符号。
+_active_us_market_ids = {code: code[3:] for code in _valid_us_stocks}
+
+ALL_CODES = {**FUTURES_CODES, **_active_us_market_ids}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}
 
 
@@ -305,7 +317,12 @@ class GlobalMarketAPI:
 
             return MarketData(
                 code=code,
-                market_id=US_INDUSTRY_MAP.get(f"gb_{code}", code),
+                # market_id 用**裸符号**（与 FUTURES_CODES / radar / cognition 的约定一致，
+                # 见 propagation_engine.MARKET_ID_MAP["nvda"]="us_equity"）。
+                # 原先这里查 US_INDUSTRY_MAP.get(f"gb_{code}") 是恒落空的死查询，
+                # 且 market_data_bus.MarketQuote.from_market_data 会把 market_id 当报价
+                # 代码用，填行业码会把缓存键写成 "ai_chip"，故不能再接行业维度。
+                market_id=code,
                 name=name,
                 current=current,
                 open=open_price,
@@ -568,6 +585,16 @@ class GlobalMarketAPI:
             log.debug("获取市场数据跳过: 代码列表为空")
             return {}
         
+        # 新浪 hq 接口对代码大小写敏感：list=gb_NVDA 返回 var hq_str_gb_NVDA=""（空串），
+        # 只有小写 gb_nvda 才有数据。上游调用方拼码大小写不一（market_data_bus 会拼出
+        # gb_NVDA、us_stock_price_manager 直接 f"gb_{code}"），历史表现为每分钟一轮
+        # 「解析结果为空 + 获取市场数据失败: 0 个结果」的 WARNING 洪水。
+        # 在此统一收敛为小写并去重，作为唯一收口点。
+        codes_to_fetch = list(dict.fromkeys(
+            f"gb_{code[3:].lower()}" if code[:3].lower() == "gb_" else code
+            for code in codes_to_fetch
+        ))
+
         # 过滤掉已知无法获取数据的代码
         _invalid_codes = {'gb_lucid', 'gb_lam', 'gb_netf', 'gb_googl_class_a', 'gb_ubnt'}
         codes_to_fetch = [code for code in codes_to_fetch if code not in _invalid_codes]
