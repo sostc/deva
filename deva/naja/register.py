@@ -66,7 +66,9 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("focus_manager",            ".attention.focus_manager",          "AttentionFocusManager",    ["attention_integration"]),
     ("conviction_validator",     ".attention.discovery",              "ConvictionValidator",      ["attention_integration"]),
     ("blind_spot_investigator",  ".attention.discovery",              "BlindSpotInvestigator",    ["attention_integration"]),
-    ("snapshot_manager",         ".state.snapshot",                   "SnapshotManager",          []),
+    # ❗snapshot_manager 不在此声明：state/snapshot.py 已有模块级单例
+    # `_snapshot_manager` + `get_snapshot_manager()`，在此再 `SnapshotManager()`
+    # 会造出**第二个实例**（一个语义两套实例）。改由下方 custom 工厂复用模块级单例。
 
     # ── Bandit ──
     ("market_data_bus",    ".bandit.market_data_bus",       "MarketDataBus",           ["mode_manager"]),
@@ -85,6 +87,11 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("insight_pool",           ".cognition.insight.engine",         "InsightPool",         []),
     ("insight_engine",         ".cognition.insight.engine",         "InsightEngine",       ["insight_pool"]),
     ("awakened_alaya",         ".knowledge.alaya",                  "AwakenedAlaya",       []),
+    # ❗以下两个声明目前**没有任何消费者**（全库无 SR() 取用，见架构审计
+    # docs/naja/architecture_gap_audit_2026-10-15.md P1-2）。保留声明是为了不丢失
+    # 设计意图，但它们此刻属于「装配了但没接上」——别误以为链路已通。
+    # strategy_result_store 还是 bandit_attribution 的 deps，若无人取
+    # bandit_attribution，则两者都不会被实例化。
     ("strategy_result_store",  ".strategy.result_store",            "ResultStore",         []),
     ("signal_dispatcher",      ".signal.dispatcher",                "SignalDispatcher",    []),
     ("llm_controller",         ".llm_controller.controller",        "LLMController",      []),
@@ -103,7 +110,9 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("output_controller",      ".strategy.output_controller",       "OutputController",         []),
     ("recoverable",            ".infra.runtime.recoverable",        "Recoverable",              []),
     ("performance_monitor",    ".infra.observability.performance_monitor", "NajaPerformanceMonitor", []),
-    ("scheduler_manager",      ".scheduler.common",                 "SchedulerManager",         []),
+    # ❗scheduler_manager 同上：datasource/models.py 已有模块级实例
+    # `_scheduler_manager`，且 datasource/entry.py 直接用它。改由 custom 工厂复用，
+    # 避免注册表再造一个 SchedulerManager。
     ("radar_engine",           ".radar.engine",                     "RadarEngine",              ["trading_clock"]),
     ("system_state_manager",   ".state.system.system_state",        "SystemStateManager",       []),
     ("market_time_service",    ".infra.runtime.market_time",        "MarketTimeService",        []),
@@ -145,6 +154,34 @@ def _register_custom_singletons():
         return get_block_dictionary()
     register_singleton('stock_registry', _create_stock_registry, deps=[])
     logger.debug("  ✓ stock_registry")
+
+    # --- block_noise_detector: 调用类单例获取器 ---
+    # ❗历史上 `market_hotspot/core/block_engine.py:_get_noise_detector()` 会
+    # `SR('block_noise_detector')`，但注册表里从来没有这个名字 → 每次都 KeyError
+    # 落到 except，再退回 `BlockNoiseDetector.get_instance()`。两条路指向同一
+    # 单例，但 SR 那条**从来没有成功过**。在此补齐注册，让 SR 路径真正可用。
+    def _create_block_noise_detector():
+        from .market_hotspot.processing.block_noise_detector import get_block_noise_detector
+        return get_block_noise_detector()
+    register_singleton('block_noise_detector', _create_block_noise_detector, deps=[])
+    logger.debug("  ✓ block_noise_detector")
+
+    # --- snapshot_manager: 复用 state/snapshot.py 的模块级单例 ---
+    # 见 SIMPLE_SINGLETONS 处的说明：不能让「一个语义」有两个实例。
+    def _create_snapshot_manager():
+        from .state.snapshot import get_snapshot_manager
+        return get_snapshot_manager()
+    register_singleton('snapshot_manager', _create_snapshot_manager, deps=[])
+    logger.debug("  ✓ snapshot_manager (复用 state.snapshot 模块级单例)")
+
+    # --- scheduler_manager: 复用 datasource/models.py 的模块级实例 ---
+    # datasource/entry.py 直接 import 该实例；若注册表另造一个，调度任务会写进
+    # 两份互不可见的状态里。
+    def _create_scheduler_manager():
+        from .datasource.models import _scheduler_manager
+        return _scheduler_manager
+    register_singleton('scheduler_manager', _create_scheduler_manager, deps=[])
+    logger.debug("  ✓ scheduler_manager (复用 datasource.models 模块级实例)")
 
     # --- datasource_manager: 需要 _ensure_initialized() ---
     def _create_datasource_manager():
