@@ -25,6 +25,21 @@ log = logging.getLogger(__name__)
 
 ADAPTIVE_CONFIG_TABLE = "naja_bandit_adaptive_config"
 
+# 自适应止盈止损的开关（默认开）。设 "0" 回滚为固定口径（-8% / +15%），
+# 即 2026-10-15 修复前的事实行为 —— 那时 Manas 输入是假接的，风险温度恒 1.25。
+ENV_MANAS_ADAPTIVE_SL = "NAJA_MANAS_ADAPTIVE_SL"
+
+
+def manas_adaptive_sl_enabled() -> bool:
+    """是否启用「按真实 Manas 风险上下文」自适应调整止盈止损。
+
+    默认 **启用**（与 NAJA_T_ESTABLISH_GATE / NAJA_WATCH_MARKET_CLOCK 同款约定：
+    默认生效，置 "0"/"false" 关闭）。
+    """
+    import os
+    return str(os.environ.get(ENV_MANAS_ADAPTIVE_SL, "1")).strip().lower() \
+        not in ("0", "false", "no", "off")
+
 
 class AdaptiveCycle:
     """自适应循环控制器
@@ -152,8 +167,14 @@ class AdaptiveCycle:
             pass
 
     def _get_manas_risk_context(self) -> Dict[str, Any]:
-        """
-        获取 Manas 的风险上下文，用于调整止盈止损
+        """获取 Manas 的风险上下文，用于调整止盈止损
+
+        数据来源（❗2026-10-15 修复前的写法是**假接**，见下）：
+          复用内核的**单出口** `OSAttentionKernel.get_manas_inputs()` ——
+          内核打分路径与 ManasManager 展示路径共用这一份输入，避免
+          「同一个引擎被两种喂法喂出两个结论」。持仓兜底用本周期自己的
+          `self._portfolio`（装配期由容器注入的 `virtual_portfolio` 单例，
+          与内核拿到的是同一个对象）。
 
         Returns:
             {
@@ -162,6 +183,15 @@ class AdaptiveCycle:
                 "regime_score": float,
                 "harmony_strength": float,
             }
+
+        ❗修复前的实际后果（比「全返 0」更精确）：
+          `portfolio` 传的是**一个 dict**，而 `RiskEngine` 期望 VirtualPortfolio
+          并按 `portfolio.get_summary()` 取数 → dict 无此方法 → AttributeError
+          被 `_get_cash_ratio` 内的 except 吞掉 → `cash_ratio ≡ 0.5`、
+          `drawdown ≡ 0`；`scanner=None` → `volatility ≡ 1.0`。
+          于是 `base_T = 1 + (1-0.5)*0.5 = 1.25`，**risk_temperature 恒 1.25** ——
+          永远落不进 `> 1.3` / `> 1.5` 两档，`_get_adaptive_stop_loss` 恒走
+          else 分支，**「自适应」止盈止损从未生效过一次**（恒 -8% / +15%）。
         """
         current_time = time.time()
 
@@ -169,19 +199,36 @@ class AdaptiveCycle:
                 and self._manas_context_cache is not None):
             return self._manas_context_cache
 
+        if not manas_adaptive_sl_enabled():
+            # 回滚开关：用于灰度/回滚。此时不读 Manas，直接返回固定口径，
+            # 等价于改造前的行为（-8% / +15% 那一路）。
+            return {
+                "risk_temperature": 1.0,
+                "timing_score": 0.5,
+                "regime_score": 0.0,
+                "harmony_strength": 0.5,
+            }
+
         try:
             from deva.naja.attention.orchestration.trading_center import get_trading_center
             tc = get_trading_center()
-            manas_engine = tc.get_attention_os().kernel.get_manas_engine()
+            kernel = tc.get_attention_os().kernel
+            manas_engine = kernel.get_manas_engine()
 
-            portfolio_state = {"position_pct": 0.0, "total_value": 100000, "cash": 30000}
+            # 单出口：与内核打分路径共用同一份输入（session_manager / portfolio /
+            # scanner / bandit_tracker）。取不到就如实退化为 None，由引擎各自的
+            # 兜底处理 —— 但**不再编造**一个假持仓。
+            manas_inputs: Dict[str, Any] = {}
+            if hasattr(kernel, "get_manas_inputs"):
+                manas_inputs = dict(kernel.get_manas_inputs())
+
+            if manas_inputs.get("portfolio") is None:
+                manas_inputs["portfolio"] = self._portfolio
+
             manas_output = manas_engine.compute(
-                session_manager=None,
-                portfolio=portfolio_state,
-                scanner=None,
-                bandit_tracker=None,
                 macro_signal=0.5,
-                narratives=[]
+                narratives=self._current_narratives_for_manas(),
+                **manas_inputs,
             )
 
             self._manas_context_cache = {
@@ -192,9 +239,20 @@ class AdaptiveCycle:
             }
             self._last_manas_update = current_time
 
+            log.debug(
+                "[AdaptiveCycle] Manas 上下文已刷新: risk_t=%.3f timing=%.3f "
+                "regime=%.3f harmony=%.3f | 输入 portfolio=%s session=%s scanner=%s",
+                manas_output.risk_temperature, manas_output.timing_score,
+                manas_output.regime_score, manas_output.harmony_strength,
+                type(manas_inputs.get("portfolio")).__name__ if manas_inputs.get("portfolio") else None,
+                type(manas_inputs.get("session_manager")).__name__ if manas_inputs.get("session_manager") else None,
+                type(manas_inputs.get("scanner")).__name__ if manas_inputs.get("scanner") else None,
+            )
+
             return self._manas_context_cache
         except Exception as e:
-            log.debug(f"[AdaptiveCycle] 获取 Manas 上下文失败: {e}")
+            # 失败时退回固定口径（= 改造前行为），并**明确告警**：不能静默。
+            log.warning(f"[AdaptiveCycle] 获取 Manas 上下文失败，本次退回固定止盈止损口径: {e}")
             return {
                 "risk_temperature": 1.0,
                 "timing_score": 0.5,
@@ -234,11 +292,36 @@ class AdaptiveCycle:
         else:
             stop_loss = base_stop_loss
             take_profit = base_take_profit
+            # ❗这一档以前**不打日志**：修复前 risk_t 恒 1.25 必然落在这里，
+            # 于是「自适应止盈止损」看起来像在工作、实则每次都是同一对常数，
+            # 而日志里一片安静。现在把「用了哪一档」显式记出来。
+            log.info(
+                "[AdaptiveCycle] 常规风险环境: stop_loss=%s%%, take_profit=%s%% "
+                "(risk_t=%.3f, timing=%.3f)",
+                stop_loss, take_profit, risk_t, timing,
+            )
 
         if base_return_pct > 5.0:
             stop_loss = max(stop_loss, -10.0)
 
         return stop_loss, take_profit
+
+    def _current_narratives_for_manas(self) -> List[str]:
+        """从认知总线上读最近一次叙事状态，作为 Manas 的 `narratives` 入参。
+
+        ❗这是**只读**回路：只取 `NarrativeTracker` 已发布的最新叙事名，
+        不触发任何计算、不写任何状态。取不到就返回空列表（如实为空，
+        不编造），Manas 侧会对空叙事给中性处理。
+        """
+        try:
+            from deva.naja.events import get_event_bus
+            latest = get_event_bus().get_latest_event("NarrativeStateEvent")
+            if latest is None:
+                return []
+            return list(getattr(latest, "current_narratives", []) or [])
+        except Exception as e:  # noqa: BLE001
+            log.debug("[AdaptiveCycle] 读取当前叙事失败（按空处理）: %s", e)
+            return []
 
     def _resolve_order_amount(self, decision: Dict[str, Any]) -> float:
         """按决策计划（``DecisionPlan.size_hint``）折算下单金额。
