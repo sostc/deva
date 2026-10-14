@@ -177,6 +177,16 @@ class FutuSimPosition:
 class FutuSimPortfolio:
     """一个富途模拟账户，伪装成做 T 引擎要的组合对象。"""
 
+    #: 订单**终态**清单。判定「这笔单还在不在飞」时刻意用**黑名单**而不是
+    #: 白名单：富途的中间态有好几个（WAITING_SUBMIT / SUBMITTING /
+    #: SUBMITTED / FILLED_PART …），逐个列举迟早漏一个；反过来只记已了结的，
+    #: 将来枚举再增新中间态也默认算"在飞" —— **认不出来就按危险的那边算**。
+    #: （``NONE`` 不放进来：那是"状态未知"，等同于样品有问题，按在飞处理。）
+    ORDER_SETTLED_STATES = frozenset({
+        "FILLED_ALL", "CANCELLED_ALL", "CANCELLED_PART",
+        "FAILED", "SUBMIT_FAILED", "DELETED", "DISABLED",
+    })
+
     def __init__(
         self,
         market: str,
@@ -236,6 +246,96 @@ class FutuSimPortfolio:
             return backend._resolve_account(self.market)
         except Exception as e:  # pragma: no cover
             self._last_error = f"解析模拟账户失败: {e}"
+            log.warning("[FutuSimPortfolio] %s", self._last_error)
+            return None
+
+    # ------------------------------------------------------------------
+    # 在飞单查询（建仓幂等的判据来源）
+    # ------------------------------------------------------------------
+    def in_flight_buy_orders(
+        self, stock_code: str,
+    ) -> Optional[List[Dict[str, Any]]]:
+        """查账户里这个标的**还没了结**的买单（俗称"在飞"单）。
+
+        返回值的三种形状必须严格区分 —— 这里正好是会让人重复下单的
+        那种「合法的空」：
+
+        * ``[]``   —— 查到了，**确认没有**在飞买单 → 可以下新单
+        * ``None`` —— **这次查询本身失败**（网络 / 接口 / 账户解析不出来）。
+          调用方必须当成"我不知道"，**绝不**能当成"没有"。把 ``None``
+          当 ``[]`` 用，就等于说"接口失联 = 可以放心下单"。
+        * ``[{...}]`` —— 确认在飞，调用方应等它落地再决定。
+
+        为什么要问券商而不是看时间戳
+        ----------------------------
+        报单到成交之间有真实的时间差（2026-10-14 实测 SH.588200 用了 4 秒），
+        而下面三件事凑起来会咬人：
+
+        * :meth:`_reload` 只等 0.8 秒就拿不到持仓；
+        * 幂等槽位按**分钟**分槽（``core_{日期}_{分钟}``）；
+        * runner 的轮询间隔是 30 秒。
+
+        只要成交慢一点、跨过分钟边界，下一轮读到的仍是"持有 0"，
+        于是拿着全额缺口再报一单 —— **双倍仓位**。内存标记也救不了：
+        进程一重启就没了。唯一站得住的判据是券商自己说这单还在不在。
+        """
+        code = bare_code(str(stock_code))
+        if not code:
+            return None
+        rows = self._query_orders()
+        if rows is None:
+            # 查询失败。❗必须与「查到了，确实没有」区分开 —— 调用方看见
+            # [] 会放行下单，看见 None 必须收手。这里把 None 原样透传，
+            # 不能顺手写成 `rows or []`（那就是把失联当成安全信号）。
+            return None
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            if bare_code(str(row.get("code") or "")) != code:
+                continue
+            if str(row.get("trd_side") or "").strip().upper() != "BUY":
+                continue
+            status = str(row.get("order_status") or "").strip().upper()
+            if status in self.ORDER_SETTLED_STATES:
+                continue
+            out.append(row)
+        return out
+
+    def _query_orders(self) -> Optional[List[Dict[str, Any]]]:
+        """真的去富途拉一次当日订单行。失败返回 None（**不是** 空列表）。
+
+        拆法与 :meth:`_query_rows` 一致：把「网络」和「判据」分开，
+        守卫就能只替换这一层来验证过滤逻辑，不必把富途一起拖进来。
+        """
+        account = self._account()
+        if account is None:
+            return None
+        try:
+            from futu import OpenSecTradeContext, RET_OK, SecurityFirm, TrdEnv
+
+            from .execution import trd_market
+
+            firm = getattr(
+                SecurityFirm, account.get("firm") or "", SecurityFirm.FUTUSECURITIES
+            )
+            ctx = OpenSecTradeContext(
+                filter_trdmarket=trd_market(self.market), host=HOST, port=PORT,
+                security_firm=firm,
+            )
+            try:
+                # ❗不传 code：富途要的是带前缀的整码（SH.588200），自己拼
+                # 又是一次前缀事故的机会。拉当日全部订单再本地过滤。
+                ret, data = ctx.order_list_query(
+                    trd_env=TrdEnv.SIMULATE, acc_id=account["acc_id"],
+                )
+            finally:
+                ctx.close()
+            if ret != RET_OK or data is None:
+                self._last_error = f"在飞订单查询失败: {data}"
+                log.warning("[FutuSimPortfolio] %s", self._last_error)
+                return None
+            return [row.to_dict() for _, row in data.iterrows()]
+        except Exception as e:
+            self._last_error = f"在飞订单查询异常: {e}"
             log.warning("[FutuSimPortfolio] %s", self._last_error)
             return None
 
