@@ -62,7 +62,7 @@ import logging
 import time
 from time import monotonic as _monotonic
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 from .core_holdings import CoreHoldingSpec, env_flag, env_float
 
@@ -126,11 +126,22 @@ class EstablishmentVerdict:
     degraded: bool = False
 
 
+#: 交给决策中心的默认信号置信度。**自动**链路（底仓建仓）用这个值；
+#: 人工意向会按 :data:`~deva.naja.watch.intent.INTENT_CONFIDENCE_DEFAULT`
+#: 上调（人主动想买，本来就该比系统自己补仓更有分量）。
+#: 回滚成无差别：``NAJA_INTENT_CONFIDENCE=0.5``。
+DEFAULT_SIGNAL_CONFIDENCE = 0.5
+
+
 def ask_decision_center(spec: CoreHoldingSpec, price: float) -> Dict[str, Any]:
     """向 TradingCenter 请教「现在能不能买这一笔」。
 
     返回 ``process_strategy_signal`` 的决策 dict；任何环节拿不到结论都抛
     :class:`VerdictUnavailable`，由调用方决定怎么降级 —— 这里绝不自己替它拍板。
+
+    spec 上可以带三个**可选**属性（缺则回落到底仓建仓的口径）：
+    ``strategy_id`` / ``signal_type`` / ``signal_confidence`` / ``signal_metadata``
+    —— 人工意向靠它们把自己和「系统自动补仓」区分开。
     """
     try:
         from deva.naja.attention.orchestration.trading_center import (
@@ -145,15 +156,34 @@ def ask_decision_center(spec: CoreHoldingSpec, price: float) -> Dict[str, Any]:
 
     # ❗stock_code 用 bus_code（sh588200 / hk00700 / usqqq 形态）：
     # 决策中心一路把 code 当带前缀的标准化代码处理，喂裸码会被当成另一个标的。
+    #
+    # 下面三个字段一律用 ``getattr`` 取可选属性：**没有就回落到底仓建仓的
+    # 老口径**（core_establish / BUY / 0.5）。这条函数同时服务两条链路 ——
+    # 自动补底仓（CoreHoldingSpec 没有这些属性）和人工意向（SimpleNamespace
+    # 带上它们）。写死成意向口径会改掉底仓建仓的行为，那是另一条纪律。
+    confidence = DEFAULT_SIGNAL_CONFIDENCE
+    raw_conf = getattr(spec, "signal_confidence", None)
+    if raw_conf is not None:
+        try:
+            confidence = max(0.0, min(1.0, float(raw_conf)))
+        except (TypeError, ValueError):
+            confidence = DEFAULT_SIGNAL_CONFIDENCE
     signal = {
-        "strategy_id": f"core_establish:{spec.code}",
+        "strategy_id": str(
+            getattr(spec, "strategy_id", "") or f"core_establish:{spec.code}"
+        ),
         "stock_code": spec.bus_code,
         "stock_name": spec.name,
-        "signal_type": "BUY",
+        "signal_type": str(
+            getattr(spec, "signal_type", "") or "BUY"
+        ).upper(),
         "price": float(price),
-        "confidence": 0.5,
+        "confidence": confidence,
         "timestamp": time.time(),
     }
+    meta = getattr(spec, "signal_metadata", None)
+    if isinstance(meta, Mapping):
+        signal["metadata"] = dict(meta)
     try:
         result = tc.process_strategy_signal(signal)
     except Exception as e:
