@@ -75,6 +75,15 @@ from .allocation import (
     Allocation,
     allocation_id,
     declare_allocation,
+    anchor_if_needed,
+    derive_watches,
+)
+from .rotation import (
+    T_SIDES,
+    T_SIDE_ZH,
+    RotationIntent,
+    declare_rotation,
+    rotation_id,
 )
 from .desk import DeskTicket, WatchDesk
 from .registry import WatchRegistry
@@ -115,6 +124,13 @@ __all__ = [
     "Allocation",
     "allocation_id",
     "declare_allocation",
+    "anchor_if_needed",
+    "derive_watches",
+    "T_SIDES",
+    "T_SIDE_ZH",
+    "RotationIntent",
+    "rotation_id",
+    "declare_rotation",
     "WatchDesk",
     "DeskTicket",
 ]

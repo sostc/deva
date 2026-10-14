@@ -353,7 +353,10 @@ class WatchDesk:
                     watch.watch_id, scan.why(), reason,
                 )
             watch.record_ask(None, reason, now=now, fired_kinds=scan.fired_kinds)
-            watch.acknowledge(False, reason, now=now)
+            # ❗这里必须传 None 而不是 False：常驻守望靠「有没有真被问过」
+            # 决定这一期要不要结算。传 False 会让它以为自己抓到了机会 ——
+            # 一张没人领的票被记成「这期问过了」，正是假成功的写法。
+            watch.acknowledge(None, reason, now=now)
             return DeskTicket(
                 watch.watch_id, watch.objective, scan, ctx,
                 granted=None, reason=reason,
