@@ -57,6 +57,7 @@ class AppContainer:
         self._query_state_updater = None
         self._value_system = None
         self._trading_clock = None
+        self._market_time_service = None
         self._virtual_portfolio = None
         self._bandit_tracker = None
         self._manas_engine = None
@@ -319,8 +320,9 @@ class AppContainer:
 
             StartupTimer.start("创建基础组件")
             self._trading_clock = self._create_trading_clock()
+            self._market_time_service = self._create_market_time_service()
             self._virtual_portfolio = self._create_virtual_portfolio()
-            self._virtual_portfolio.set_market_time_service(self._trading_clock)
+            self._virtual_portfolio.set_market_time_service(self._market_time_service)
             self._value_system = self._create_value_system()
             StartupTimer.end("创建基础组件")
 
@@ -958,6 +960,19 @@ def execute() -> dict:
         tc.start()
         return tc
 
+    def _create_market_time_service(self):
+        """创建 MarketTimeService（显式依赖注入）
+
+        ❗必须与 TradingClock 严格区分：TradingClock 只有 cn_phase /
+        us_phase / get_global_status，没有 get_market_time()。以前这里
+        直接把 _trading_clock 当 market_time_service 注入，导致
+        VirtualPortfolio.open_position / BanditPositionTracker 一调用
+        get_market_time() 就 AttributeError。
+        MarketTimeService 本身是单例，与 SR('market_time_service') 同实例。
+        """
+        from ..infra.runtime.market_time import MarketTimeService
+        return MarketTimeService()
+
     def _create_virtual_portfolio(self):
         """创建 VirtualPortfolio"""
         from ..bandit.virtual_portfolio import VirtualPortfolio
@@ -1274,7 +1289,7 @@ def execute() -> dict:
         from ..bandit.tracker import BanditPositionTracker
         
         tracker = BanditPositionTracker(
-            market_time_service=self._trading_clock,
+            market_time_service=self._market_time_service,
             bandit_optimizer=self.bandit_optimizer
         )
         
