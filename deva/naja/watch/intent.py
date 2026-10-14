@@ -48,6 +48,10 @@ from .watch import Watch
 
 __all__ = [
     "INTENT_SIDES",
+    "INTENT_CONFIDENCE_DEFAULT",
+    "INTENT_CONFIDENCE_CAP",
+    "SIGNAL_TYPE_FOR_SIDE",
+    "clamp_confidence",
     "Intent",
     "BuyIntent",
     "SellIntent",
@@ -65,6 +69,37 @@ KNOWN_MARKETS = ("CN", "HK", "US")
 
 _SIDE_ZH = {"buy": "买入", "sell": "卖出", "trim": "减仓"}
 
+#: 决策中心的 :func:`~deva.naja.decision.plan.side_from_signal_type` 只认
+#: ``BUY`` / ``SELL``，其余一律归成 ``none``。所以「减仓」必须翻译成
+#: ``SELL`` —— 直传 ``TRIM`` 会让决策中心以为这笔没有方向。
+SIGNAL_TYPE_FOR_SIDE = {"buy": "BUY", "sell": "SELL", "trim": "SELL"}
+
+#: ❗人为意愿的默认强度与**硬上限**。
+#: 主动想买确实该比系统自动补仓更有分量（否则「我想买」这句话在打分里
+#: 权重是 0），但它只能是一股**输入**，不能变成放行键：
+#:   * 默认 0.6 —— 高于系统自动信号的 0.5，低于「自信」那一档
+#:   * 封顶 0.75 —— 永远够不到 1.0，也不碰 manas 的 action_threshold
+#: 想退回「无差别」就用环境变量 ``NAJA_INTENT_CONFIDENCE=0.5``。
+INTENT_CONFIDENCE_DEFAULT = 0.6
+INTENT_CONFIDENCE_CAP = 0.75
+
+
+def clamp_confidence(value: Any, cap: Optional[float] = None) -> float:
+    """把意愿强度夹到 ``[0, cap]``。
+
+    ❗上限**不可绕过**：这是「主动意愿 ≠ 放行」这条纪律唯一的量化把手，
+    谁都能调但谁都调不过 0.75。认不出来的输入按默认值处理，不抛异常 ——
+    一份清单里有一条填坏，不该让整批意向挂不上。
+    """
+    top = float(INTENT_CONFIDENCE_CAP if cap is None else cap)
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return min(INTENT_CONFIDENCE_DEFAULT, top)
+    if v != v:  # NaN
+        return min(INTENT_CONFIDENCE_DEFAULT, top)
+    return max(0.0, min(top, v))
+
 
 @dataclass(frozen=True)
 class Intent:
@@ -76,6 +111,8 @@ class Intent:
     :param rationale: 为什么想要。写下来不是为了好看：几个月后回看
         「NVDA 过期了」，必须想得起当初为什么在等。
     :param min_action: 交给 Manas 机会判据的门槛。
+    :param confidence: 意愿强度，交给决策中心当融合输入（**不是放行键**）。
+        None 表示用默认；上限见 :data:`INTENT_CONFIDENCE_CAP`。
     :param extra_opportunities: 追加的机会判据（价格回撤、时间窗等）。
     """
 
@@ -89,6 +126,7 @@ class Intent:
     rationale: str = ""
     min_action: str = "act_minimally"
     reading_max_age: float = 600.0
+    confidence: Optional[float] = None
     extra_opportunities: Tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
@@ -123,7 +161,23 @@ class Intent:
         if self.budget is not None and float(self.budget) <= 0:
             raise ValueError(f"意向 {code} 的预算必须是正数，收到 {self.budget}")
 
+        # ❗先记下「这个值是人给的还是默认值」，再封顶。审计时「系统默认」
+        # 和「用户明确写了 0.7」是两件事，写错标签会把复盘带偏。
+        object.__setattr__(self, "_explicit_confidence", self.confidence is not None)
+        # 意愿强度在这里就封顶：无论谁消费这份意向，都拿不到超过上限的值
+        object.__setattr__(self, "confidence", clamp_confidence(self.confidence))
+
     # ------------------------------------------------------------------
+    @property
+    def confidence_explicit(self) -> bool:
+        """True = 这个强度是登记时明确给的，不是系统默认值。"""
+        return bool(getattr(self, "_explicit_confidence", False))
+
+    @property
+    def signal_type(self) -> str:
+        """交给决策中心的方向。``trim`` 翻译成 ``SELL``（见常量处说明）。"""
+        return SIGNAL_TYPE_FOR_SIDE.get(self.side, "BUY")
+
     def label(self) -> str:
         who = self.name or self.code
         return f"{_SIDE_ZH.get(self.side, self.side)} {who}（{self.market}）"
@@ -148,6 +202,7 @@ def BuyIntent(  # noqa: N802 - 刻意做成「一句话登记意向」的写法
     rationale: str = "",
     min_action: str = "act_minimally",
     reading_max_age: float = 600.0,
+    confidence: Optional[float] = None,
     extra_opportunities: Sequence[Any] = (),
 ) -> Intent:
     """「我想买它，但什么时候买交给守望台决定」。"""
@@ -155,6 +210,7 @@ def BuyIntent(  # noqa: N802 - 刻意做成「一句话登记意向」的写法
         code=code, market=market, side="buy", name=name, budget=budget,
         max_wait_seconds=max_wait_seconds, note=note, rationale=rationale,
         min_action=min_action, reading_max_age=reading_max_age,
+        confidence=confidence,
         extra_opportunities=tuple(extra_opportunities),
     )
 
@@ -170,6 +226,7 @@ def SellIntent(  # noqa: N802
     rationale: str = "",
     min_action: str = "act_minimally",
     reading_max_age: float = 600.0,
+    confidence: Optional[float] = None,
     extra_opportunities: Sequence[Any] = (),
 ) -> Intent:
     """「我想卖/减它，但什么时候卖交给守望台决定」。"""
@@ -177,6 +234,7 @@ def SellIntent(  # noqa: N802
         code=code, market=market, side="sell", name=name, budget=budget,
         max_wait_seconds=max_wait_seconds, note=note, rationale=rationale,
         min_action=min_action, reading_max_age=reading_max_age,
+        confidence=confidence,
         extra_opportunities=tuple(extra_opportunities),
     )
 
@@ -189,7 +247,15 @@ def intent_id(intent: Intent) -> str:
 
 def to_objective(intent: Intent) -> Objective:
     """意向变成目标。金额留在参数里，不由意向层折算股数（那是决策中心的事）。"""
-    params: Dict[str, Any] = {"side": intent.side, "rationale": intent.rationale}
+    params: Dict[str, Any] = {
+        "side": intent.side,
+        "rationale": intent.rationale,
+        #: ❗意愿强度必须随目标一起走：决策中心那边要看得见「这笔是人想买的」，
+        #: 否则它跟系统自动补底仓的信号长得一模一样，权重为 0。
+        "confidence": clamp_confidence(intent.confidence),
+        "confidence_explicit": intent.confidence_explicit,
+        "signal_type": intent.signal_type,
+    }
     if intent.budget is not None:
         params["budget"] = float(intent.budget)
     return Objective(
