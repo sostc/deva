@@ -120,7 +120,9 @@ class Allocation:
         ❗代码不替用户决定动用多少资金（core_holdings 已立过这条规矩）。
     :param horizon: 时间尺度，决定默认回顾周期。
     :param review_seconds: 显式指定回顾周期；不给就按 ``horizon`` 推。
-    :param confidence: 意愿强度，交给决策中心当融合输入（**不是放行键**）。
+    :param confidence: 意愿强度。❗**当前只随意向留痕、尚未进入决策中心打分**
+        （决策中心是全局环境闸门，读不到标的与方向）—— 因此它**不是放行键**，
+        也不会改变任何一条裁定。等接线补齐后这里才名副其实。
     :param rationale: 为什么想长期拿着。
     """
 
