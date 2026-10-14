@@ -493,7 +493,13 @@ class CrossSignalAnalyzer:
         注意力系统跟踪的 symbol_weights 中可能包含大盘指数（如 sp500, nasdaq）
         用注意力权重作为市场活跃度的代理
         """
-        from .narrative_block_mapping import (
+        # ❗原写法 `from .narrative_block_mapping import ...` 指向**不存在的模块**
+        # （cognition/analysis/ 下没有 narrative_block_mapping.py），本文件 5 处
+        # 这样的导入全部在函数体内 → 首次调用即 ImportError → 被各方法的
+        # `except ImportError: pass` 吞掉，于是「舆情→题材联动 / 市场共振 /
+        # 指数中文名」三条子链路**从未执行过一次且完全不报错**。
+        # 唯一权威实现在 cognition/narrative/block_mapping.py（8/8 名字齐全）。
+        from ..narrative.block_mapping import (
             MARKET_INDEX_CONFIG, get_narrative_category, is_macro_narrative
         )
 
@@ -754,7 +760,7 @@ class CrossSignalAnalyzer:
         - 大盘指数 → 宏观叙事
         - 例如：纳斯达克下跌 → 流动性紧张 / 全球宏观
         """
-        from .narrative_block_mapping import (
+        from ..narrative.block_mapping import (
             get_linked_narratives_for_market, get_market_config
         )
 
@@ -812,7 +818,7 @@ class CrossSignalAnalyzer:
 
     def _get_markets_for_narrative(self, narrative: str) -> set:
         """获取叙事关联的所有市场指数"""
-        from .narrative_block_mapping import get_linked_markets
+        from ..narrative.block_mapping import get_linked_markets
         return set(get_linked_markets(narrative))
 
     def _compute_market_resonance_score(self, market_snapshot: MarketSnapshot, linked_market: MarketSnapshot) -> float:
@@ -838,7 +844,7 @@ class CrossSignalAnalyzer:
 
     def _get_market_name(self, market_index: str) -> str:
         """获取市场指数名称"""
-        from .narrative_block_mapping import get_market_config
+        from ..narrative.block_mapping import get_market_config
         config = get_market_config(market_index)
         return config.get("name", market_index)
 
@@ -1286,7 +1292,7 @@ class CrossSignalAnalyzer:
         Returns:
             融合了叙事信号的题材注意力权重字典
         """
-        from .narrative_block_mapping import (
+        from ..narrative.block_mapping import (
             get_linked_blocks as _get_linked_blocks,
             is_linking_enabled as _is_linking_enabled,
         )
