@@ -80,6 +80,8 @@ class TRotationRunner:
         flat_poll_limit: Optional[int] = None,
         clock: Optional[Callable[[], float]] = None,
         max_quote_age: Optional[float] = None,
+        on_sim: Optional[bool] = None,
+        portfolios: Optional[Dict[str, Any]] = None,
     ):
         self._specs = list(specs) if specs else load_core_holdings()
         self._by_code: Dict[str, CoreHoldingSpec] = {s.code: s for s in self._specs}
@@ -101,11 +103,23 @@ class TRotationRunner:
         )
         self._flat_limit = int(flat_poll_limit or self.DEFAULT_FLAT_LIMIT)
 
+        # ❗真仓开关：默认 **关**。关着的时候一切照旧走虚拟盘，
+        # 装了新代码不代表可以自动开始往模拟账户报单 —— 要真下单必须
+        # 显式置 NAJA_T_ROTATION_ON_SIM=1。
+        self._on_sim = (
+            on_sim if on_sim is not None
+            else env_flag("NAJA_T_ROTATION_ON_SIM", False)
+        )
+
         self._clock = clock or time.time
         self._portfolio = portfolio
         self._quotes = quotes
         self._engine = engine
         self._ledger = ledger
+        #: 按市场各持一份组合 / 引擎。三个模拟仓是三个**独立账户**，
+        #: 各记各的本币 —— 共用一个组合对象等于把港元、美元、人民币混着算。
+        self._portfolios: Dict[str, Any] = {}
+        self._engines: Dict[str, Any] = {}
 
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
@@ -187,6 +201,17 @@ class TRotationRunner:
         return bool(self._thread is not None and self._thread.is_alive())
 
     # ------------------------------------------------------------------
+    # 按市场路由
+    # ------------------------------------------------------------------
+    def _pf(self, market: str):
+        """该市场用的组合。真仓模式下是富途模拟账户，否则是虚拟盘。"""
+        return self._portfolios.get(market) or self._portfolio
+
+    def _eng(self, market: str):
+        """该市场用的做 T 引擎。与 :meth:`_pf` 一一对应。"""
+        return self._engines.get(market) or self._engine
+
+    # ------------------------------------------------------------------
     # 依赖装配
     # ------------------------------------------------------------------
     def _bootstrap(self) -> bool:
@@ -229,11 +254,48 @@ class TRotationRunner:
                 portfolio=self._portfolio, ledger=self._ledger
             )
 
+        # ── 真仓模式：按市场各建一份富途模拟组合 + 一台引擎 ──
+        # 三个模拟仓是三个独立账户、三种本币，共用一个组合对象等于把
+        # 港元/美元/人民币混着算（用户拍板：各市场独立本币记账）。
+        if self._on_sim:
+            from .t_rotation import TRotationEngine
+
+            for market in sorted({s.market for s in self._specs if s.market}):
+                pf = self._portfolios.get(market)
+                if pf is None:
+                    try:
+                        from .futu_sim_portfolio import FutuSimPortfolio
+
+                        pf = FutuSimPortfolio(market)
+                        self._portfolios[market] = pf
+                    except Exception as e:  # pragma: no cover
+                        self._errors[f"sim_portfolio_{market}"] = str(e)
+                        log.error(
+                            f"[TRotationRunner] {market} 模拟组合装配失败，"
+                            f"该市场回退虚拟盘: {e}"
+                        )
+                        continue
+                if market not in self._engines:
+                    self._engines[market] = TRotationEngine(
+                        portfolio=pf, ledger=self._ledger
+                    )
+            if self._portfolios:
+                log.info(
+                    "[TRotationRunner] 真仓模式开启，已接管市场 %s",
+                    sorted(self._portfolios),
+                )
+            else:
+                self._errors["sim_portfolio"] = "真仓模式已开启但一个模拟组合都没建成"
+                log.error(
+                    "[TRotationRunner] ❌ 真仓模式已开启但没有任何模拟组合可用，"
+                    "全部标的将回退虚拟盘（不会真的下单）"
+                )
+
         for spec in self._specs:
             # ❗每个标的挂上**它自己市场**的参数档：判据按波动尺度标定，
             # 拿 A 股那套去套 QQQ 会永不触发（实测 QQQ 振幅 0.72% < 闸门 1.0%）。
             prof = spec.profile
-            self._engine.set_symbol_profile(
+            self._eng(spec.market).set_symbol_profile(
                 spec.code,
                 thresholds=prof.thresholds,
                 config=replace(
@@ -249,7 +311,7 @@ class TRotationRunner:
             # 只有**显式指定了份额**才能在此时登记；按比例折算的必须等有价格，
             # 交给 _ensure_plan()（详见那里的注释）。
             if spec.explicit:
-                self._engine.register_target(
+                self._eng(spec.market).register_target(
                     spec.code, spec.target_shares, name=spec.name, note=spec.note
                 )
 
@@ -360,11 +422,11 @@ class TRotationRunner:
         mtc = minutes_to_close(market, dt)
 
         # 收盘前：先把没买回的买回来，再谈别的
-        force_min = self._engine.config_for(code).force_close_minutes
+        force_min = self._eng(spec.market).config_for(code).force_close_minutes
         if mtc is not None and mtc <= force_min:
             if (code, date) in self._settled:
                 return {"code": code, "action": "NONE", "reason": "当日已结算"}
-            report = self._engine.settle_before_close(
+            report = self._eng(spec.market).settle_before_close(
                 code, price, now=now, session_open_ts=open_ts
             )
             self._settled.add((code, date))
@@ -400,7 +462,7 @@ class TRotationRunner:
         self._flat_runs[code] = 0
         self._last_price[code] = price
 
-        diag = self._engine.on_tick(
+        diag = self._eng(spec.market).on_tick(
             code,
             price,
             timestamp=now,
@@ -424,14 +486,18 @@ class TRotationRunner:
     # ------------------------------------------------------------------
     # 目标份额折算（每个交易日只做一次）
     # ------------------------------------------------------------------
-    def total_assets(self) -> float:
+    def total_assets(self, market: Optional[str] = None) -> float:
         """折算底仓用的分母 = 组合总资金（不是可用资金）。
 
         刻意不用 available：那玩意会被其它策略的临时持仓挤来挤去，
         底仓规模不该跟着别人的仓位抖。
+
+        ❗``market``：真仓模式下每个市场是**独立账户、独立本币**，
+        折算必须用该市场自己的总资产 —— 拿人民币总资产去折 QQQ 的份数，
+        单位都不对。
         """
         try:
-            summary = self._portfolio.get_summary() or {}
+            summary = self._pf(market).get_summary() or {}
         except Exception as e:  # pragma: no cover
             log.debug(f"[TRotationRunner] 读组合摘要失败: {e}")
             return 0.0
@@ -480,7 +546,7 @@ class TRotationRunner:
             )
             target = cached
 
-        self._engine.register_target(
+        self._eng(spec.market).register_target(
             spec.code, target, name=spec.name,
             note=f"{spec.note}｜目标约占总资产 {spec.alloc_pct:g}%",
         )
@@ -488,7 +554,8 @@ class TRotationRunner:
         self._plan_date[spec.code] = date
         log.info(
             f"[TRotationRunner] 📐 {spec.name}({spec.code}) 今日目标 {target:.0f} 份"
-            f"（总资产 {self.total_assets():.0f} × {spec.alloc_pct:g}% ÷ {price:.3f}）"
+            f"（{spec.market} 总资产 {self.total_assets(spec.market):.0f} "
+            f"× {spec.alloc_pct:g}% ÷ {price:.3f}）"
         )
         return target
 
@@ -505,7 +572,7 @@ class TRotationRunner:
         outstanding = list(self._ledger.outstanding(code))
         if outstanding:
             qty = sum(ob.quantity for ob in outstanding)
-            report = self._engine.settle_before_close(
+            report = self._eng(spec.market).settle_before_close(
                 code, float(quote.current), now=now, session_open_ts=open_ts
             )
             self._stats["cross_session_buyback"] += 1
@@ -515,7 +582,7 @@ class TRotationRunner:
             )
 
         # ② 开新会话（重置日内序列 + 设定昨收基准）
-        self._engine.start_session(
+        self._eng(spec.market).start_session(
             code, float(quote.prev_close), name=spec.name, session_open_ts=open_ts
         )
         self._session_date[code] = date
@@ -551,7 +618,7 @@ class TRotationRunner:
         #
         # effective_shares = 真实 OPEN 持仓 + 未履行回购义务，
         # 与 _verify_conservation 用的是同一把尺子。
-        carried = self._ledger.effective_shares(spec.code, self._portfolio)
+        carried = self._ledger.effective_shares(spec.code, self._pf(spec.market))
         missing = target - carried
         if missing <= spec.round_lot:
             return
@@ -565,7 +632,8 @@ class TRotationRunner:
             )
             return
 
-        summary = self._portfolio.get_summary() or {}
+        pf = self._pf(spec.market)
+        summary = pf.get_summary() or {}
         available = float(summary.get("available_capital", 0.0) or 0.0)
         used = float(summary.get("used_capital", 0.0) or 0.0)
         price = float(quote.current)
@@ -583,15 +651,23 @@ class TRotationRunner:
         #      留给 40 万底仓只剩 39 万 —— 只看单笔的话，最后一笔会被拒，
         #      表现为「建仓失败」的 error 每 30 秒刷一条。
         single_budget = float(
-            getattr(self._portfolio, "single_position_budget", 0.0) or 0.0
+            getattr(pf, "single_position_budget", 0.0) or 0.0
         )
         cap_by_single = (single_budget * 0.95 / price) if single_budget > 0 else missing
 
         total_budget = float(
-            getattr(self._portfolio, "category_position_budget", 0.0) or 0.0
+            getattr(pf, "category_position_budget", 0.0) or 0.0
         )
-        headroom = max(0.0, total_budget - used) if total_budget > 0 else missing
-        cap_by_total = headroom / price if price > 0 else 0.0
+        if total_budget > 0:
+            headroom = max(0.0, total_budget - used)
+            cap_by_total = headroom / price if price > 0 else 0.0
+        else:
+            # ❗富途模拟仓**没有**虚拟盘的额度属性（total_budget=0）。
+            # 不能沿用上面的 else 分支（那里把"份额"当"金额"再除一次价格，
+            # 量纲错得离谱 → qty 趋近 0 → 永远建不出底仓）。
+            # 模拟仓的额度就是账户里的钱。
+            headroom = available
+            cap_by_total = affordable
 
         qty = min(missing, affordable, cap_by_single, cap_by_total)
         qty = (int(qty / lot)) * lot
@@ -624,7 +700,14 @@ class TRotationRunner:
             )
             return
 
-        pos = self._portfolio.open_position(
+        # 分批建仓也要各占各的槽位（按分钟分槽）：默认槽位是
+        # 「日期+市场+标的+方向」，一天只能买一次 —— 底仓要分好几批才凑得齐
+        # 40%，第二批起会被静默挡掉。虚拟盘没有 set_slot_tag，探测后跳过。
+        setter = getattr(pf, "set_slot_tag", None)
+        if callable(setter):
+            setter(f"core_{date}_{int(now // 60)}")
+
+        pos = pf.open_position(
             strategy_id="core_position",
             strategy_name="长期底仓",
             stock_code=spec.code,
@@ -665,7 +748,7 @@ class TRotationRunner:
             if self._ledger is not None:
                 try:
                     ledger_view = self._ledger.get_summary(
-                        spec.code, self._portfolio,
+                        spec.code, self._pf(spec.market),
                         now=now, session_open_ts=session_open_ts(spec.market, dt),
                     )
                 except Exception as e:  # pragma: no cover
@@ -681,13 +764,13 @@ class TRotationRunner:
                 "target_shares": self._plan_targets.get(spec.code, 0.0),
                 "explicit_shares": spec.target_shares,
                 "alloc_pct": spec.alloc_pct,
-                "target_budget": spec.target_budget(self.total_assets()),
+                "target_budget": spec.target_budget(self.total_assets(spec.market)),
                 "target_resolved_date": self._plan_date.get(spec.code),
                 # 额度不够买满目标时，这里要能回答「为什么差这么多」
                 "budget_warned": self._budget_warned.get(spec.code),
                 "held_shares": (
                     None if self._ledger is None else
-                    self._ledger.effective_shares(spec.code, self._portfolio)
+                    self._ledger.effective_shares(spec.code, self._pf(spec.market))
                 ),
                 "session_date": self._session_date.get(spec.code),
                 "settled_today": (
@@ -705,6 +788,10 @@ class TRotationRunner:
             "total_assets": self.total_assets(),
             "alloc_pct": self._specs[0].alloc_pct if self._specs else 0.0,
             "poll_seconds": self._poll_seconds,
+            # ❗是否真的在往富途模拟仓下单 —— 这个开关必须一眼可见。
+            # 「UI 显示在做 T 但实际全在虚拟盘」是静默失效里最伤的一种。
+            "on_sim": self._on_sim,
+            "sim_markets": sorted(self._portfolios),
             # 三个市场时段不同，这里**逐市场**给出，不再只有一个 A 股 phase
             "phases": {
                 spec.code: {
