@@ -119,7 +119,6 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("market_session_manager", ".radar.global_market_config",       "MarketSessionManager",     []),
     ("system_monitor",         ".infra.observability.system_monitor", "SystemMonitor",          []),
     ("auto_tuner",             ".infra.observability.auto_tuner",   "AutoTuner",                []),
-    ("liquidity_manager",      ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),
     ("daily_review_scheduler", ".strategy.daily_review_scheduler",  "DailyReviewScheduler",     ["datasource_manager"]),
     ("cognition_orchestrator", ".attention.orchestration.cognition_orchestrator", "CognitionOrchestrator", ["attention_os"]),
     ("task_manager",           ".tasks",                            "TaskManager",              []),

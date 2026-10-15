@@ -12,7 +12,6 @@ def _safe_get(singleton_name, attr=None):
         sr_name_map = {
             'hotspot_signal_tracker': 'hotspot_signal_tracker',
             'focus_manager': 'focus_manager',
-            'liquidity_manager': 'liquidity_manager',
             'position_monitor': 'position_monitor',
             'report_generator': 'report_generator',
             'blind_spot_investigator': 'blind_spot_investigator',
@@ -435,24 +434,6 @@ class LabStatusHandler(RequestHandler):
             elif hasattr(tc, 'get_attention_context'):
                 status = tc.get_attention_context()
             self.write(json.dumps(_success(_to_dict(status)), ensure_ascii=False))
-        except Exception as e:
-            self.write(json.dumps(_error(str(e)), ensure_ascii=False))
-
-
-class LiquidityHandler(RequestHandler):
-    """流动性状态"""
-
-    def set_default_headers(self):
-        self.set_header("Content-Type", "application/json; charset=utf-8")
-
-    def get(self):
-        try:
-            lm = _safe_get('liquidity_manager')
-            if lm is None:
-                self.write(json.dumps(_error("liquidity_manager 未初始化"), ensure_ascii=False))
-                return
-            state = lm.get_portfolio_state() if hasattr(lm, 'get_portfolio_state') else {}
-            self.write(json.dumps(_success(_to_dict(state)), ensure_ascii=False))
         except Exception as e:
             self.write(json.dumps(_error(str(e)), ensure_ascii=False))
 

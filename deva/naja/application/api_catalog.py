@@ -67,7 +67,6 @@ ENDPOINTS: List[ApiEndpoint] = [
     ApiEndpoint("/api/attention/narrative-block-matrix", ["GET"], "attention", "叙事-板块矩阵", "看叙事如何映射板块"),
     ApiEndpoint("/api/attention/report", ["GET"], "attention", "注意力报告", "生成注意力系统报告"),
     ApiEndpoint("/api/attention/lab/status", ["GET"], "attention", "实验室状态", "查看 lab/replay 状态"),
-    ApiEndpoint("/api/attention/liquidity", ["GET"], "attention", "流动性", "查看流动性认知"),
     ApiEndpoint("/api/attention/strategy/top-symbols", ["GET"], "attention", "策略关注个股", "查看策略层 top symbols"),
     ApiEndpoint("/api/attention/strategy/top-blocks", ["GET"], "attention", "策略关注板块", "查看策略层 top blocks"),
     ApiEndpoint("/api/attention/context", ["GET"], "attention", "注意力上下文", "给 agent/LLM 的上下文入口"),

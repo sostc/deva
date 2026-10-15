@@ -423,7 +423,6 @@ async def api_explorer():
         {"name": "叙事板块矩阵", "path": "/api/attention/narrative-block-matrix", "method": "GET", "description": "叙事板块矩阵数据"},
         {"name": "注意力报告", "path": "/api/attention/report", "method": "GET", "description": "注意力报告数据"},
         {"name": "实验室状态", "path": "/api/attention/lab/status", "method": "GET", "description": "实验室状态数据"},
-        {"name": "流动性", "path": "/api/attention/liquidity", "method": "GET", "description": "流动性数据"},
         {"name": "策略顶级符号", "path": "/api/attention/strategy/top-symbols", "method": "GET", "description": "策略顶级符号数据"},
         {"name": "策略顶级板块", "path": "/api/attention/strategy/top-blocks", "method": "GET", "description": "策略顶级板块数据"},
         {"name": "注意力上下文", "path": "/api/attention/context", "method": "GET", "description": "注意力上下文数据"},

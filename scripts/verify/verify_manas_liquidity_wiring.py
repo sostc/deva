@@ -85,7 +85,9 @@ TRADING_CENTER_PY = ROOT / "deva/naja/attention/orchestration/trading_center.py"
 OS_KERNEL_PY = ROOT / "deva/naja/attention/os/os_kernel.py"
 MANAS_MANAGER_PY = ROOT / "deva/naja/attention/kernel/manas_manager.py"
 MACRO_LIQ_PY = ROOT / "deva/naja/attention/kernel/macro_liquidity.py"
-UI_COMPONENTS_PY = ROOT / "deva/naja/attention/ui/components.py"
+ATTENTION_API_PY = ROOT / "deva/naja/web_ui/attention_api.py"
+ORCHESTRATION_INIT_PY = ROOT / "deva/naja/attention/orchestration/__init__.py"
+REGISTER_PY = ROOT / "deva/naja/register.py"
 #: 基类 AttentionKernel（**无生产调用方**，但对外导出；见 check_no_second_reader）。
 KERNEL_PY = ROOT / "deva/naja/attention/kernel/kernel.py"
 
@@ -103,15 +105,25 @@ DEVA_PKG = ROOT / "deva/naja"
 
 #: 允许**以属性**直读 ``macro_liquidity_signal`` 的模块（白名单 + 理由）。
 #: 其余任何模块要这个数，只能走 :data:`SHARED_READER`。
-#: 注意：``liquidity_manager.py`` 里的 ``self._macro_liquidity_signal`` 是**另一个
-#: 概念**（带符号 −1~1，来自 scanner 的 ``global_attention`` 分档，且其更新方法与
-#: 三个 ``apply_liquidity_to_*`` 全仓 0 调用方），属性名不同故不在本扫描范围内。
 ATTRIBUTE_READ_ALLOWLIST = {
     "deva/naja/attention/kernel/state.py":
         "QueryState 自己 —— 该字段的定义者与唯一写入者（_update_macro_liquidity_signal）",
     "deva/naja/web_ui/api_extensions.py":
         "原始状态导出（GET /api/query/state）—— 展示原始字段，不是决策输入",
 }
+
+#: 「同名不同物」的宏观流动性必须保持退役状态。
+#: ``attention/orchestration/liquidity_manager.py`` 里那个 ``_macro_liquidity_signal``
+#: 是**带符号 −1~1**（源自 scanner 的 ``global_attention`` 分档），与 QueryState 的
+#: **0~1** 不是一个数；它的三个 ``apply_liquidity_to_*`` 目标方法全仓不存在、
+#: 两个 ``update_*`` 零调用方，只剩一个把恒全 0 的 ``_portfolio_state`` 冠以
+#: ``success: true`` 返回的接口。2026-10-15 整类退役。
+#: ❗它最危险的地方是**名字** —— 谁照着名字把它接进决策，就是把 −1~1 喂进 0~1 的槽位。
+DUPLICATE_CONCEPT_BANNED_CLASSES = {"LiquidityManager"}
+DUPLICATE_CONCEPT_BANNED_ATTRS = {"_macro_liquidity_signal"}
+DUPLICATE_CONCEPT_BANNED_MODULES = {"liquidity_manager.py"}
+#: 注册表里不许再挂这个名字（``register.py`` 的单例声明行）。
+DUPLICATE_CONCEPT_BANNED_STRINGS = {"liquidity_manager"}
 
 
 def _find_fn(tree: ast.AST, name: str):
@@ -350,6 +362,55 @@ def check_no_second_reader() -> list:
                     f"改走 {SHARED_READER}()，或把理由写进白名单"
                 )
                 break  # 一个文件报一处就够，避免刷屏
+    return failures
+
+
+def check_no_duplicate_liquidity_concept() -> list:
+    """「宏观流动性」不许有第二个实现 —— 同名不同物必须保持退役状态。
+
+    比第二种**读法**更毒的是第二种**概念**：``liquidity_manager.py`` 里那个
+    ``_macro_liquidity_signal`` 量纲是**带符号 −1~1**，与 QueryState 的 0~1 不是
+    同一个数。它住在本模块隔壁目录、名字几乎一样，谁照着名字接进决策就是把 −1~1
+    喂进 0~1 的槽位 —— 而且**不会报错**，只会让环境判断永远偏一边。
+
+    该类已于 2026-10-15 整类退役（它三个 ``apply_liquidity_to_*`` 的目标方法
+    ``apply_liquidity_bonus`` / ``apply_liquidity_penalty`` / ``apply_budget_multiplier``
+    / ``apply_frequency_limit`` 全仓**不存在**，两个 ``update_*`` 零调用方，
+    ``get_portfolio_state()`` 读的 ``_portfolio_state`` 也从没人更新过）。
+    本检查保证它不会以任何形式复活。
+    """
+    failures: list = []
+    if not DEVA_PKG.exists():
+        return [f"扫描根不存在：{DEVA_PKG}"]
+    for path in sorted(DEVA_PKG.rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if "__pycache__" in rel:
+            continue
+        if path.name in DUPLICATE_CONCEPT_BANNED_MODULES:
+            failures.append(f"{rel} 存在 —— 同名不同物的宏观流动性已退役，不许再建")
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as e:
+            failures.append(f"{rel} 语法错误，无法扫描（{e}）")
+            continue
+        hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name in DUPLICATE_CONCEPT_BANNED_CLASSES:
+                hits.append(f"{node.lineno} 行定义了 class {node.name}")
+            elif isinstance(node, ast.Attribute) and node.attr in DUPLICATE_CONCEPT_BANNED_ATTRS:
+                hits.append(f"{node.lineno} 行出现 {node.attr}（−1~1 量纲的重复概念）")
+            elif isinstance(node, ast.Name) and node.id in DUPLICATE_CONCEPT_BANNED_ATTRS:
+                hits.append(f"{node.lineno} 行出现 {node.id}（−1~1 量纲的重复概念）")
+            elif (
+                path.name == "register.py"
+                and isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and node.value in DUPLICATE_CONCEPT_BANNED_STRINGS
+            ):
+                hits.append(f"{node.lineno} 行注册了单例 {node.value!r}")
+        for h in hits[:1]:  # 一个文件报一处就够
+            failures.append(f"{rel}: {h}")
     return failures
 
 
@@ -927,12 +988,36 @@ INJECTIONS = [
         "new": "    value = NEUTRAL_MACRO_SIGNAL\n",
     },
     {
-        # 只应由「全仓不许有第二种读法」那条抓到 —— components.py 不在其它检查的
-        # 视野里，因此这条注入是那条检查的**专属**反方向用例。
-        "name": "新增第二处属性直读（第四种读法，绕过唯一读取口径）",
-        "file": UI_COMPONENTS_PY,
-        "old": '    macro_liquidity_signal = query_state.get("macro_liquidity_signal", 0.5)\n',
-        "new": "    macro_liquidity_signal = query_state.macro_liquidity_signal\n",
+        # 只应由「全仓不许有第二种读法」那条抓到 —— attention_api.py 不在其它检查
+        # 的视野里，因此这条注入是那条检查的**专属**反方向用例。
+        "name": "新增第二处属性直读（绕过唯一读取口径）",
+        "file": ATTENTION_API_PY,
+        "old": "from tornado.web import RequestHandler\n",
+        "new": "from tornado.web import RequestHandler\n"
+               "\n"
+               "\n"
+               "def _second_reader_probe(qs):\n"
+               "    return qs.macro_liquidity_signal\n",
+    },
+    {
+        # 只应由「同名不同物不许复活」那条抓到。
+        "name": "同名不同物复活（LiquidityManager + −1~1 的 _macro_liquidity_signal）",
+        "file": ORCHESTRATION_INIT_PY,
+        "old": '    "StateQuerier",\n]\n',
+        "new": '    "StateQuerier",\n]\n'
+               "\n"
+               "\n"
+               "class LiquidityManager:\n"
+               "    def __init__(self):\n"
+               "        self._macro_liquidity_signal = 1.0\n",
+    },
+    {
+        # 上面那条测的是 class / 字段，这条测的是**注册表**那条分支。
+        "name": "把 liquidity_manager 重新注册成单例",
+        "file": REGISTER_PY,
+        "old": '    ("cognition_orchestrator", ".attention.orchestration.cognition_orchestrator", "CognitionOrchestrator", ["attention_os"]),\n',
+        "new": '    ("cognition_orchestrator", ".attention.orchestration.cognition_orchestrator", "CognitionOrchestrator", ["attention_os"]),\n'
+               '    ("liquidity_manager", ".attention.orchestration.liquidity_manager", "LiquidityManager", ["attention_integration"]),\n',
     },
     {
         # 静态检查看不出来（仍走了唯一口径），只有真跑一次才抓得到。
@@ -956,6 +1041,7 @@ def _all_checks() -> list:
         + check_os_kernel_consumes()
         + check_single_source_reader()
         + check_no_second_reader()
+        + check_no_duplicate_liquidity_concept()
         + check_manager_wiring()
         + check_getter_behavior()
         + check_os_kernel_macro_behavior()

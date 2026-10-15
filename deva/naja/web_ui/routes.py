@@ -48,7 +48,7 @@ from .attention_api import (
     PortfolioSummaryHandler, PositionMetricsHandler,
     TrackingHotspotHandler, TrackingStatsHandler,
     BlindSpotsHandler, FusionHandler, FocusHandler, NarrativeBlockMatrixHandler,
-    AttentionReportHandler, LabStatusHandler, LiquidityHandler,
+    AttentionReportHandler, LabStatusHandler,
     StrategyTopSymbolsHandler, StrategyTopBlocksHandler, AttentionContextHandler,
 )
 
@@ -1010,7 +1010,6 @@ def create_handlers(cdn: str = None):
         (r'/api/attention/narrative-block-matrix', NarrativeBlockMatrixHandler),
         (r'/api/attention/report', AttentionReportHandler),
         (r'/api/attention/lab/status', LabStatusHandler),
-        (r'/api/attention/liquidity', LiquidityHandler),
         (r'/api/attention/strategy/top-symbols', StrategyTopSymbolsHandler),
         (r'/api/attention/strategy/top-blocks', StrategyTopBlocksHandler),
         (r'/api/attention/context', AttentionContextHandler),
