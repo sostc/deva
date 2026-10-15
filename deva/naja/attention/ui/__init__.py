@@ -4,14 +4,6 @@
 """
 
 from .components import (
-    render_kernel_dashboard,
-    render_query_state_panel,
-    render_multi_head_panel,
-    render_memory_panel,
-    render_feedback_panel,
-    render_kernel_live_view,
-    render_attention_flow_diagram,
-    render_manas_engine_status,
     render_decision_plan_panel,
     render_news_digest_panel,
 )
@@ -39,14 +31,6 @@ from .dashboard import (
 
 __all__ = [
     # Kernel components
-    "render_kernel_dashboard",
-    "render_query_state_panel",
-    "render_multi_head_panel",
-    "render_memory_panel",
-    "render_feedback_panel",
-    "render_kernel_live_view",
-    "render_attention_flow_diagram",
-    "render_manas_engine_status",
     "render_decision_plan_panel",
     "render_news_digest_panel",
     # Auto tuning
