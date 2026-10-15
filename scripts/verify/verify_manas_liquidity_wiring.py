@@ -20,7 +20,7 @@ Manas 的 RegimeEngine 只认 ``market_state['macro_liquidity_signal']``
       → regime_score = trend*0.4 + liquidity*0.35 + diffusion*0.25
       → 折扣 0.85+0.15×regime → harmony_strength → 行动门槛
 
-本守卫守四条硬性质
+本守卫守五条硬性质
 ------------------
 * **必须接线**：``process_strategy_signal`` 必须把该键写进 ``market_state``，
   且值来自 ``_get_macro_liquidity_signal()`` —— **不许是字面量**（写死 0.5
@@ -40,6 +40,13 @@ Manas 的 RegimeEngine 只认 ``market_state['macro_liquidity_signal']``
   ``ManasEngine.compute()``、又是行动门审计的主要写入者，于是线上
   ``regime_score`` 恒 0.0 / 折扣恒 0.85，看着像「环境一直中性」，其实是这条线
   压根没接上。
+* **全仓不许有第二种读法**（反向约束）：上面几条守的都是**已知**的那几处；
+  本次事故是「同一个数三处各写各的读法，修好一处才露出下一处」，所以还要有
+  一条**全局**约束 —— ``deva/naja/**`` 里以属性直读 ``macro_liquidity_signal``
+  的模块必须落在白名单（字段定义者 ``state.py`` + 原始状态导出 ``api_extensions.py``）
+  之内。这条同时把 ``AttentionKernel._process_with_manas`` 上那颗雷拆掉了：那个方法
+  **没有生产调用方**（生产内核是 ``os_kernel.OSAttentionKernel``，与它是互不相干的
+  两个类），但 ``AttentionKernel`` 是对外导出的公开类，死代码不该留已知错读法。
 
 行为用例（光看字符串是假绿）
 --------------------------
@@ -53,6 +60,8 @@ Manas 的 RegimeEngine 只认 ``market_state['macro_liquidity_signal']``
 None）；并交叉验证两条路对同一份 QueryState 给出同一个数。
 ④ 内核默认值：``_macro_signal_from(None)`` 与「market_state 无该键」都必须回落到
 QueryState 真值（而不是 0.5）；键已给出时优先用它；两处都拿不到才降级为中性。
+⑤ 反向约束：全仓扫描 ``ast.Attribute`` 直读 —— 在 ``ui/components.py``（不在其它
+任何检查的视野里）注入一处属性直读，必须被这条**专属**检查抓到。
 
 用法
 ----
@@ -76,6 +85,9 @@ TRADING_CENTER_PY = ROOT / "deva/naja/attention/orchestration/trading_center.py"
 OS_KERNEL_PY = ROOT / "deva/naja/attention/os/os_kernel.py"
 MANAS_MANAGER_PY = ROOT / "deva/naja/attention/kernel/manas_manager.py"
 MACRO_LIQ_PY = ROOT / "deva/naja/attention/kernel/macro_liquidity.py"
+UI_COMPONENTS_PY = ROOT / "deva/naja/attention/ui/components.py"
+#: 基类 AttentionKernel（**无生产调用方**，但对外导出；见 check_no_second_reader）。
+KERNEL_PY = ROOT / "deva/naja/attention/kernel/kernel.py"
 
 #: ``market_state`` 里那个键名。改名要同步这里（守卫失败是好事，不是误报）。
 LIQUIDITY_KEY = "macro_liquidity_signal"
@@ -85,6 +97,21 @@ OS_KERNEL_WIRES = 2
 
 #: 唯一读取口径的函数名（两条路都必须调它）。
 SHARED_READER = "read_macro_liquidity_signal"
+
+#: 反向约束的扫描范围（生产代码；scripts/ 下的守卫自带假对象，不参与）。
+DEVA_PKG = ROOT / "deva/naja"
+
+#: 允许**以属性**直读 ``macro_liquidity_signal`` 的模块（白名单 + 理由）。
+#: 其余任何模块要这个数，只能走 :data:`SHARED_READER`。
+#: 注意：``liquidity_manager.py`` 里的 ``self._macro_liquidity_signal`` 是**另一个
+#: 概念**（带符号 −1~1，来自 scanner 的 ``global_attention`` 分档，且其更新方法与
+#: 三个 ``apply_liquidity_to_*`` 全仓 0 调用方），属性名不同故不在本扫描范围内。
+ATTRIBUTE_READ_ALLOWLIST = {
+    "deva/naja/attention/kernel/state.py":
+        "QueryState 自己 —— 该字段的定义者与唯一写入者（_update_macro_liquidity_signal）",
+    "deva/naja/web_ui/api_extensions.py":
+        "原始状态导出（GET /api/query/state）—— 展示原始字段，不是决策输入",
+}
 
 
 def _find_fn(tree: ast.AST, name: str):
@@ -286,6 +313,43 @@ def check_single_source_reader() -> list:
             f"{SHARED_READER} 缺少 `value is None` 三态判断"
             "（「拿不到」会被静默当成「中性 0.5」）"
         )
+    return failures
+
+
+def check_no_second_reader() -> list:
+    """全仓只许有一个「读宏观流动性」的地方（属性直读必须进白名单）。
+
+    为什么要有这一条：本次线上事故的根因不是「没接线」，而是**同一个数有三处各写
+    各的读法**（``trading_center`` / ``os_kernel`` / ``manas_manager``）—— 每修好
+    一处才露出下一处。守「某某处必须写键」只能守住**已知**的那几处；守「全仓不许
+    出现第二种读法」才能保证新增的第四处不会重蹈覆辙。
+
+    扫描 ``deva/naja/**/*.py`` 里的 ``ast.Attribute(attr="macro_liquidity_signal")``。
+    允许清单只有两个（见 :data:`ATTRIBUTE_READ_ALLOWLIST`）：字段定义者与原始状态
+    导出接口。新增直读必须改走唯一读取口径，或把理由写进白名单 —— 两者都要人拍板。
+    """
+    failures: list = []
+    if not DEVA_PKG.exists():
+        return [f"扫描根不存在：{DEVA_PKG}"]
+    for path in sorted(DEVA_PKG.rglob("*.py")):
+        rel = path.relative_to(ROOT).as_posix()
+        if "__pycache__" in rel or rel in ATTRIBUTE_READ_ALLOWLIST:
+            continue
+        if not path.exists():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError as e:
+            failures.append(f"{rel} 语法错误，无法扫描（{e}）")
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == LIQUIDITY_KEY:
+                failures.append(
+                    f"{rel}:{node.lineno} 直接以属性读取 {LIQUIDITY_KEY}"
+                    f"（第 {len(ATTRIBUTE_READ_ALLOWLIST) + 1} 种读法）—— "
+                    f"改走 {SHARED_READER}()，或把理由写进白名单"
+                )
+                break  # 一个文件报一处就够，避免刷屏
     return failures
 
 
@@ -573,6 +637,30 @@ def check_process_signal_market_state() -> list:
 
 
 class _FakeManasOutput:
+    """假 ManasOutput。
+
+    展示路径只用 ``to_dict()``；死路径 ``AttentionKernel._process_with_manas``
+    会把下面这些字段**逐个抄进** result，因此都得挂上（少一个就是 AttributeError）。
+    """
+
+    class _Bias:
+        value = "neutral"
+
+    alpha = 1.0
+    bias_correction = 0.0
+    narrative_risk = 0.0
+    supply_chain_risk_level = "low"
+    hot_narratives: tuple = ()
+    should_act = False
+
+    def __init__(self):
+        self.bias_state = _FakeManasOutput._Bias()
+        self.manas_score = 0.21
+        self.timing_score = 0.5
+        self.regime_score = 0.0
+        self.confidence_score = 0.3
+        self.risk_temperature = 1.25
+
     def to_dict(self):
         return {
             "manas_score": 0.21, "timing_score": 0.5, "regime_score": 0.0,
@@ -685,6 +773,90 @@ def check_manager_behavior() -> list:
     return failures
 
 
+# ── 死路径行为（AttentionKernel._process_with_manas）─────────────────────────
+#
+# ⚠️ 这条路径**没有生产调用方**：生产内核是 ``os_kernel.OSAttentionKernel``，
+#    与 ``AttentionKernel`` 是互不相干的两个类（见 os_kernel.py 模块 docstring
+#    「为避免与 kernel/kernel.py 的 AttentionKernel 冲突而重命名」）。
+#    守它是因为 ``AttentionKernel`` 是**对外导出的公开类**（在 attention 包的
+#    懒加载导出表里）—— 死代码不该留已知的错读法，哪天被复活要能立刻发现走偏。
+#    因此这里用「替身 self」直接调未绑定方法，不跑 ``__init__``（避开 numpy 系
+#    嵌入模块的导入成本），也不去构造一次性对象。
+
+
+class _KernelFakeSelf:
+    """``AttentionKernel`` 的最小替身：只提供 ``_process_with_manas`` 会用到的东西。"""
+
+    def __init__(self, engine):
+        self._manas_engine = engine
+        self.encoder = None
+        self.multi_head = type("_MH", (), {"compute": lambda _s, q, e: {"alpha": 1.0}})()
+        self._enable_in_context = False
+        self._in_context_learner = None
+
+    def _get_narrative_tracker(self):
+        return None
+
+    def _get_session_manager(self):
+        return None
+
+    def _get_portfolio(self):
+        return None
+
+    def _get_scanner(self):
+        return None
+
+    def _get_bandit_tracker(self):
+        return None
+
+    def _get_value_system(self):
+        return None
+
+    def _process_with_transformer(self, Q, events):
+        return events
+
+
+def check_attention_kernel_dead_path_behavior() -> list:
+    """真跑一次 ``_process_with_manas``，读它递给 Manas 的实参。
+
+    静态检查只能证明「全仓没有第二种读法」；这里证明的是**这个数真的被递下去了**
+    并且「拿不到」时**不传**（传 None 会在 ``macro_signal * 2 - 1`` 处 TypeError）。
+    """
+    from unittest import mock
+
+    failures: list = []
+    k_mod = importlib.reload(importlib.import_module("deva.naja.attention.kernel.kernel"))
+    mq_mod = importlib.import_module("deva.naja.attention.kernel.macro_liquidity")
+
+    def _run(reader_value, why=""):
+        engine = _RecordingEngine()
+        fake_self = _KernelFakeSelf(engine)
+        with mock.patch.object(mq_mod, "read_macro_liquidity_signal",
+                               lambda: (reader_value, why)), \
+                mock.patch.object(mq_mod, "warn_missing", lambda *a, **k: None):
+            # 传一个**没有 .features 的**普通对象当 Q：跳过 shaped_Q 那段，
+            # 本用例只关心 macro_signal 有没有递下去。Q 已不该被读宏观流动性。
+            k_mod.AttentionKernel._process_with_manas(fake_self, object(), [])
+        return engine.calls[-1] if engine.calls else {}
+
+    # ① 有真值 → 必须带上，且就是真值（不是 0.5，也不是别人给的）
+    got = _run(0.37)
+    if got.get("macro_signal") != 0.37:
+        failures.append(
+            "AttentionKernel._process_with_manas 递给 Manas 的 macro_signal 应为 0.37，"
+            f"实得 {got.get('macro_signal')!r}（又变成硬编码 / 读别处）"
+        )
+
+    # ② 取不到 → **不传该参数**（传 None 会让 Manas 侧 macro*2-1 抛 TypeError）
+    got2 = _run(None, "假原因")
+    if "macro_signal" in got2:
+        failures.append(
+            "取不到宏观流动性时不应传 macro_signal（应让 Manas 用默认 0.5），"
+            f"实得 {got2['macro_signal']!r}"
+        )
+    return failures
+
+
 # ── 负向注入 ─────────────────────────────────────────────────────────────────
 
 INJECTIONS = [
@@ -754,6 +926,27 @@ INJECTIONS = [
         "old": "    value = getattr(query_state, MACRO_LIQUIDITY_KEY, None)\n",
         "new": "    value = NEUTRAL_MACRO_SIGNAL\n",
     },
+    {
+        # 只应由「全仓不许有第二种读法」那条抓到 —— components.py 不在其它检查的
+        # 视野里，因此这条注入是那条检查的**专属**反方向用例。
+        "name": "新增第二处属性直读（第四种读法，绕过唯一读取口径）",
+        "file": UI_COMPONENTS_PY,
+        "old": '    macro_liquidity_signal = query_state.get("macro_liquidity_signal", 0.5)\n',
+        "new": "    macro_liquidity_signal = query_state.macro_liquidity_signal\n",
+    },
+    {
+        # 静态检查看不出来（仍走了唯一口径），只有真跑一次才抓得到。
+        "name": "死路径：拿不到真值时仍把 macro_signal 递给 Manas（传 None 会炸链）",
+        "file": KERNEL_PY,
+        "old": "        if macro_signal is None:\n",
+        "new": "        if False:\n",
+    },
+    {
+        "name": "死路径：绕开唯一口径自己写死 0.5",
+        "file": KERNEL_PY,
+        "old": "        macro_signal, why = read_macro_liquidity_signal()\n",
+        "new": '        macro_signal, why = 0.5, ""\n',
+    },
 ]
 
 
@@ -762,11 +955,13 @@ def _all_checks() -> list:
         check_trading_center_wiring()
         + check_os_kernel_consumes()
         + check_single_source_reader()
+        + check_no_second_reader()
         + check_manager_wiring()
         + check_getter_behavior()
         + check_os_kernel_macro_behavior()
         + check_process_signal_market_state()
         + check_manager_behavior()
+        + check_attention_kernel_dead_path_behavior()
     )
 
 
@@ -775,6 +970,7 @@ def _reload():
     for name in (
         "deva.naja.attention.kernel.macro_liquidity",
         "deva.naja.attention.kernel.manas_manager",
+        "deva.naja.attention.kernel.kernel",
         "deva.naja.attention.os.os_kernel",
         "deva.naja.attention.orchestration.trading_center",
     ):
@@ -839,7 +1035,7 @@ def main() -> int:
         for f in failures:
             print(f"   - {f}")
         return 1
-    print("✅ 宏观流动性接线守卫全绿（接线 / 唯一读取口径 / None 护栏 / 内核两路消费 / 两条路径同源 / 取值器与端到端行为）")
+    print("✅ 宏观流动性接线守卫全绿（接线 / 唯一读取口径 / 全仓无第二读法 / None 护栏 / 内核两路消费 / 两条路径同源 / 取值器与端到端行为）")
     return 0
 
 
