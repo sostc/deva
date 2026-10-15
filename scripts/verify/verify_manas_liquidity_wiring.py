@@ -247,6 +247,83 @@ def check_getter_behavior() -> list:
     return failures
 
 
+class _Probe(Exception):
+    """在 ``_full_decision_pipeline`` 处截断，捕获组装好的 market_state。"""
+
+
+def _mk_trading_center(tc_mod, captured: dict):
+    tc = tc_mod.TradingCenter.__new__(tc_mod.TradingCenter)   # 不跑 __init__
+    tc.attention_os = object()            # 非 None → 不走「按置信度兜底」的降级路径
+    tc._get_current_narratives = lambda: []
+
+    def _probe(market_state, snapshot=None):
+        captured.clear()
+        captured.update(market_state)
+        raise _Probe()
+
+    tc._full_decision_pipeline = _probe
+    tc._record_plan = lambda *a, **k: None    # 守卫不得写生产数据
+    return tc
+
+
+def check_process_signal_market_state() -> list:
+    """端到端（截到 market_state 为止）：真跑决策入口，看键到底有没有进去。
+
+    静态检查只能证明「代码里写了」，证明不了「跑起来真的带上了」—— 这一步
+    把 ``_full_decision_pipeline`` 换成探针，真实调用 ``process_strategy_signal``，
+    直接看它递下去的 market_state。
+    """
+    from unittest import mock
+
+    failures: list = []
+    tc_mod = importlib.reload(
+        importlib.import_module("deva.naja.attention.orchestration.trading_center")
+    )
+    app_mod = importlib.import_module("deva.naja.application")
+    signal = {
+        "strategy_id": "verify_probe",
+        "stock_code": "TEST",
+        "signal_type": "buy",
+        "price": 1.0,
+        "confidence": 0.6,
+    }
+
+    def _run(container_factory) -> dict:
+        captured: dict = {}
+        tc = _mk_trading_center(tc_mod, captured)
+        with mock.patch.object(app_mod, "get_app_container", container_factory):
+            try:
+                tc.process_strategy_signal(signal)
+            except _Probe:
+                pass
+            except Exception as e:  # noqa: BLE001
+                failures.append(
+                    f"process_strategy_signal 意外异常: {type(e).__name__}: {e}"
+                )
+        return captured
+
+    # ① 有真值 → 必须带上，且值就是真值
+    got = _run(lambda: _FakeContainer(_QS(0.42)))
+    if LIQUIDITY_KEY not in got:
+        failures.append(
+            f"process_strategy_signal 组装的 market_state 缺 {LIQUIDITY_KEY}"
+            "（宏观流动性到不了 Manas）"
+        )
+    else:
+        value = got[LIQUIDITY_KEY]
+        if not isinstance(value, float) or abs(value - 0.42) > 1e-9:
+            failures.append(f"market_state 里的宏观流动性应为 0.42(float)，实得 {value!r}")
+
+    # ② 取不到 → **不放键**（放 None 会让 Manas 侧 macro_signal*2-1 抛 TypeError）
+    got2 = _run(lambda: None)
+    if LIQUIDITY_KEY in got2:
+        failures.append(
+            f"取不到宏观流动性时仍写了 {LIQUIDITY_KEY}={got2[LIQUIDITY_KEY]!r}"
+            "（应当不放键，让 Manas 用默认 0.5）"
+        )
+    return failures
+
+
 # ── 负向注入 ─────────────────────────────────────────────────────────────────
 
 INJECTIONS = [
@@ -291,6 +368,7 @@ def _all_checks() -> list:
         check_trading_center_wiring()
         + check_os_kernel_consumes()
         + check_getter_behavior()
+        + check_process_signal_market_state()
     )
 
 
