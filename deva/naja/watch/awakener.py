@@ -51,11 +51,21 @@ log = logging.getLogger(__name__)
 ENV_ENABLED = "NAJA_WATCH_AWAKENER"
 ENV_MIN_INTERVAL = "NAJA_WATCH_WAKE_MIN_INTERVAL"
 ENV_QUIET_SEC = "NAJA_WATCH_QUIET_SEC"
+ENV_EXPECT_GRACE = "NAJA_WATCH_EXPECT_GRACE"
 
 #: 两次被唤醒求值之间的最小间隔（秒）。窗口内到达的唤醒会被合并。
 DEFAULT_MIN_INTERVAL = 10.0
 #: 事件腿安静多久算可疑（秒）。超过就说明「可能没人叫得醒守望了」。
 DEFAULT_QUIET_SEC = 1800.0
+#: 时钟已经预告了「下一次相位切换大概什么时候」，允许它迟到多久仍不算异常（秒）。
+#: ❗这个宽限是必要的：时钟只在**相位切换**时发信号，而相位本身是稀疏的
+#: （CN 收盘到次日开盘 18 小时、美股盘后到盘前 5.5 小时都没有切换）。
+#: 没有它，「夜间天然安静」会每小时被判成「链路断了」。
+DEFAULT_EXPECT_GRACE = 300.0
+#: 单个「预期下一次信号」的上限（秒）。时钟给的 seconds_until_next 若是异常
+#: 值或结构漂移，截断到这里 —— 否则一个离谱的数字会把沉默判定永久压住，
+#: 那就从「假警报」变成了「真的断了没人知道」。
+MAX_EXPECT_HORIZON = 24 * 3600.0
 
 # -- wake_reason 的取值 -------------------------------------------------
 #: Manas 行动档位变化（唯一的认知侧唤醒源）
@@ -117,6 +127,7 @@ class WatchAwakener:
             if quiet_sec is not None
             else _env_float(ENV_QUIET_SEC, DEFAULT_QUIET_SEC)
         )
+        self._expect_grace = _env_float(ENV_EXPECT_GRACE, DEFAULT_EXPECT_GRACE)
         self._clock: Callable[[], float] = clock or time.time
         self._lock = threading.RLock()
 
@@ -132,6 +143,16 @@ class WatchAwakener:
         self.callback_error_reason = ""
         #: 时钟事件缺 phase 的次数（结构漂移的早期信号）
         self.clock_phase_unknown = 0
+
+        # -- 链路活性（❗「没变化」与「通道断了」必须分得开） ---------------
+        #: 最近一次**收到信号**的时刻，含被相位过滤掉的 closed/lunch。
+        #: 它证明的是「订阅还在、时钟还在发」，与「值不值得唤醒」无关 ——
+        #: 只看 last_wake_at 会把「夜间没有可唤醒的相位」误判成链路断了。
+        self.last_signal_at: Optional[float] = None
+        self.last_signal_detail: str = ""
+        #: 各市场「预期下一次信号最晚何时到」，由时钟信号自带的
+        #: seconds_until_next 推导；逾期仍未收到才是最可疑的信号。
+        self._market_expect: Dict[str, float] = {}
 
         # -- 唤醒与求值 ---------------------------------------------------
         self.wake_counts: Dict[str, int] = {}
@@ -170,6 +191,9 @@ class WatchAwakener:
             # ❗bootstrap：服务启动时是 **Manas 先 compute 完、唤醒器才挂上**，
             # 那第一次档位变化发生在订阅之前，守望收不到 —— 等下一轮定时腿
             # 才补上，事件腿就白挂了。挂上后主动醒一次，把基线补回来。
+            # 同一时刻把「下一次信号预期何时到」也补上：不然刚挂上就要干等
+            # quiet_sec 才敢说没事，夜间隔几小时的那种天然安静会被误报。
+            self._arm_expect_from_clock()
             self.wake(WAKE_MANAS, detail="bootstrap")
         else:
             log.warning(
@@ -215,6 +239,73 @@ class WatchAwakener:
             return False
 
     # ------------------------------------------------------------------
+    # 链路活性
+    # ------------------------------------------------------------------
+    def _note_signal(self, detail: str, now: Optional[float] = None) -> float:
+        """记下「链路活着」的证据：**收到信号本身**就有信息量。
+
+        ❗closed/lunch 的相位切换虽然不值得唤醒守望（叫了也会被闸门挡），
+        但它同样证明「订阅还在、时钟还在发」。把它当噪音丢掉，就再也分不出
+        「真的没变化」和「通道断了」—— 而那正是本模块存在的理由。
+        """
+        t = float(now if now is not None else self._clock())
+        with self._lock:
+            self.last_signal_at = t
+            self.last_signal_detail = detail
+        return t
+
+    def _arm_expect(self, market: Optional[str], secs: Any, now: float) -> None:
+        """由时钟信号里的 ``seconds_until_next`` 推出「下一次信号最晚何时到」。
+
+        取各市场里**最近**的那个：任一市场的相位切换都会发信号，所以最近
+        的一次就是链路下一个可验证的时刻。
+        """
+        try:
+            horizon = float(secs)
+        except (TypeError, ValueError):
+            return
+        if horizon <= 0:
+            return
+        with self._lock:
+            self._market_expect[str(market or "?")] = now + min(
+                horizon, MAX_EXPECT_HORIZON
+            )
+
+    def _arm_expect_from_clock(self) -> None:
+        """挂载时问时钟一次：下一次相位切换大概什么时候。问不到就算了。
+
+        失败**不许外抛**（挂载路径不能被它拖垮），也不许静默改判定 ——
+        问不到就是 expect_by() 返回 None，退回按安静时长判定。
+        """
+        now = self._clock()
+        try:
+            from deva.naja.radar.trading_clock import TradingClock
+
+            clock = TradingClock()
+        except Exception:  # noqa: BLE001
+            return
+        for mk, fn in (("CN", "get_cn_signal"), ("US", "get_us_signal")):
+            try:
+                sig = getattr(clock, fn)()
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(sig, dict):
+                self._arm_expect(mk, sig.get("seconds_until_next"), now)
+
+    def expect_by(self) -> Optional[float]:
+        """预期下一次事件信号最晚到达的时刻；没有依据时返回 None。"""
+        with self._lock:
+            vals = [v for v in self._market_expect.values() if v is not None]
+        return min(vals) if vals else None
+
+    def _last_activity(self) -> Optional[float]:
+        """链路最后一次有动静的时刻：收到信号或被唤醒，取较晚的那个。"""
+        cands = [
+            x for x in (self.last_signal_at, self.last_wake_at) if x is not None
+        ]
+        return max(cands) if cands else None
+
+    # ------------------------------------------------------------------
     # 事件回调（绝不向外抛）
     # ------------------------------------------------------------------
     def _on_manas_event(self, event: Any) -> None:
@@ -222,6 +313,7 @@ class WatchAwakener:
             data = getattr(event, "data", None) or {}
             cur = data.get("action_type")
             prev = data.get("prev_action_type")
+            self._note_signal(f"manas:{prev or '（无）'}→{cur}")
             # ❗档位是组合级的，不针对某个市场 → 全量求值
             self.wake(WAKE_MANAS, detail=f"{prev or '（无）'}→{cur}")
         except Exception as e:  # noqa: BLE001
@@ -232,6 +324,9 @@ class WatchAwakener:
             data = event if isinstance(event, dict) else {}
             market = data.get("market")
             phase = data.get("phase")
+            # ❗先记活性、再过滤：closed/lunch 不值得唤醒，但它证明通道还活着。
+            t = self._note_signal(f"{market}:{phase}")
+            self._arm_expect(market, data.get("seconds_until_next"), t)
             if phase and phase not in CLOCK_WAKE_PHASES:
                 # closed 不必叫醒：叫了也会被闭市闸门挡下，只是白跑一趟
                 return
@@ -354,14 +449,18 @@ class WatchAwakener:
     # 自证
     # ------------------------------------------------------------------
     def quiet_seconds(self, now: Optional[float] = None) -> Optional[float]:
-        """距**上一次被事件唤醒**过去了多久（只看事件腿，不含定时腿）。
+        """距**上一次链路有动静**过去了多久（收到信号或被唤醒都算）。
 
-        None = 一次都没被事件叫醒过（可能刚启动，也可能通道压根没通）。
+        只看事件腿，不含定时腿的 ``flush``。用「收到信号」而非「被唤醒」作
+        基准：夜间那些被相位过滤掉的时钟切换同样是链路活着的证据。
+
+        None = 一次都没有过（可能刚启动，也可能通道压根没通）。
         """
-        if self.last_wake_at is None:
+        ref = self._last_activity()
+        if ref is None:
             return None
         t = float(now if now is not None else self._clock())
-        return max(0.0, t - self.last_wake_at)
+        return max(0.0, t - ref)
 
     def quiet_suspicious(self, now: Optional[float] = None) -> bool:
         """事件腿是不是安静得太久了。
@@ -371,7 +470,14 @@ class WatchAwakener:
         """
         if not any(self.attached.values()):
             return False  # 压根没订阅 → 由 attach 的 WARNING 负责喊
-        q = self.quiet_seconds(now)
+        t = float(now if now is not None else self._clock())
+        # ❗时钟已经预告了下一次相位切换的大致时刻，在那之前安静是**预期内**的：
+        # CN 收盘到次日开盘、美股盘后到盘前本就是几小时没有可唤醒的变化。
+        # 只有它逾期还没来，才说明「链路断了」而不是「今天没事发生」。
+        exp = self.expect_by()
+        if exp is not None and t <= exp + self._expect_grace:
+            return False
+        q = self.quiet_seconds(t)
         if q is None:
             return False
         return q > self._quiet_sec
@@ -387,9 +493,12 @@ class WatchAwakener:
                 f"事件源一个都没挂上（{self.attach_errors or '未知原因'}）"
             )
         elif self.quiet_suspicious(now):
-            q = self.quiet_seconds(now) or 0.0
+            # ❗文案里**不放递增的量**（秒数/分钟数）：调用方靠「整行变了才喊」
+            # 去抖，嵌一个每轮都在变的数字等于没有去抖 —— 曾经因此每小时刷
+            # 45~60 条同一件事。精确值走 status()/quiet_seconds()，那里不怕重复。
             problems.append(
-                f"事件腿已沉默 {int(q)}s（阈值 {int(self._quiet_sec)}s）"
+                f"事件腿已沉默（安静超过阈值 {int(self._quiet_sec)}s，"
+                "且时钟预告的下一次相位切换也已逾期）"
             )
         if self.callback_errors:
             problems.append(
@@ -419,6 +528,10 @@ class WatchAwakener:
             "last_wake_at": self.last_wake_at,
             "last_eval_at": self.last_eval_at,
             "last_eval_tickets": self.last_eval_tickets,
+            "last_signal_at": self.last_signal_at,
+            "last_signal_detail": self.last_signal_detail,
+            "expect_by": self.expect_by(),
+            "expect_in": (self.expect_by() - t) if self.expect_by() else None,
             "quiet_sec_now": self.quiet_seconds(t),
             "quiet_suspicious": self.quiet_suspicious(t),
         }
