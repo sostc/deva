@@ -493,68 +493,97 @@ class AppContainer:
         self._load_errors = {}
 
     def _start_schedulers(self):
-        """启动调度器"""
+        """启动调度器
+
+        ❗**每一段都必须留「开始 / ✓结束」两行日志**。
+        事故（2026-10-15 11:26 / 11:51 两代进程）：做 T 启动之后到「调度器启动
+        完成」之间**一行日志都没有**，于是守望台（IntentRunner）静默未启动
+        5.5 小时，事后只能靠「比对哪些日志缺行」反推卡点。留痕之后，卡在哪一段
+        一眼可见：只有「→ X」而没有「✓ X」的那一段就是卡点。
+        """
+        from contextlib import contextmanager
         from ..supervisor import start_supervisor
         from ..supervisor.monitoring import MonitoringMixin
 
-        try:
-            supervisor = start_supervisor()
-            if isinstance(supervisor, MonitoringMixin):
-                supervisor._force_realtime = False
-                supervisor._lab_mode = None
-                supervisor.configure_attention(force_realtime=False, lab_mode=None)
-        except Exception as e:
-            log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
+        @contextmanager
+        def _stage(name: str):
+            t0 = time.monotonic()
+            log.info("[AppContainer] 调度器启动 → %s", name)
+            try:
+                yield
+            finally:
+                log.info("[AppContainer] 调度器启动 ✓ %s（%.1fs）", name, time.monotonic() - t0)
 
-        try:
-            from ..strategy.daily_review_scheduler import get_daily_review_scheduler
-            scheduler = get_daily_review_scheduler()
-            scheduler.start()
-        except Exception as e:
-            log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
+        with _stage("Supervisor"):
+            try:
+                supervisor = start_supervisor()
+                if isinstance(supervisor, MonitoringMixin):
+                    supervisor._force_realtime = False
+                    supervisor._lab_mode = None
+                    supervisor.configure_attention(force_realtime=False, lab_mode=None)
+            except Exception as e:
+                log.warning(f"[AppContainer] Supervisor 启动失败: {e}", exc_info=True)
 
-        # 做 T 降本：长期持有芯片指数底仓 + 日内做 T，收盘前强制买回。
-        # 注册到单例表不等于会跑 —— 这里必须显式 start()，否则整套模块
-        # 会变成「代码是对的、守卫是绿的、但一条行情都没流过」的摆设。
-        try:
-            from ..bandit.t_rotation_runner import get_t_rotation_runner
-            t_runner = get_t_rotation_runner()
-            t_runner.start()
-        except Exception as e:
-            log.warning(f"[AppContainer] TRotationRunner 启动失败: {e}", exc_info=True)
+        with _stage("DailyReviewScheduler"):
+            try:
+                from ..strategy.daily_review_scheduler import get_daily_review_scheduler
+                scheduler = get_daily_review_scheduler()
+                scheduler.start()
+            except Exception as e:
+                log.warning(f"[AppContainer] DailyReviewScheduler 启动失败: {e}", exc_info=True)
 
-        # 守望台：「想买但不知道什么时候下手」的人工意向也常驻盯盘。
-        # ❗同样必须显式 start() —— 注册进单例表不等于会跑。
-        # 启动时守望台是空的（意向由 UI / 命令行登记），所以这里起的是
-        # **节拍与心跳**，真正的守望随后 declare 进来即可被扫到。
-        try:
-            from ..bandit.intent_runner import get_intent_runner
-            intent_runner = get_intent_runner()
-            intent_runner.start()
-        except Exception as e:
-            log.warning(f"[AppContainer] IntentRunner 启动失败: {e}", exc_info=True)
-        
-        # 注册所有 TaskManager 管理的定时任务
-        self._register_ai_daily_report_task()
-        self._register_knowledge_injector_task()
-        self._register_openrouter_monitor_task()
-        self._register_news_digest_task()
-        
-        # 启动美林时钟经济数据定时更新
-        self._start_merrill_clock_task()
-        
-        # 心跳机制：定期更新系统活跃时间
-        self._start_heartbeat_task()
-        
-        # 统一唤醒同步检查
-        self._perform_wake_sync()
-        
+        with _stage("TRotationRunner"):
+            # 做 T 降本：长期持有芯片指数底仓 + 日内做 T，收盘前强制买回。
+            # 注册到单例表不等于会跑 —— 这里必须显式 start()，否则整套模块
+            # 会变成「代码是对的、守卫是绿的、但一条行情都没流过」的摆设。
+            try:
+                from ..bandit.t_rotation_runner import get_t_rotation_runner
+                t_runner = get_t_rotation_runner()
+                t_runner.start()
+            except Exception as e:
+                log.warning(f"[AppContainer] TRotationRunner 启动失败: {e}", exc_info=True)
+
+        with _stage("IntentRunner（守望台）"):
+            # 守望台：「想买但不知道什么时候下手」的人工意向也常驻盯盘。
+            # ❗同样必须显式 start() —— 注册进单例表不等于会跑。
+            # 启动时守望台是空的（意向由 UI / 命令行登记），所以这里起的是
+            # **节拍与心跳**，真正的守望随后 declare 进来即可被扫到。
+            try:
+                from ..bandit.intent_runner import get_intent_runner
+                intent_runner = get_intent_runner()
+                intent_runner.start()
+            except Exception as e:
+                log.warning(f"[AppContainer] IntentRunner 启动失败: {e}", exc_info=True)
+
+        with _stage("定时任务注册"):
+            # 注册所有 TaskManager 管理的定时任务
+            self._register_ai_daily_report_task()
+            self._register_knowledge_injector_task()
+            self._register_openrouter_monitor_task()
+            self._register_news_digest_task()
+
+            # 启动美林时钟经济数据定时更新
+            self._start_merrill_clock_task()
+
+            # 心跳机制：定期更新系统活跃时间
+            self._start_heartbeat_task()
+
+        with _stage("唤醒同步"):
+            # 统一唤醒同步检查
+            self._perform_wake_sync()
+
         log.info("[AppContainer] 调度器启动完成")
-    
+
+    #: 后台初始化的兜底等待上限（秒）。单项卡住时**不允许**它把后面所有步骤
+    #: 一起吞掉。事故（2026-10-15 11:26 / 11:51 两代进程）：调度器链在
+    #: IntentRunner 启动前静默卡死，守望台 5.5 小时未启动，而进程不退、
+    #: 做 T 心跳照跳、API 可用、日志零异常 —— 根因是「全部并发项一起等且无超时」。
+    #: 正常启动这几项都在数秒内完成，120s 不会误伤慢启动。
+    BACKGROUND_INIT_TIMEOUT = 120.0
+
     def _start_background_initialization(self):
         """启动后台初始化线程，异步加载非关键组件（并行版本）"""
         import threading
-        import concurrent.futures
         from ..infra.observability.startup_timer import StartupTimer
 
         def background_init():
@@ -596,14 +625,59 @@ class AppContainer:
                 except Exception as e:
                     log.warning(f"[AppContainer] 调度器启动失败: {e}")
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [
-                    executor.submit(init_attention_integration),
-                    executor.submit(init_signal_stream),
-                    executor.submit(init_merrill_clock),
-                    executor.submit(init_schedulers),
-                ]
-                concurrent.futures.wait(futures)
+            def _timed(name, fn):
+                """跑一项初始化并**两侧留痕**。
+
+                ❗「只有开始、没有结束」的那一项就是卡住的那一项。
+                此前 4 项并发初始化全程只有零散日志，一个卡住就只能靠比对缺行反推。
+                """
+                t0 = time.monotonic()
+                log.info("[AppContainer] 后台初始化开始: %s", name)
+                try:
+                    fn()
+                except Exception as e:  # noqa: BLE001
+                    log.warning(f"[AppContainer] {name} 初始化失败: {e}")
+                finally:
+                    log.info(
+                        "[AppContainer] 后台初始化结束: %s（耗时 %.1fs）",
+                        name, time.monotonic() - t0,
+                    )
+
+            tasks = {
+                "attention_integration": init_attention_integration,
+                "SignalStream": init_signal_stream,
+                "MerrillClock": init_merrill_clock,
+                "调度器": init_schedulers,
+            }
+            # ❗这里**刻意不用** ThreadPoolExecutor：
+            # ① 它作为上下文管理器退出时会 shutdown(wait=True)，某一项卡住就把
+            #    本线程一起等死 —— 正是要避免的事；
+            # ② 它的工作线程不是 daemon，解释器退出时会 join，卡住的项还会连带
+            #    把「关不掉的服务」一起留下。
+            threads = {}
+            for name, fn in tasks.items():
+                th = threading.Thread(
+                    target=_timed, args=(name, fn),
+                    name=f"naja-init-{name}", daemon=True,
+                )
+                threads[name] = th
+                th.start()
+
+            deadline = time.monotonic() + self.BACKGROUND_INIT_TIMEOUT
+            for th in threads.values():
+                th.join(max(0.0, deadline - time.monotonic()))
+
+            stuck = [n for n, th in threads.items() if th.is_alive()]
+            if stuck:
+                # ❗必须报 ERROR：这种残缺状态**外表完全健康**（进程不退、做 T 心跳
+                # 照跳、Web/API 可用、日志零异常），只有这一行能说明它不完整。
+                log.error(
+                    "[AppContainer] 后台初始化超时 %.0fs，以下初始化项未完成：%s。"
+                    "它们之后的启动步骤已被跳过，服务会以「看起来正常」的残缺状态继续运行。"
+                    "定位：日志里只有「后台初始化开始: X」而没有对应的「结束」行，X 就是卡点。",
+                    self.BACKGROUND_INIT_TIMEOUT, "、".join(stuck),
+                )
+                return
 
             log.info("[AppContainer] 后台初始化完成")
 

@@ -866,6 +866,11 @@ class IntentRunner:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return True
+            # ❗start() 里有三段都可能长时间阻塞（装配桌面 / 读清单 / 挂事件腿），
+            # 而它们此前**全程静默**：一旦卡住，日志只留下前一条「做 T 已启动」，
+            # 之后再无输出，事后无法定位。事故见 container._start_schedulers 注释。
+            t0 = time.monotonic()
+            log.info("[IntentRunner] 启动中：装配守望台桌面…")
             try:
                 self.desk  # 触发现场装配，失败要在这里炸而不是在线程里
             except Exception as e:  # noqa: BLE001
@@ -873,7 +878,11 @@ class IntentRunner:
                 log.error(f"[IntentRunner] 守望台桌面装配失败，运行器不启动: {e}",
                           exc_info=True)
                 return False
+            log.info("[IntentRunner] 守望台已装配（%.1fs），开始装载声明式清单…",
+                     time.monotonic() - t0)
             seeded = self.seed()
+            log.info("[IntentRunner] 清单装载完成：挂上 %d 条（%.1fs），开始挂事件腿…",
+                     seeded, time.monotonic() - t0)
             self._attach_awakener()
             self._stop.clear()
             self._thread = threading.Thread(
