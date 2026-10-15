@@ -67,9 +67,6 @@ ssh root@secsay.com "grep -i error /root/.naja/logs/naja_console.log"
 ```
 
 ### Known Issues & Fixes (2026-05-16)
-- ✅ ManasManager 缺少 get_manas_engine() 方法 - 已修复
-- ✅ trading_timeline.py 语法错误（非法字符） - 已修复
-- ✅ 用户认证配置未持久化 - 已修复 ui_base.py
 - ⚠️ river 未安装 - 使用 fallback 实现（不影响核心功能）
 
 ---
@@ -89,7 +86,6 @@ ssh root@secsay.com "grep -i error /root/.naja/logs/naja_console.log"
 
 ### 2026-04 - 架构演进
 - AdaptiveManas 类已不存在，Manas 层走了不同的演进路径
-- UnifiedManas 设计方案未被采纳，ManasEngine 仍独立运行
 - application 层（Agent 化）是正确的架构方向
 
 ### 2026-05 - 远程部署
@@ -112,20 +108,6 @@ ssh root@secsay.com "grep -i error /root/.naja/logs/naja_console.log"
 - SR() 作为后备机制保留，新代码优先使用显式依赖注入
 - 后台服务模式 + macOS 托盘作为主要运行方式
 - Agent 化方向：MarketCopilot + NajaAgent + API Catalog
-
-### Things to Remember
-- `memory/core.py` 路径已不存在，记忆系统已被重构
-- 旧路径 `/Users/spark/pycharmproject/deva/` 已不适用
-- 流动性救援数据源还有 3 项待实现（Level2、VIX、媒体情绪）
-
-### 2026-05 - 系统精简
-- 删除 `deva/admin/browser/` 模块
-- 删除 `deva/naja/evolution/` 模块
-- 删除 `deva/naja/business/` 模块
-- 删除 `deva/naja/replay/` 模块
-- 删除 `deva/admin/stock/` 模块
-- 清理 `docs/naja/docs/` 下重复的架构文档
-- `knowledge/alaya/` 保留（被核心模块引用）
 
 ---
 
