@@ -735,6 +735,14 @@ class TradingCenter:
                 'focus_stock_name': stock_name,
                 'signal_confidence': confidence,
                 'signal_strategy': strategy_id,
+                # ❗只有**人下达的意愿**才配叫「意愿强度」：意向链路会把
+                #   metadata.intent 置 True（intent_runner），系统自动补底仓
+                #   （core_establish:*）不置。后者虽然也带 confidence，但那只是
+                #   默认值 0.5 —— 绝不能被当成「人想买」而去放宽行动门槛。
+                'human_intent': bool(
+                    isinstance(signal.get('metadata'), dict)
+                    and signal['metadata'].get('intent')
+                ),
             }
 
             narratives = self._get_current_narratives()

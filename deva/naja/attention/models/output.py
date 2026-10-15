@@ -149,6 +149,11 @@ class AttentionKernelOutput:
     action_gate_reason: str = ""                                     # 【决策】行动门理由（来自 Manas）
     harmony_state: str = "neutral"                                    # 【决策】和谐状态
     harmony_strength: float = 0.5                                     # 【决策】和谐强度
+    # 【决策】人的意愿在有限幅度内下调门槛后的**实际门槛**与放宽量。
+    # 与 action_gate_reason 必须自洽：理由里报的通过判断就是拿 effective_threshold 比的。
+    intent_confidence: float = 0.0                                   # 【决策】人下达的意愿强度
+    intent_relaxation: float = 0.0                                   # 【决策】意愿放宽量（硬顶见 ManasConfig）
+    effective_threshold: float = 0.5                                 # 【决策】实际门槛
 
     bias_state: str = "neutral"                                      # 【偏差】偏差状态
     bias_correction: float = 1.0                                      # 【偏差】偏差校正
@@ -175,6 +180,9 @@ class AttentionKernelOutput:
             "action_gate_reason": self.action_gate_reason,
             "harmony_state": self.harmony_state,
             "harmony_strength": self.harmony_strength,
+            "intent_confidence": self.intent_confidence,
+            "intent_relaxation": self.intent_relaxation,
+            "effective_threshold": self.effective_threshold,
             "bias_state": self.bias_state,
             "bias_correction": self.bias_correction,
             "narrative_risk": self.narrative_risk,

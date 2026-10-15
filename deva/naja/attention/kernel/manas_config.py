@@ -118,6 +118,25 @@ class ManasConfig:
     # 共振通道：RESONANCE 且时机分 > 此值 → ACT_FULLY，不看分数
     resonance_timing_threshold: float = 0.7
 
+    # ── 人的意愿 → 门槛放宽（有限、可回滚）────────────────────
+    # 背景：`intents.json` 里人下达的意愿强度（confidence）此前只被写进
+    # market_state['signal_confidence'] 就再没人读 —— 权重恒 0，写 0.65 与
+    # 写 0.10 得到逐字相同的裁定。这里把它接上，但**不是**让它直接加分，
+    # 而是允许它在**有限幅度**内下调「分数通道」的门槛，即
+    # 「人越想要，环境得有多好才放行」这条线越低。
+    #
+    # 三条硬边界（都有守卫盯着）：
+    #   1. 只削分数通道门槛；strong_action_threshold 与共振通道都不动。
+    #   2. 放宽量有**硬顶** intent_relax_max —— 门槛 0.5 最低只降到 0.35，
+    #      绝不出现「因为人想买就把门槛砍到近乎为 0」。
+    #   3. HarmonyState.RESISTANCE（风险温度 > 1.4 或逆风 regime < -0.5）
+    #      时**一律不生效** —— 环境说"不"的时候，意愿穿透不过去。
+    # 设计取舍见 docs/naja/ 与 .workbuddy/memory（意愿接线定案）。
+    intent_relax_enabled: bool = True
+    intent_relax_min: float = 0.5        # 意愿低于此值完全不参与放宽
+    intent_relax_full: float = 0.75      # 意愿到此值拿满放宽额度（= clamp_confidence 硬顶）
+    intent_relax_max: float = 0.15       # 放宽上限（硬顶）
+
     # ── 和谐状态判定 ─────────────────────────────────────────
     harmony_resistance_temperature: float = 1.4   # T 高于此值 → RESISTANCE
     harmony_resistance_regime: float = -0.5       # regime 低于此值 → RESISTANCE

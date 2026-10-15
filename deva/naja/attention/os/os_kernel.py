@@ -220,6 +220,9 @@ class OSAttentionKernel:
         manas_output = self.manas_engine.compute(
             macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
             narratives=market_state.get("narratives", []) if market_state else [],
+            # 人下达的意愿强度（trading_center 由 signal.confidence 写进 market_state）。
+            # 只有 human_intent 标记为真才取用，否则 Manas 不放宽门槛。
+            intent_confidence=self._intent_confidence_from(market_state),
             **self.get_manas_inputs(),
         )
 
@@ -250,6 +253,9 @@ class OSAttentionKernel:
             action_gate_reason=getattr(manas_output, "action_gate_reason", "") or "",
             harmony_state=manas_output.harmony_state.value if hasattr(manas_output.harmony_state, 'value') else str(manas_output.harmony_state),
             harmony_strength=manas_output.harmony_strength,
+            intent_confidence=getattr(manas_output, "intent_confidence", 0.0) or 0.0,
+            intent_relaxation=getattr(manas_output, "intent_relaxation", 0.0) or 0.0,
+            effective_threshold=getattr(manas_output, "effective_threshold", 0.5) or 0.5,
             bias_state=manas_output.bias_state.value if hasattr(manas_output.bias_state, 'value') else str(manas_output.bias_state),
             bias_correction=manas_output.bias_correction,
             narrative_risk=manas_output.narrative_risk,
@@ -369,6 +375,7 @@ class OSAttentionKernel:
         manas_output = self.manas_engine.compute(
             macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
             narratives=market_state.get("narratives", []) if market_state else [],
+            intent_confidence=self._intent_confidence_from(market_state),
             **{
                 **self.get_manas_inputs(),
                 # 调用方显式给了 portfolio 就用它的，否则用注入的那份
@@ -389,6 +396,9 @@ class OSAttentionKernel:
             action_gate_reason=getattr(manas_output, "action_gate_reason", "") or "",
             harmony_state=manas_output.harmony_state.value if hasattr(manas_output.harmony_state, 'value') else str(manas_output.harmony_state),
             harmony_strength=manas_output.harmony_strength,
+            intent_confidence=getattr(manas_output, "intent_confidence", 0.0) or 0.0,
+            intent_relaxation=getattr(manas_output, "intent_relaxation", 0.0) or 0.0,
+            effective_threshold=getattr(manas_output, "effective_threshold", 0.5) or 0.5,
             bias_state=manas_output.bias_state.value if hasattr(manas_output.bias_state, 'value') else str(manas_output.bias_state),
             bias_correction=manas_output.bias_correction,
             narrative_risk=manas_output.narrative_risk,
@@ -415,6 +425,19 @@ class OSAttentionKernel:
     def get_manas_engine(self) -> ManasEngine:
         """获取 ManasEngine 实例"""
         return self.manas_engine
+
+    @staticmethod
+    def _intent_confidence_from(market_state: Optional[Dict[str, Any]]) -> Optional[float]:
+        """从 ``market_state`` 取**人下达的**意愿强度；非意向信号返回 ``None``。
+
+        ❗必须看 ``human_intent`` 标记，而不是只要有 ``signal_confidence`` 就用：
+        系统自动补底仓（``core_establish:*``）的信号同样带 confidence（默认 0.5），
+        把它当意愿会让「意愿放宽行动门槛」漏到**没有人的意愿**的路径上。
+        ``None`` 在 Manas 侧等价于「不放宽」，是安全默认。
+        """
+        if not market_state or not market_state.get("human_intent"):
+            return None
+        return market_state.get("signal_confidence")
 
     def get_manas_inputs(self) -> Dict[str, Any]:
         """返回喂给 ManasEngine.compute() 的四路输入。
