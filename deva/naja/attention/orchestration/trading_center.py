@@ -281,32 +281,17 @@ class TradingCenter:
         返回 ``None`` = 本次拿不到真值，调用方**不放这个键**，Manas 沿用默认
         0.5（中性）。刻意与「真值恰好是 0.5」区分开，并留一次告警 ——
         拿不到数据是链路问题，不是「环境中性」。
-        """
-        try:
-            from deva.naja.application import get_app_container
-            container = get_app_container()
-            query_state = getattr(container, "query_state", None) if container else None
-            if query_state is None:
-                self._warn_macro_liquidity_missing("QueryState 未装配")
-                return None
-            value = getattr(query_state, "macro_liquidity_signal", None)
-            if value is None:
-                self._warn_macro_liquidity_missing("QueryState 无 macro_liquidity_signal")
-                return None
-            return float(value)
-        except Exception as e:
-            self._warn_macro_liquidity_missing(str(e))
-            return None
 
-    def _warn_macro_liquidity_missing(self, why: str) -> None:
-        """宏观流动性取不到时留痕（节流，避免心跳刷屏）。"""
-        count = getattr(self, "_macro_liquidity_miss_count", 0) + 1
-        self._macro_liquidity_miss_count = count
-        if count == 1 or count % 50 == 0:
-            log.warning(
-                "[TradingCenter] 宏观流动性不可用（%s），本次决策按中性 0.5 处理"
-                "（累计 %d 次）", why, count,
-            )
+        ❗读法**只此一份**（``kernel/macro_liquidity``）：展示路径
+        （``ManasManager.compute``）与这里必须给出同一个数，否则同一个引擎会
+        在同一时刻对「环境顺逆」给出两种答案。
+        """
+        from ..kernel.macro_liquidity import read_macro_liquidity_signal, warn_missing
+
+        value, why = read_macro_liquidity_signal()
+        if value is None:
+            warn_missing("TradingCenter", why)
+        return value
 
     def _get_awakening_level(self) -> str:
         """获取觉醒级别（读共享 ``AwakenedAlaya`` 的 ``awakening_engine``）。

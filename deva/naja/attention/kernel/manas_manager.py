@@ -159,10 +159,20 @@ class ManasManager:
                 "bandit_tracker": self._get_bandit_tracker(),
             }
 
-        output = manas_engine.compute(
-            macro_signal=self._get_macro_signal(),
-            **inputs,
-        )
+        # 宏观流动性：与内核打分路径**同一口径**（唯一出口见
+        # ``kernel/macro_liquidity``）。❗此前这里恒传 0.5 —— 展示路径的
+        # regime_score 因此恒 0（流动性分量 macro*2-1 ≡ 0），与内核路径结论
+        # 不一致；而它又是行动门审计的主要写入者，会让「宏观流动性已进决策」
+        # 在可观测层面证不出来。
+        # ❗拿不到真值时**不传这个 kwarg**（而不是传 None）：ManasEngine 的
+        #   形参默认值就是 0.5，而 None 会在 `macro_signal * 2 - 1` 处直接
+        #   TypeError 炸掉整条链（_get_liquidity_signal 的 try 只包 scanner 分支）。
+        kwargs = dict(inputs)
+        macro_signal = self._get_macro_signal()
+        if macro_signal is not None:
+            kwargs["macro_signal"] = macro_signal
+
+        output = manas_engine.compute(**kwargs)
 
         self._last_output = output.to_dict()
         self._last_compute_time = current_time
@@ -232,8 +242,24 @@ class ManasManager:
         except ImportError:
             return None
 
-    def _get_macro_signal(self) -> float:
-        return 0.5
+    def _get_macro_signal(self) -> Optional[float]:
+        """取当前宏观流动性信号（QueryState，0~1），与决策路径**同一出处**。
+
+        返回 ``None`` = 本次拿不到真值 → 调用方**不传该参数**，Manas 沿用默认
+        0.5（中性）。刻意与「真值恰好是 0.5」区分开并留痕：拿不到是链路问题，
+        不是「环境中性」。
+
+        ❗历史 bug：这里曾硬编码 ``return 0.5``。展示路径（UI / 守望台 /
+        ``/api/attention/manas/state``）因此永远看到「环境中性」，而它高频调用
+        ``ManasEngine.compute()``、把行动门审计刷成 ``regime_score`` 恒 0.0 /
+        折扣恒 0.85 —— 于是「宏观流动性到底进没进决策」在可观测层面根本证不出来。
+        """
+        from .macro_liquidity import read_macro_liquidity_signal, warn_missing
+
+        value, why = read_macro_liquidity_signal()
+        if value is None:
+            warn_missing("ManasManager", why)
+        return value
 
 
 def get_manas_manager() -> Optional[ManasManager]:
