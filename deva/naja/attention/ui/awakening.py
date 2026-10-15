@@ -474,7 +474,14 @@ def _get_query_state() -> Dict[str, Any]:
         return summary
     except Exception as e:
         log.error(f"[AwakeningUI] 获取QueryState失败: {e}", exc_info=True)
+        # ❗这是**兜底产物**，不是真实状态 —— 里面的 risk_bias / active_value_type /
+        #   value_weights 全是字面量。必须带 ``available: False`` + ``reason``，
+        #   否则调用方无法把它和「真读到一份中性状态」区分开 —— 那就是「合法的空」。
+        #   消费方统一用 :func:`_is_state_unavailable` 判定并显式标注「数据不可用」，
+        #   不许把这些字面量当系统状态渲染出去。
         return {
+            "available": False,
+            "reason": str(e),
             "market_regime": "unknown",
             "risk_bias": 0.5,
             "attention_focus_count": 0,
@@ -490,6 +497,17 @@ def _get_query_state() -> Dict[str, Any]:
                 "fundamentals_weight": 0.3,
             }
         }
+
+
+def _is_state_unavailable(query_state: Dict[str, Any]) -> bool:
+    """``query_state`` 是不是 :func:`_get_query_state` 的**兜底产物**？
+
+    真状态来自 ``QueryState.get_summary()``，**不带** ``available`` 键；
+    只有取数整条失败时的兜底字典才带 ``available: False``。
+    用它来区分「真的中性」与「压根没读到」——两者在页面上长得一模一样，
+    不区分就会把字面量当成系统状态显示出去。
+    """
+    return query_state.get("available") is False
 
 
 def _get_level_color(level: float) -> str:
@@ -509,6 +527,7 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
     market_regime = query_state.get("market_regime", "unknown")
     top_attention = query_state.get("top_attention", [])
     attention_count = query_state.get("attention_focus_count", 0)
+    unavailable = _is_state_unavailable(query_state)
     
     # 认知系统数据
     narrative_state = query_state.get("narrative_state", {})
@@ -520,16 +539,20 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
     cognitive_insights = query_state.get("cognitive_insights", {})
     insights_count = len(cognitive_insights.get("insights", []))
     
-    regime_text = {
-        "trend_up": "上涨趋势",
-        "trend_down": "下跌趋势",
-        "weak_trend_up": "弱上涨",
-        "weak_trend_down": "弱下跌",
-        "neutral": "震荡",
-        "mixed": "混合",
-        "unknown": "数据初始化中"
-    }.get(market_regime, "数据初始化中")
-    
+    regime_text = (
+        "⚠️ 数据不可用"
+        if unavailable
+        else {
+            "trend_up": "上涨趋势",
+            "trend_down": "下跌趋势",
+            "weak_trend_up": "弱上涨",
+            "weak_trend_down": "弱下跌",
+            "neutral": "震荡",
+            "mixed": "混合",
+            "unknown": "数据初始化中"
+        }.get(market_regime, "数据初始化中")
+    )
+
     core_attention_text = ""
     if top_attention:
         items = []
@@ -634,7 +657,8 @@ def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Di
     market_regime = query_state.get("market_regime", "unknown")
     risk_bias = query_state.get("risk_bias", 0.5)
     top_attention = query_state.get("top_attention", [])
-    
+    unavailable = _is_state_unavailable(query_state)
+
     awakening_text = {
         "dormant": "休眠",
         "awakening": "觉醒中",
@@ -648,18 +672,29 @@ def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Di
         "neutral": "中性",
     }.get(harmony_state, harmony_state)
     
-    regime_text = {
-        "trend_up": "上涨趋势",
-        "trend_down": "下跌趋势",
-        "weak_trend_up": "弱上涨",
-        "weak_trend_down": "弱下跌",
-        "neutral": "震荡",
-        "mixed": "混合",
-        "unknown": "数据初始化中"
-    }.get(market_regime, "数据初始化中")
-    
-    risk_text = "保守" if risk_bias < 0.4 else "中性" if risk_bias < 0.6 else "激进"
-    top_attention_text = ", ".join(top_attention[:3]) if top_attention else "暂无明确焦点"
+    regime_text = (
+        "⚠️ 数据不可用"
+        if unavailable
+        else {
+            "trend_up": "上涨趋势",
+            "trend_down": "下跌趋势",
+            "weak_trend_up": "弱上涨",
+            "weak_trend_down": "弱下跌",
+            "neutral": "震荡",
+            "mixed": "混合",
+            "unknown": "数据初始化中"
+        }.get(market_regime, "数据初始化中")
+    )
+
+    # ❗兜底字典里的 risk_bias=0.5 是字面量，不是「中性偏好」，不可用时不许渲染成文字。
+    risk_text = "⚠️ 不可用" if unavailable else (
+        "保守" if risk_bias < 0.4 else "中性" if risk_bias < 0.6 else "激进"
+    )
+    top_attention_text = (
+        "⚠️ 不可用"
+        if unavailable
+        else (", ".join(top_attention[:3]) if top_attention else "暂无明确焦点")
+    )
     
     narrative_parts = [
         f"系统当前处于<span style='color: #a855f7; font-weight: 600;'>{awakening_text}</span>状态，",
