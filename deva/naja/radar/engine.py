@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import traceback
 import uuid
 import math
 import os
@@ -650,7 +651,6 @@ class RadarEngine:
                     asyncio.run(self._global_scanner.start())
             except Exception as e:
                 logger.error(f"[RADAR-SCANNER] 启动异步扫描器异常: {e}")
-                import traceback
                 logger.error(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
 
             logger.debug(f"[RADAR-SCANNER] 全球市场扫描器启动成功, 间隔: {fetch_interval}s")
@@ -685,7 +685,6 @@ class RadarEngine:
                             logger.error(f"[RADAR-SCANNER] 发布市场热点事件失败: {e}")
                 except Exception as e:
                     logger.error(f"[RADAR-SCANNER] 第一次数据获取失败: {e}")
-                    import traceback
                     logger.error(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
             
             thread = threading.Thread(target=fetch_in_thread, daemon=True)
@@ -695,7 +694,6 @@ class RadarEngine:
 
         except Exception as e:
             logger.error(f"[RADAR-SCANNER] 全球市场扫描器启动失败: {e}")
-            import traceback
             logger.error(f"[RADAR-SCANNER] 异常堆栈: {traceback.format_exc()}")
             _radar_debug_log(f"全球市场扫描器启动失败: {e}")
             return False
