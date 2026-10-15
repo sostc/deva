@@ -35,6 +35,13 @@
 所以三个场景分别让 天时 / 地势 / 人和 当主因，三条理由必须**互不相同**、
 且各写对各的主因；另配自定义权重用例防止把权重写死。
 
+意愿放宽（方案 D）也在这里守
+--------------------------
+「人的意愿」此前只被写进 ``market_state['signal_confidence']`` 就没人读（权重恒 0）。
+现在它可以在**有限**幅度内下调行动门槛，本守卫守住三条硬边界
+（低于 min 恒 0 / 不超硬顶 / RESISTANCE 恒 0），外加「必须真能改变判定」
+与「必须写进理由且用有效门槛比较」—— 只接线不改判定的假接线必被抓住。
+
 用法
 ----
     python scripts/verify/verify_manas_attribution.py            # 全量
@@ -56,6 +63,11 @@ sys.path.insert(0, str(ROOT))
 
 ENGINE_PY = ROOT / "deva/naja/attention/kernel/manas_engine.py"
 AUDIT_PY = ROOT / "deva/naja/attention/kernel/manas_gate_audit.py"
+OS_KERNEL_PY = ROOT / "deva/naja/attention/os/os_kernel.py"
+
+#: 意愿放宽的配置。**必须与 ManasConfig 默认值对齐** —— 改了产品默认值要同步这里，
+#: 否则守卫会守着一个过时的期望值（这是「守卫腐烂」的常见形态）。
+INTENT_LO, INTENT_HI, INTENT_CAP = 0.5, 0.75, 0.15
 
 #: 守望台那一列的实际截断宽度（``ui.py:_watch_rows`` → ``_cut(..., 46)``）。
 #: 「主因」必须落在这个宽度内，否则人在页面上看不到。
@@ -98,6 +110,16 @@ def _expected(timing: float, risk_temperature: float, confidence: float,
     dominant = max(factors, key=lambda k: factors[k]["gap"])
     base = sum(vals[k] * w[k] for k in vals)
     return {"factors": factors, "dominant": dominant, "base": base}
+
+
+def _expected_relax(intent, *, resistance=False,
+                    lo=INTENT_LO, hi=INTENT_HI, cap=INTENT_CAP) -> float:
+    """**独立**复算意愿放宽量（纯算术，不读被测模块）。"""
+    if resistance or intent is None:
+        return 0.0
+    if intent <= lo:
+        return 0.0
+    return min(cap, cap * min(1.0, (intent - lo) / (hi - lo)))
 
 
 def _mk_engine(engine_mod, weights=None):
@@ -292,6 +314,12 @@ def check_output_and_audit_wiring() -> list:
         failures.append("ManasOutput.to_dict() 丢了 gate_factors（UI 拿不到结构化归因）")
     if "gate_factors" not in engine_mod.MANAS_OUTPUT_GROUPS.get("gate", ()):
         failures.append("MANAS_OUTPUT_GROUPS['gate'] 未登记 gate_factors")
+    # 意愿接线的三个字段同样要能落到 UI / 诊断手里
+    for key in ("intent_confidence", "intent_relaxation", "effective_threshold"):
+        if key not in as_dict:
+            failures.append(f"ManasOutput.to_dict() 丢了 {key}（意愿放宽不可见）")
+        if key not in engine_mod.MANAS_OUTPUT_GROUPS.get("gate", ()):
+            failures.append(f"MANAS_OUTPUT_GROUPS['gate'] 未登记 {key}")
 
     entry = audit_mod.GateAuditLog._build_entry(out)
     if entry.get("dominant_factor") != "risk":
@@ -300,6 +328,9 @@ def check_output_and_audit_wiring() -> list:
         )
     if not entry.get("factors") and "factors" not in entry:
         failures.append("行动门审计未留 factors 明细")
+    for key in ("intent_confidence", "intent_relaxation", "effective_threshold"):
+        if key not in entry:
+            failures.append(f"行动门审计未留 {key}（事后无法判断门槛被放宽了多少）")
     if "_build_entry" in ("",):
         pass
     # 构造器不许碰 DB（守卫不得写生产数据）
@@ -348,6 +379,155 @@ def check_compute_integration() -> list:
         failures.append(f"终分应为 ≈0.2448（<门槛 0.5 → hold），实得 {final}")
     if getattr(out, "action_type", None) not in (engine_mod.ActionType.HOLD,):
         failures.append("该场景应当仍是 hold（归因不得改变判定）")
+    return failures
+
+
+def check_intent_relaxation() -> list:
+    """人的意愿只许在**有限**幅度内下调门槛，且不得穿透环境硬拦。
+
+    意愿接线（方案 D）的三条硬边界，逐条独立复算：
+      ① 低于 intent_relax_min → 恒 0（意愿弱到没表态就不该有杠杆）；
+      ② 任意输入（含 99.0 / 负值 / None）→ 不超 intent_relax_max 硬顶；
+      ③ RESISTANCE → 恒 0（环境说"不"时，意愿穿透不过去）。
+    再验两件事：
+      · 放宽必须**真能改变判定**（否则接线是摆设，看着接好了其实没生效）；
+      · 放宽必须**写进理由**且用**有效门槛**比较，未放宽时不许凭空出现这句话。
+    """
+    failures = []
+    engine_mod = _reload_engine()
+    eng, cfg = _mk_engine(engine_mod)
+    neutral = engine_mod.HarmonyState.NEUTRAL
+    resist = engine_mod.HarmonyState.RESISTANCE
+
+    # ① / ② 数值与硬顶（独立复算，不读被测模块）
+    for intent in (None, -1.0, 0.0, 0.3, 0.5, 0.6, 0.65, 0.75, 0.95, 5.0, 99.0):
+        want = _expected_relax(intent)
+        got = eng._intent_relaxation(intent, neutral)
+        if abs(got - want) > 1e-9:
+            failures.append(f"[放宽量] 意愿={intent} 应为 {want}，实得 {got}")
+        if got > cfg.intent_relax_max + 1e-9:
+            failures.append(f"[硬顶] 意愿={intent} 放宽 {got} 超过硬顶 {cfg.intent_relax_max}")
+
+    # ③ RESISTANCE 恒 0
+    for intent in (0.65, 0.75, 1.0, 99.0):
+        got = eng._intent_relaxation(intent, resist)
+        if got != 0.0:
+            failures.append(f"[环境硬拦] RESISTANCE 下意愿={intent} 仍放宽了 {got}（应为 0）")
+
+    # 放宽必须真能改变判定
+    score = cfg.action_threshold - cfg.intent_relax_max / 2   # 0.425：原门槛 0.5 下应为 hold
+    if eng._determine_action_type(neutral, score, 0.4) != engine_mod.ActionType.HOLD:
+        failures.append("[杠杆] 未放宽时该分数本应 hold")
+    relaxed = eng._determine_action_type(
+        neutral, score, 0.4,
+        effective_threshold=cfg.action_threshold - cfg.intent_relax_max,
+    )
+    if relaxed == engine_mod.ActionType.HOLD:
+        failures.append("[杠杆] 意愿拉满也没改变判定 —— 接线没生效")
+
+    # 披露与自洽
+    attrib = eng._factor_attribution(
+        timing=0.5, risk_temperature=1.0, confidence=0.5,
+        base_score=score, final_score=score, trace=[],
+    )
+    eff = cfg.action_threshold - 0.09
+    reason = eng._get_gate_reason(
+        score, 0.5, 0.0, 0.5, engine_mod.BiasState.NEUTRAL, neutral,
+        engine_mod.ActionType.HOLD, attribution=attrib,
+        effective_threshold=eff, intent_relaxation=0.09, intent_confidence=0.65,
+    )
+    if "意愿0.65放宽门槛" not in reason:
+        failures.append(f"[披露] 理由未写出意愿放宽：{reason}")
+    if f"{eff:.3f}" not in reason:
+        failures.append(f"[自洽] 理由未用有效门槛 {eff:.3f} 比较：{reason}")
+    reason2 = eng._get_gate_reason(
+        score, 0.5, 0.0, 0.5, engine_mod.BiasState.NEUTRAL, neutral,
+        engine_mod.ActionType.HOLD, attribution=attrib,
+    )
+    if "放宽门槛" in reason2:
+        failures.append(f"[噪声] 未放宽却写了「放宽门槛」：{reason2}")
+
+    # 端到端：意愿必须真的走完 compute()（接线里任何一环断了都要被抓到）。
+    # 桩值使终分 ≈0.431（regime 折扣 0.85 后）：原门槛 0.5 下 hold，
+    # 意愿 0.75 → 门槛 0.35 → 应当放行。
+    out_relax = None
+    for label, intent, expect_act in (("无意愿", None, False), ("意愿0.75", 0.75, True)):
+        e2, _ = _mk_engine(engine_mod)
+        e2.timing_engine.compute = lambda *a, **k: 0.6
+        e2.risk_engine.compute = lambda *a, **k: 1.0
+        e2.confidence_engine.compute = lambda *a, **k: 0.6
+        e2.regime_engine.compute = lambda *a, **k: 0.0
+        # ❗守卫不得写生产数据：行动门留痕是模块级单例，节流到 50 条会落盘 NB。
+        e2._record_gate_audit = lambda output: None
+        out = e2.compute(intent_confidence=intent)
+        if expect_act and out.action_type == engine_mod.ActionType.HOLD:
+            failures.append(f"[端到端/{label}] 意愿应把判定从 hold 抬起来，实得 {out.action_type.value}")
+        if not expect_act and out.action_type != engine_mod.ActionType.HOLD:
+            failures.append(f"[端到端/{label}] 未给意愿时不应放行，实得 {out.action_type.value}")
+        if float(out.intent_relaxation or 0.0) > cfg.intent_relax_max + 1e-9:
+            failures.append(f"[端到端/{label}] 放宽量 {out.intent_relaxation} 超硬顶")
+        if expect_act:
+            out_relax = out
+    if out_relax is not None:
+        r = out_relax.action_gate_reason or ""
+        if "意愿0.75放宽门槛0.500→0.350" not in r:
+            failures.append(f"[端到端] 理由未写出意愿放宽门槛：{r}")
+    return failures
+
+
+def check_intent_wiring_static() -> list:
+    """静态：意愿要在 compute → 判定 → 输出 → 审计 → 内核调用 全链路上被接住。"""
+    failures = []
+    tree = ast.parse(ENGINE_PY.read_text(encoding="utf-8"))
+
+    # ① compute() 调 _determine_action_type 必须带 effective_threshold
+    wired = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "_determine_action_type":
+            if any(kw.arg == "effective_threshold" for kw in node.keywords):
+                wired = True
+    if not wired:
+        failures.append("compute() 调 _determine_action_type 时没传 effective_threshold（意愿没进判定）")
+
+    # ② _intent_relaxation 必须读 config 旋钮，且带 RESISTANCE 护栏
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_intent_relaxation":
+            body = ast.unparse(node)
+            for needle in ("cfg.intent_relax_min", "cfg.intent_relax_full", "cfg.intent_relax_max"):
+                if needle not in body:
+                    failures.append(f"_intent_relaxation 未使用 {needle}（硬边界疑似写死）")
+            if "RESISTANCE" not in body:
+                failures.append("_intent_relaxation 未对 RESISTANCE 设护栏")
+
+    # ③ 内核两处调用都要把意愿喂给 Manas，且必须按 human_intent 区分人与自动信号
+    osk = OS_KERNEL_PY.read_text(encoding="utf-8")
+    n = osk.count("intent_confidence=self._intent_confidence_from(market_state)")
+    if n < 2:
+        failures.append(f"os_kernel 只有 {n} 处把意愿传给 Manas（应 2 处）")
+
+    # ❗这里只做 AST 静态检查，**不 import 内核类做行为测试**：注入改写文件之后
+    #   模块已在 sys.modules 里，import 拿到的是旧对象 —— 行为测试会测到未注入的
+    #   代码而「假通过」（实测踩过：去掉 human_intent 护栏却没被抓到）。
+    # ❗扫描前必须**剥掉 docstring**：`_intent_confidence_from` 的说明里也写着
+    #   ``human_intent``，不剥的话把护栏删了照样能"命中"字符串 → 假绿。
+    osk_tree = ast.parse(osk)
+    pick_fn = None
+    for node in ast.walk(osk_tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "_intent_confidence_from":
+            pick_fn = node
+    if pick_fn is None:
+        failures.append("os_kernel 缺 _intent_confidence_from（意愿取值没有单一出处）")
+    else:
+        stmts = [
+            s for s in pick_fn.body
+            if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))
+        ]
+        body = "\n".join(ast.unparse(s) for s in stmts)
+        if "human_intent" not in body:
+            failures.append(
+                "_intent_confidence_from 未检查 human_intent"
+                "（自动补底仓的信号会被当成「人想买」而放宽门槛）"
+            )
     return failures
 
 
@@ -412,8 +592,12 @@ INJECTIONS = [
     {
         "name": "compute() 不传归因（退回并列旗标）",
         "file": ENGINE_PY,
-        "old": "            attribution=attribution,\n        )",
-        "new": "            attribution=None,\n        )",
+        # ❗锚点只钉**条件行/单行**，不钉整块尾部 —— 早先钉的是
+        #   `attribution=attribution,\n        )`，本次给该调用追加了
+        #   effective_threshold 等 kwarg 之后锚点静默失配（打印一句「未命中」就跳过，
+        #   看着还是"通过"）。锚点窄化到单行后不再受后续 kwarg 增删影响。
+        "old": "            attribution=attribution,\n",
+        "new": "            attribution=None,\n",
         "count": -1,
     },
     {
@@ -439,17 +623,65 @@ INJECTIONS = [
         "new": 'f"✗未通过(终分{manas_score:.3f}<门槛{thr:.3f}，"',
         "count": -1,
     },
+    {
+        # ❗这条要同时打掉「封顶比 1.0」与「min(cap,…)」两层，否则外层 min 会把
+        #   内层失控兜住，注入就抓不到 —— 用例必须能真的区分成败。
+        "name": "意愿放宽取消硬顶（门槛被无限下调）",
+        "file": ENGINE_PY,
+        "old": ("        ratio = min(1.0, (intent - lo) / span)\n"
+                "        # 再夹一次硬顶：即使未来有人把上面的公式改坏，放宽量也出不了 cap。\n"
+                "        return max(0.0, min(cap, cap * ratio))"),
+        "new": "        return max(0.0, cap * (intent - lo) / span)",
+        "count": -1,
+    },
+    {
+        "name": "意愿可穿透环境硬拦（RESISTANCE 护栏被去掉）",
+        "file": ENGINE_PY,
+        "old": ("        if harmony_state == HarmonyState.RESISTANCE:\n"
+                "            return 0.0\n"
+                "        if intent_confidence is None:"),
+        "new": "        if intent_confidence is None:",
+        "count": -1,
+    },
+    {
+        "name": "意愿放宽不写进理由（接线了但看不见）",
+        "file": ENGINE_PY,
+        "old": "        if not intent_relaxation or intent_relaxation <= 1e-6:",
+        "new": "        if True:",
+        "count": -1,
+    },
+    {
+        "name": "os_kernel 不把意愿喂给 Manas（信号到家门口又放下）",
+        "file": OS_KERNEL_PY,
+        "old": "            intent_confidence=self._intent_confidence_from(market_state),\n",
+        "new": "",
+        "count": -1,
+    },
+    {
+        "name": "去掉 human_intent 区分（自动补底仓也被当成「人想买」而放宽）",
+        "file": OS_KERNEL_PY,
+        "old": '        if not market_state or not market_state.get("human_intent"):',
+        "new": "        if not market_state:",
+        "count": -1,
+    },
 ]
 
 
 def run_injections() -> int:
-    """逐个把 bug 注进去，确认本守卫抓得到；每次注入后必须 reload 被测模块。"""
+    """逐个把 bug 注进去，确认本守卫抓得到；每次注入后必须 reload 被测模块。
+
+    ❗**锚点未命中一律判失败**，不许「打印一句就跳过」。静默跳过 = 这条注入其实
+    没跑，计数却还是满分 —— 守卫腐烂最典型的形态：绿着，但什么都没守。
+    """
     caught = 0
+    missed = []
     for inj in INJECTIONS:
         path: Path = inj["file"]
         original = path.read_text(encoding="utf-8")
         if inj["old"] not in original:
-            print(f"  ⚠️ 注入锚点未命中，跳过：{inj['name']}")
+            # 锚点失配 = 被测代码已被改动，注入没跑 —— 必须显式失败，不是跳过。
+            missed.append(inj["name"])
+            print(f"❌ 注入锚点未命中（守卫腐烂信号，锚点该修了）：{inj['name']}")
             continue
         print(f"· 注入：{inj['name']}")
         path.write_text(original.replace(inj["old"], inj["new"]), encoding="utf-8")
@@ -467,6 +699,8 @@ def run_injections() -> int:
                 + check_discount_reported()
                 + check_output_and_audit_wiring()
                 + check_compute_integration()
+                + check_intent_relaxation()
+                + check_intent_wiring_static()
             )
         except Exception as e:  # noqa: BLE001
             found = [f"守卫自身抛异常: {type(e).__name__}: {e}"]
@@ -482,7 +716,8 @@ def run_injections() -> int:
         if path.read_text(encoding="utf-8") != original:
             print("  🚨 还原失败，强制重写")
             path.write_text(original, encoding="utf-8")
-    print(f"\n负向注入：{caught}/{len(INJECTIONS)} 被捕获")
+    print(f"\n负向注入：{caught}/{len(INJECTIONS)} 被捕获"
+          + (f"（另有 {len(missed)} 条锚点未命中，已计失败）" if missed else ""))
     return caught
 
 
@@ -503,13 +738,15 @@ def main() -> int:
         + check_discount_reported()
         + check_output_and_audit_wiring()
         + check_compute_integration()
+        + check_intent_relaxation()
+        + check_intent_wiring_static()
     )
     if failures:
         print("❌ Manas 归因守卫 失败：")
         for f in failures:
             print(f"   - {f}")
         return 1
-    print("✅ Manas 归因守卫全绿（定位/主因/环境策略分家/结构化留痕/端到端）")
+    print("✅ Manas 归因守卫全绿（主因定位/环境策略分家/结构化留痕/端到端/意愿放宽三边界）")
     return 0
 
 
