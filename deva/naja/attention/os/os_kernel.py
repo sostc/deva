@@ -17,6 +17,12 @@ from ..kernel.event_encoder import Encoder
 from ..kernel.multi_scorer import MultiHeadAttention
 from ..kernel.manas_engine import ManasEngine
 from ..kernel import get_default_heads
+from ..kernel.macro_liquidity import (
+    MACRO_LIQUIDITY_KEY,
+    NEUTRAL_MACRO_SIGNAL,
+    read_macro_liquidity_signal,
+    warn_missing,
+)
 from ..values.system import ValueSystem
 from ..models.output import AttentionFusionOutput, AttentionKernelOutput
 from ..attention_fusion import get_attention_fusion
@@ -218,7 +224,7 @@ class OSAttentionKernel:
             focus_symbols = [s for s, _ in sorted_weights[:10]]
 
         manas_output = self.manas_engine.compute(
-            macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
+            macro_signal=self._macro_signal_from(market_state),
             narratives=market_state.get("narratives", []) if market_state else [],
             # 人下达的意愿强度（trading_center 由 signal.confidence 写进 market_state）。
             # 只有 human_intent 标记为真才取用，否则 Manas 不放宽门槛。
@@ -373,7 +379,7 @@ class OSAttentionKernel:
             return self._last_output
 
         manas_output = self.manas_engine.compute(
-            macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,
+            macro_signal=self._macro_signal_from(market_state),
             narratives=market_state.get("narratives", []) if market_state else [],
             intent_confidence=self._intent_confidence_from(market_state),
             **{
@@ -438,6 +444,42 @@ class OSAttentionKernel:
         if not market_state or not market_state.get("human_intent"):
             return None
         return market_state.get("signal_confidence")
+
+    @staticmethod
+    def _macro_signal_from(market_state: Optional[Dict[str, Any]]) -> float:
+        """取本次喂给 Manas 的宏观流动性。
+
+        ❗**没给键就回落到唯一读取口径**（QueryState 真值），不许硬编码 0.5。
+        历史实锤：``make_decision`` 里的默认值写成常量 0.5，而 ``make_decision``
+        的真正高频调用方是数据源推送链 ——
+
+            datasource/entry.py → TradingCenter.process_datasource_data
+              → AttentionOS.schedule_market → StrategyDecisionMaker.schedule
+              → OSAttentionKernel.make_decision(raw_market_data)
+
+        这条路上的 ``market_data`` 是**原始行情**，必然不带
+        ``macro_liquidity_signal`` 键 → 于是「默认值」每分钟顶替真值一次，
+        行动门审计里的 ``regime_score`` 恒 0.0 / 折扣恒 0.85，
+        让「宏观流动性已进决策」在可观测层面证不出来。
+
+        ``market_state`` 里已解析好的值仍然优先（决策要的是一致快照）。
+        两处都拿不到时才用中性默认，并留痕 —— 拿不到 ≠ 环境中性。
+        """
+        if market_state:
+            value = market_state.get(MACRO_LIQUIDITY_KEY)
+            if value is not None:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    log.debug(
+                        "os_kernel: market_state['%s']=%r 不是数值，回落到 QueryState",
+                        MACRO_LIQUIDITY_KEY, value,
+                    )
+        value, why = read_macro_liquidity_signal()
+        if value is None:
+            warn_missing("OSKernel", why)
+            return NEUTRAL_MACRO_SIGNAL
+        return value
 
     def get_manas_inputs(self) -> Dict[str, Any]:
         """返回喂给 ManasEngine.compute() 的四路输入。

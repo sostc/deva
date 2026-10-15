@@ -30,8 +30,12 @@ Manas 的 RegimeEngine 只认 ``market_state['macro_liquidity_signal']``
   （``_get_liquidity_signal`` 的 try 只包 scanner 分支，兜不住），整条决策链炸掉。
 * **内核必须消费**：``os_kernel`` 里两条路径（process / make_decision）都要把
   ``market_state`` 的该键喂给 ``macro_signal=``；少一条就是「信号到了家门口又放下」。
-* **只能有一处读取口径，且两条路都调它**：决策路径（``trading_center``）与展示
-  路径（``ManasManager.compute``，UI / 守望台 / ``/api/attention/manas/state``
+  并且**默认值不许是常量**：``make_decision`` 的高频调用方是数据源推送链
+  （``datasource/entry → process_datasource_data → schedule_market →
+  StrategyDecisionMaker.schedule → make_decision(原始行情)``），那条路上永远不带
+  这个键 —— 于是「默认值」就是生产里被用得最多的那个数。必须回落到唯一读取口径。
+* **只能有一处读取口径，且两条路都调它**：决策路径（``trading_center`` / ``os_kernel``）
+  与展示路径（``ManasManager.compute``，UI / 守望台 / ``/api/attention/manas/state``
   走的就是它）必须同源。展示路径曾硬编码 ``return 0.5`` —— 它高频调用
   ``ManasEngine.compute()``、又是行动门审计的主要写入者，于是线上
   ``regime_score`` 恒 0.0 / 折扣恒 0.85，看着像「环境一直中性」，其实是这条线
@@ -47,6 +51,8 @@ Manas 的 RegimeEngine 只认 ``market_state['macro_liquidity_signal']``
 ③ 展示路径：把假引擎塞进 ``ManasManager.compute()``，直接读它递给 Manas 的
 实参 —— 有真值必须带、真值恰好 0.5 必须如实带、取不到必须**不带**（而不是带
 None）；并交叉验证两条路对同一份 QueryState 给出同一个数。
+④ 内核默认值：``_macro_signal_from(None)`` 与「market_state 无该键」都必须回落到
+QueryState 真值（而不是 0.5）；键已给出时优先用它；两处都拿不到才降级为中性。
 
 用法
 ----
@@ -341,7 +347,12 @@ def check_manager_wiring() -> list:
 
 
 def check_os_kernel_consumes() -> list:
-    """内核两条路径都要把 market_state 的宏观流动性喂给 Manas。"""
+    """内核两条路径都要把宏观流动性喂给 Manas，且默认值**不许是常量**。
+
+    ``make_decision`` 的高频调用方是数据源推送链（原始行情 dict，必然不带这个
+    键），所以「默认值」实际上就是生产里最常被用到的那个数。写成 0.5 等于让
+    人造的中性环境每分钟顶替一次真值 —— 必须回落到唯一读取口径。
+    """
     failures: list = []
     tree = ast.parse(OS_KERNEL_PY.read_text(encoding="utf-8"))
     n_ok = 0
@@ -351,12 +362,31 @@ def check_os_kernel_consumes() -> list:
         if getattr(node.func, "attr", None) != "compute":
             continue
         for kw in node.keywords:
-            if kw.arg == "macro_signal" and LIQUIDITY_KEY in ast.unparse(kw.value):
+            if kw.arg == "macro_signal" and "macro_signal_from" in ast.unparse(kw.value):
                 n_ok += 1
     if n_ok < OS_KERNEL_WIRES:
         failures.append(
-            f"os_kernel 只有 {n_ok} 处把 {LIQUIDITY_KEY} 喂给 Manas"
+            f"os_kernel 只有 {n_ok} 处经 _macro_signal_from 取宏观流动性"
             f"（应 {OS_KERNEL_WIRES} 处：process / make_decision）"
+        )
+
+    helper = _find_fn(tree, "_macro_signal_from")
+    if helper is None:
+        failures.append(
+            "缺 OSAttentionKernel._macro_signal_from"
+            "（调用方没给键时会退回硬编码默认值）"
+        )
+        return failures
+    if not _calls(helper, SHARED_READER):
+        failures.append(
+            f"_macro_signal_from 没回落到唯一读取口径 {SHARED_READER}"
+            "（调用方没给键时宏观流动性丢失）"
+        )
+    if "MACRO_LIQUIDITY_KEY" not in _strip_doc(helper):
+        failures.append("_macro_signal_from 没读 market_state 的 MACRO_LIQUIDITY_KEY")
+    for literal in _floats_returned(helper):
+        failures.append(
+            f"_macro_signal_from 直接返回常量 {literal!r}（人造的中性环境）"
         )
     return failures
 
@@ -416,9 +446,55 @@ def check_getter_behavior() -> list:
     return failures
 
 
+def check_os_kernel_macro_behavior() -> list:
+    """内核在「调用方没给这个键」时必须回落到 QueryState 真值。
+
+    这是生产里最常走的一条：数据源推送进来的是**原始行情**，永远不带
+    ``macro_liquidity_signal``。所以「默认值」实际就是被用得最多的那个数。
+    """
+    from unittest import mock
+
+    failures: list = []
+    os_mod = importlib.reload(
+        importlib.import_module("deva.naja.attention.os.os_kernel")
+    )
+    app_mod = importlib.import_module("deva.naja.application")
+    K = os_mod.OSAttentionKernel
+
+    real = lambda: _FakeContainer(_QS(0.42))
+    with mock.patch.object(app_mod, "get_app_container", real):
+        for label, ms in (
+            ("market_state 为 None", None),
+            ("market_state 无该键", {"symbol_weights": {"600000": 0.5}}),
+        ):
+            got = K._macro_signal_from(ms)
+            if not isinstance(got, float) or abs(got - 0.42) > 1e-9:
+                failures.append(
+                    f"[{label}] 应回落到 QueryState 真值 0.42，实得 {got!r}"
+                    "（说明用的是硬编码默认值）"
+                )
+
+    # market_state 里已解析好的值优先（决策要的是一致快照）
+    got = K._macro_signal_from({LIQUIDITY_KEY: 0.195})
+    if not isinstance(got, float) or abs(got - 0.195) > 1e-9:
+        failures.append(f"[键已给出] 应优先用 0.195，实得 {got!r}")
+
+    # 真值恰好 0.5 也要如实返回（与「拿不到」区分）
+    with mock.patch.object(app_mod, "get_app_container", lambda: _FakeContainer(_QS(0.5))):
+        got = K._macro_signal_from(None)
+    if got != 0.5:
+        failures.append(f"[真值 0.5] 应如实返回 0.5，实得 {got!r}")
+
+    # 两处都拿不到 → 中性默认（不许抛异常）
+    with mock.patch.object(app_mod, "get_app_container", lambda: None):
+        got = K._macro_signal_from(None)
+    if got != 0.5:
+        failures.append(f"[两处都拿不到] 应降级为中性 0.5，实得 {got!r}")
+    return failures
+
+
 class _Probe(Exception):
     """在 ``_full_decision_pipeline`` 处截断，捕获组装好的 market_state。"""
-
 
 def _mk_trading_center(tc_mod, captured: dict):
     tc = tc_mod.TradingCenter.__new__(tc_mod.TradingCenter)   # 不跑 __init__
@@ -639,11 +715,17 @@ INJECTIONS = [
         "new": "        value, why = 0.5, ''\n",
     },
     {
-        "name": "内核不把宏观流动性喂给 Manas（信号到家门口又放下）",
+        "name": "内核退回硬编码 0.5（数据源推送链每分钟顶替一次真值）",
         "file": OS_KERNEL_PY,
-        "old": '            macro_signal=market_state.get("macro_liquidity_signal", 0.5) if market_state else 0.5,\n',
+        "old": "            macro_signal=self._macro_signal_from(market_state),\n",
         "new": "            macro_signal=0.5,\n",
         "count": 2,
+    },
+    {
+        "name": "内核的默认值不回落 QueryState（又变成人造中性环境）",
+        "file": OS_KERNEL_PY,
+        "old": "        value, why = read_macro_liquidity_signal()\n",
+        "new": "        value, why = NEUTRAL_MACRO_SIGNAL, ''\n",
     },
     {
         "name": "展示路径的取值器写死 0.5（历史实锤：regime_score 恒 0.0）",
@@ -682,6 +764,7 @@ def _all_checks() -> list:
         + check_single_source_reader()
         + check_manager_wiring()
         + check_getter_behavior()
+        + check_os_kernel_macro_behavior()
         + check_process_signal_market_state()
         + check_manager_behavior()
     )
@@ -692,6 +775,7 @@ def _reload():
     for name in (
         "deva.naja.attention.kernel.macro_liquidity",
         "deva.naja.attention.kernel.manas_manager",
+        "deva.naja.attention.os.os_kernel",
         "deva.naja.attention.orchestration.trading_center",
     ):
         try:
