@@ -225,7 +225,6 @@ class GPT:
                 raise RuntimeError("异步查询返回结果为空，请稍后重试")
 
             if not completion.choices:
-                import traceback
                 log.error(f"[LLM调用来源]\n{''.join(traceback.format_stack())}")
                 log.error(f"[LLM响应详情] completion={completion}, dir={dir(completion)}")
                 if hasattr(completion, 'model_dump'):
