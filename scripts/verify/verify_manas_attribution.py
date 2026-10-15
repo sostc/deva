@@ -340,6 +340,51 @@ def check_output_and_audit_wiring() -> list:
     return failures
 
 
+def check_folded_entry_refreshes_values() -> list:
+    """连续同一判定折叠时，数值字段必须刷新到**最新一次**。
+
+    否则区间里环境变了（例如宏观流动性刚接上、regime_score 从 0 变成 0.4），
+    审计里却永远停着区间首条的旧值 ——「显示的数不是现在的数」比不显示更误导。
+    ts 保留区间起点（首次发生），last_ts 记最近一次。
+    """
+    failures = []
+    engine_mod = _reload_engine()
+    audit_mod = importlib.reload(
+        importlib.import_module("deva.naja.attention.kernel.manas_gate_audit")
+    )
+    # 守卫不得写生产库：临时表名 + 把落盘节流推到无穷
+    log_ = audit_mod.GateAuditLog(table="naja_verify_fold_tmp", persist_every=10 ** 9)
+
+    def _mk(regime: float, timing: float):
+        return engine_mod.ManasOutput(
+            action_gate_reason="同一句话 | 行动:hold | ✗未通过",
+            action_type=engine_mod.ActionType.HOLD,
+            should_act=False,
+            regime_score=regime,
+            timing_score=timing,
+        )
+
+    log_.record(_mk(0.0, 0.10))
+    log_.record(_mk(0.4, 0.90))
+    if len(log_) != 1:
+        failures.append(f"同一判定应当折叠成 1 条，实得 {len(log_)} 条")
+        return failures
+
+    e = log_.recent(1)[0]
+    if e.get("occurrences") != 2:
+        failures.append(f"折叠计数应为 2，实得 {e.get('occurrences')}")
+    if abs(float(e.get("regime_score") or 0.0) - 0.4) > 1e-9:
+        failures.append(
+            f"折叠后 regime_score 应刷新为最新值 0.4，实得 {e.get('regime_score')}"
+            "（数值停在区间首条 → 显示的数不是现在的数）"
+        )
+    if abs(float(e.get("timing_score") or 0.0) - 0.90) > 1e-9:
+        failures.append(f"折叠后 timing_score 应刷新为 0.90，实得 {e.get('timing_score')}")
+    if not e.get("ts"):
+        failures.append("折叠后丢了区间起点 ts（看不出这一段从什么时候开始）")
+    return failures
+
+
 def check_compute_integration() -> list:
     """端到端：用 02:14:59 的真实数字跑 compute()，理由必须点名「地势」。"""
     failures = []
@@ -610,6 +655,14 @@ INJECTIONS = [
         "count": -1,
     },
     {
+        "name": "折叠时不刷新数值（显示的数不是现在的数）",
+        "file": AUDIT_PY,
+        "old": ("                for key, value in entry.items():\n"
+                "                    if key != \"ts\":\n"
+                "                        last[key] = value\n"),
+        "new": "                pass\n",
+    },
+    {
         "name": "审计不留主因",
         "file": AUDIT_PY,
         "old": '            "dominant_factor": factors.get("dominant"),',
@@ -698,6 +751,7 @@ def run_injections() -> int:
                 + check_no_self_contradiction()
                 + check_discount_reported()
                 + check_output_and_audit_wiring()
+                + check_folded_entry_refreshes_values()
                 + check_compute_integration()
                 + check_intent_relaxation()
                 + check_intent_wiring_static()
@@ -737,6 +791,7 @@ def main() -> int:
         + check_no_self_contradiction()
         + check_discount_reported()
         + check_output_and_audit_wiring()
+        + check_folded_entry_refreshes_values()
         + check_compute_integration()
         + check_intent_relaxation()
         + check_intent_wiring_static()

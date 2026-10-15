@@ -75,9 +75,16 @@ class GateAuditLog:
         try:
             last = self._entries[-1] if self._entries else None
             if last is not None and self._is_same_decision(last, entry):
-                # 连续同一判定：折叠，避免心跳把缓冲刷成同一句话
+                # 连续同一判定：折叠，避免心跳把缓冲刷成同一句话。
+                # ❗数值字段必须一起刷新到**最新一次**：区间里环境是会变的
+                #   （例如宏观流动性刚接上、regime_score 从 0 变成 0.4），若数值
+                #   永远停在区间首条，「显示的数不是现在的数」—— 比不显示更误导。
+                #   ts 保留区间起点（首次发生），last_ts 记最近一次。
                 last["occurrences"] += 1
                 last["last_ts"] = entry["ts"]
+                for key, value in entry.items():
+                    if key != "ts":
+                        last[key] = value
             else:
                 entry["occurrences"] = 1
                 self._entries.append(entry)
