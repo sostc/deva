@@ -33,6 +33,10 @@ class QueryStateUpdater:
         self._hotspot_log_interval = 10
         self._last_data_hash: Optional[str] = None
         self._last_symbol_count = 0
+        # 因「热点事件未携带真实行情」而跳过更新的累计次数（节流告警用，见
+        # _note_skipped_hotspot —— 跳过是刻意的，但**不许静默**）
+        self._hotspot_skip_count = 0
+        self._hotspot_skip_log_every = 20
         log.info("[QueryStateUpdater] 初始化完成")
 
     def set_query_state(self, query_state):
@@ -113,28 +117,29 @@ class QueryStateUpdater:
                 log.warning("[QueryStateUpdater] QueryState 未初始化")
                 return
             
-            # 从symbol_weights中提取股票代码和权重
+            # 从 symbol_weights 取股票代码（只用 key；值不做任何派生加工）
             symbols = list(event.symbol_weights.keys())
             if not symbols:
                 log.debug("[QueryStateUpdater] 热点事件没有股票数据")
                 return
             
-            # 优先使用事件携带的真实数据
-            if event.returns and len(event.returns) == len(symbols):
-                returns = list(event.returns)
-            else:
-                returns = [event.symbol_weights[s] * 100 for s in symbols]
-
-            if event.volumes and len(event.volumes) == len(symbols):
-                volumes = list(event.volumes)
-            else:
-                volumes = [event.symbol_weights[s] * 1000000 for s in symbols]
-
-            if event.prices and len(event.prices) == len(symbols):
-                prices = list(event.prices)
-            else:
-                # 权重本身可以作为相对价格的代理
-                prices = [event.symbol_weights[s] * 100 for s in symbols]
+            # ❗ returns / volumes / prices **必须全部**是事件携带的真实行情，
+            #   缺任何一项就跳过本次更新 —— 绝不用 symbol_weights 顶替。
+            #   旧写法在缺数据时拿 `symbol_weights[s] * 100` 冒充涨跌幅，而
+            #   symbol_weights 的量级是 1.0~1.45，×100 就成了「平均涨幅 142%」。
+            #   QueryState 是与 GlobalMarketScanner 共享的单例，这个伪造值会
+            #   **覆盖**真市场数据，并被 RegimeEngine 拿去算 regime_score 与
+            #   宏观流动性(macro_liquidity_signal)，把决策的环境输入变成人造数。
+            #   实测：线上 /api/query/state 的 avg_change=142.3390579620452 与
+            #   symbol_weights 均值×100 逐位相等（Δ=0），而同一批 hot_stocks
+            #   里的真实 change_pct 是 +1.67 / −3.72 / −3.94 …
+            #   宁可少更新一次，也不给决策喂假数。
+            if not self._has_real_market_data(event, len(symbols)):
+                self._note_skipped_hotspot(event, len(symbols))
+                return
+            returns = list(event.returns)
+            volumes = list(event.volumes)
+            prices = list(event.prices)
 
             # 变化检测：数据未变则跳过更新
             data_repr = f"{','.join(symbols)}|{','.join(f'{r:.2f}' for r in returns[:100])}"
@@ -159,7 +164,38 @@ class QueryStateUpdater:
                 self._last_symbol_count = len(symbols)
         except Exception as e:
             log.error(f"[QueryStateUpdater] 处理热点事件失败: {e}")
-    
+
+    @staticmethod
+    def _has_real_market_data(event, n_symbols: int) -> bool:
+        """事件是否携带**逐标的、长度对齐**的真实行情三件套。
+
+        三个字段都要有：`update_from_market` 会分别用 returns 算涨跌/波动、
+        用 volumes 算量能离散度、用 prices 算派生特征，少一个就会出现
+        「一半真一半假」的口径混用。
+        """
+        for field in ("returns", "volumes", "prices"):
+            values = getattr(event, field, None)
+            if not isinstance(values, (list, tuple)) or len(values) != n_symbols:
+                return False
+        return True
+
+    def _note_skipped_hotspot(self, event, n_symbols: int) -> None:
+        """热点事件缺真实行情 → 跳过更新，并留痕（节流告警，绝不静默）。
+
+        为什么宁可跳过：QueryState 是 scanner 与本更新器**共享**的单例，
+        这里的写入会覆盖 scanner 刚写的真市场数据。用权重凑出来的假数
+        比「这次不更新」危险得多（后者只是旧值，前者是错的数）。
+        """
+        self._hotspot_skip_count += 1
+        n = self._hotspot_skip_count
+        if n == 1 or n % self._hotspot_skip_log_every == 0:
+            log.warning(
+                "[QueryStateUpdater] 热点事件(%s, %d 个标的)未携带真实行情"
+                "(returns/volumes/prices)，跳过 QueryState 更新（累计 %d 次）"
+                "—— 拒绝用 symbol_weights 伪造涨跌幅",
+                getattr(event, "market", "?"), n_symbols, n,
+            )
+
     def _on_global_market_data(self, event):
         """处理全局市场数据事件"""
         try:
