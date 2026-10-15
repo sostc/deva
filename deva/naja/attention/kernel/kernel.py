@@ -382,9 +382,29 @@ class AttentionKernel:
         Returns:
             attention 结果 dict（含末那识状态）
         """
-        macro_signal = 0.5
-        if hasattr(Q, 'macro_liquidity_signal'):
-            macro_signal = Q.macro_liquidity_signal
+        # ❗宏观流动性只走唯一读取口径（`attention/kernel/macro_liquidity.py`）。
+        #   这里原本是
+        #       macro_signal = 0.5
+        #       if hasattr(Q, 'macro_liquidity_signal'):
+        #           macro_signal = Q.macro_liquidity_signal
+        #   —— 「有就拿、没有就 0.5」，与 `os_kernel` / `manas_manager` 那两处
+        #   各写各的读法，正是线上 `regime_score` 恒 0.0 的同族成因。
+        #
+        #   ⚠️ 本方法当前**没有生产调用方**：生产内核是 `os_kernel.OSAttentionKernel`，
+        #   它与本类（`AttentionKernel`）是**互不相干的两个类**（见 os_kernel.py
+        #   模块 docstring：「为避免与 kernel/kernel.py 的 AttentionKernel 冲突而
+        #   重命名」）。但 `AttentionKernel` 是对外导出的公开类，留着这颗雷早晚
+        #   会被踩到 —— 死代码不该保留已知的错读法。
+        from .macro_liquidity import read_macro_liquidity_signal, warn_missing
+        macro_signal, why = read_macro_liquidity_signal()
+        if macro_signal is None:
+            # 拿不到 ≠ 中性：如实告警，并**不传**这个 kwarg，让 Manas 用形参默认值。
+            # ❗不能传 None：`RegimeEngine._get_liquidity_signal` 的 try 只包
+            #   scanner 分支，下游 `macro_signal * 2 - 1` 会直接 TypeError。
+            warn_missing("AttentionKernel", why)
+            manas_kwargs: dict = {}
+        else:
+            manas_kwargs = {"macro_signal": macro_signal}
 
         narratives = []
         tracker = self._get_narrative_tracker()
@@ -400,8 +420,8 @@ class AttentionKernel:
             portfolio=self._get_portfolio(),
             scanner=self._get_scanner(),
             bandit_tracker=self._get_bandit_tracker(),
-            macro_signal=macro_signal,
-            narratives=narratives
+            narratives=narratives,
+            **manas_kwargs,
         )
 
         vs = self._get_value_system()
