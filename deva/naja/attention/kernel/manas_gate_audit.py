@@ -109,6 +109,12 @@ class GateAuditLog:
             "dominant_factor": factors.get("dominant"),
             "factors": factors.get("factors"),
             "discount": factors.get("discount"),
+            # ❗意愿接线同样要留痕：本次判定**实际用的门槛**是多少、人的意愿把
+            #   门槛放宽了多少。否则事后只看「终分 0.41 < 门槛 0.50」会以为判错，
+            #   其实是意愿把门槛降到了 0.35。effective_threshold 与 reason 必须自洽。
+            "intent_confidence": round(float(getattr(output, "intent_confidence", 0.0) or 0.0), 4),
+            "intent_relaxation": round(float(getattr(output, "intent_relaxation", 0.0) or 0.0), 4),
+            "effective_threshold": round(float(getattr(output, "effective_threshold", 0.0) or 0.0), 4),
             "manas_score": round(float(getattr(output, "manas_score", 0.0) or 0.0), 4),
             "alpha": round(float(getattr(output, "alpha", 0.0) or 0.0), 4),
             "timing_score": round(float(getattr(output, "timing_score", 0.0) or 0.0), 4),

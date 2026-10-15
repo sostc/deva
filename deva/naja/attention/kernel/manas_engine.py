@@ -214,7 +214,8 @@ MANAS_OUTPUT_GROUPS: Dict[str, Tuple[str, ...]] = {
     # 天地人是否合拍
     'harmony': ('harmony_state', 'harmony_strength'),
     # 行动门：要不要动、怎么动、为什么（gate_factors 是原因的**结构化**版本）
-    'gate': ('should_act', 'action_type', 'action_gate_reason', 'gate_factors'),
+    'gate': ('should_act', 'action_type', 'action_gate_reason', 'gate_factors',
+             'intent_confidence', 'intent_relaxation', 'effective_threshold'),
     # 观照层纠偏
     'bias': ('bias_state', 'bias_correction'),
     # 注意力
@@ -309,6 +310,16 @@ class ManasOutput:
     #: action_gate_reason 是给人读的一句话；这个是给 UI / 排查看的。
     gate_factors: Dict[str, Any] = field(default_factory=dict)
 
+    #: 人的意愿（intents.json 的 confidence，经 market_state['signal_confidence'] 传入）。
+    #: 它**不是**人和维（confidence_score 是策略战绩），两码事，别混。
+    intent_confidence: float = 0.0
+    #: 意愿对行动门槛的放宽量（0 = 未放宽）。硬顶见 ManasConfig.intent_relax_max；
+    #: 遇 RESISTANCE 恒为 0 —— 环境说"不"时意愿穿透不过去。
+    intent_relaxation: float = 0.0
+    #: 本次判定**实际用的门槛** = action_threshold - intent_relaxation。
+    #: 门理由里的通过判断必须跟它一致，否则又会写出自相矛盾的一句话。
+    effective_threshold: float = 0.5
+
     bias_state: BiasState = BiasState.NEUTRAL
     bias_correction: float = 1.0
 
@@ -342,6 +353,9 @@ class ManasOutput:
             "should_act": self.should_act,
             "action_gate_reason": self.action_gate_reason,
             "gate_factors": self.gate_factors,
+            "intent_confidence": self.intent_confidence,
+            "intent_relaxation": self.intent_relaxation,
+            "effective_threshold": self.effective_threshold,
             "bias_state": self.bias_state.value,
             "bias_correction": self.bias_correction,
             "alpha": self.alpha,
@@ -1712,7 +1726,8 @@ class ManasEngine:
         self,
         harmony_state: HarmonyState,
         harmony_strength: float,
-        timing_score: float
+        timing_score: float,
+        effective_threshold: Optional[float] = None,
     ) -> ActionType:
         """确定行动类型
 
@@ -1720,15 +1735,21 @@ class ManasEngine:
         1) 共振通道：RESISTANCE 直接 HOLD；RESONANCE 且强时机 → ACT_FULLY。
            此通道不看 harmony_strength，可以绕过 action_threshold。
         2) 分数通道：先过 action_threshold，再按 strong_action_threshold 分强弱两档。
+
+        `effective_threshold` 缺省沿用 config.action_threshold；**人的意愿**在有限
+        幅度内下调它就是走这条路（见 ManasConfig.intent_relax_*）。强档门槛
+        strong_action_threshold 不随之下降 —— 意愿能让人「够得着门」，但不能
+        把人直接抬进强档。
         """
-        should_act = harmony_strength > self.config.action_threshold
+        thr = self.config.action_threshold if effective_threshold is None else effective_threshold
+        should_act = harmony_strength > thr
 
         if harmony_state == HarmonyState.RESISTANCE:
             return ActionType.HOLD
         if harmony_state == HarmonyState.RESONANCE and timing_score > self.config.resonance_timing_threshold:
             return ActionType.ACT_FULLY
         if should_act:
-            # should_act 已保证 > action_threshold，这里只需再区分强弱两档
+            # should_act 已保证 > thr，这里只需再区分强弱两档
             if harmony_strength > self.config.strong_action_threshold:
                 return ActionType.ACT_CAREFULLY
             return ActionType.ACT_MINIMALLY
@@ -1972,6 +1993,7 @@ class ManasEngine:
         bandit_tracker=None,
         macro_signal: float = 0.5,
         narratives: List[str] = None,
+        intent_confidence: Optional[float] = None,
     ) -> ManasOutput:
         """
         计算末那识输出
@@ -1991,9 +2013,9 @@ class ManasEngine:
             bandit_tracker: BanditPositionTracker
             macro_signal: 宏观流动性信号
             narratives: 当前叙事主题列表（从 NarrativeTracker 获取）
-
-        Returns:
-            ManasOutput: 末那识决策输出
+            intent_confidence: **人下达的意愿强度**（intents.json 的 confidence）。
+                缺省 None 表示本次没有意愿输入 → 不放宽门槛。它与人和维
+                （confidence_score = 策略战绩）是两码事，别混。
         """
         current_time = time.time()
         if current_time - self._last_update < self._update_interval and self._last_output is not None:
@@ -2055,7 +2077,14 @@ class ManasEngine:
         bias_state = ctx["bias_state"]
         bias_correction = ctx["bias_correction"]
 
-        action_type = self._determine_action_type(harmony_state, harmony_strength, timing_score)
+        # 人的意愿 → **有限**门槛放宽（RESISTANCE 恒 0；不超硬顶 intent_relax_max）
+        intent_relaxation = self._intent_relaxation(intent_confidence, harmony_state)
+        effective_threshold = max(0.0, cfg.action_threshold - intent_relaxation)
+
+        action_type = self._determine_action_type(
+            harmony_state, harmony_strength, timing_score,
+            effective_threshold=effective_threshold,
+        )
         should_act = action_type != ActionType.HOLD
 
         # bias_correction 已在上方作用于 harmony_strength，这里不再重复相乘。
@@ -2098,6 +2127,9 @@ class ManasEngine:
             harmony_strength, timing_score, regime_score, confidence_score,
             bias_state, harmony_state, action_type,
             attribution=attribution,
+            effective_threshold=effective_threshold,
+            intent_relaxation=intent_relaxation,
+            intent_confidence=intent_confidence,
         )
 
         supply_chain_risk = self._cognitive_state.narrative.level
@@ -2116,6 +2148,9 @@ class ManasEngine:
             should_act=should_act,
             action_gate_reason=reason,
             gate_factors=attribution,
+            intent_confidence=float(intent_confidence or 0.0),
+            intent_relaxation=intent_relaxation,
+            effective_threshold=effective_threshold,
             bias_state=bias_state,
             bias_correction=bias_correction,
             alpha=alpha,
@@ -2187,6 +2222,63 @@ class ManasEngine:
         except Exception as e:  # noqa: BLE001
             log.debug("[ManasEngine] 行动门留痕失败: %s", e)
 
+    def _intent_relax_note(
+        self,
+        intent_relaxation: float,
+        intent_confidence: Optional[float],
+        effective_threshold: float,
+    ) -> Optional[str]:
+        """意愿放宽门槛的一句话（未放宽返回 None）。
+
+        单独成方法有两个理由：① 「门槛侧杠杆」的措辞只有这一处，不会在两个分支
+        各写一遍而慢慢漂移；② 给守卫一个稳定的注入锚点 —— 把这条整句抹掉必须被抓到。
+        """
+        if not intent_relaxation or intent_relaxation <= 1e-6:
+            return None
+        return (
+            f"意愿{(intent_confidence or 0.0):.2f}放宽门槛"
+            f"{self.config.action_threshold:.3f}→{effective_threshold:.3f}"
+        )
+
+    def _intent_relaxation(
+        self,
+        intent_confidence: Optional[float],
+        harmony_state: HarmonyState,
+    ) -> float:
+        """把「人的意愿强度」折算成**有限**的门槛放宽量。
+
+        这是意愿接线方案的落点：意愿不直接加分（那会污染天时/地势/人和三维的
+        语义），而是下调「环境需要多好才放行」这条线。
+
+        三条硬边界（守卫 verify_manas_attribution 逐条盯着）：
+          1. **RESISTANCE 恒 0**：环境硬拦时意愿不得放宽（穿透不过去）。
+          2. **硬顶** intent_relax_max：无论意愿多高，放宽量都不超过它。
+          3. **低于 intent_relax_min 恒 0**：意愿弱到没表态就不该有杠杆。
+        线性插值区间：[intent_relax_min, intent_relax_full] → [0, intent_relax_max]。
+        超过 full 也**不**外推（封顶），因为 confidence 本身已被
+        intent.clamp_confidence 封在 0.75。
+        """
+        cfg = self.config
+        if not cfg.intent_relax_enabled:
+            return 0.0
+        if harmony_state == HarmonyState.RESISTANCE:
+            return 0.0
+        if intent_confidence is None:
+            return 0.0
+        try:
+            intent = float(intent_confidence)
+        except (TypeError, ValueError):
+            return 0.0
+        lo, hi, cap = cfg.intent_relax_min, cfg.intent_relax_full, cfg.intent_relax_max
+        if intent <= lo:
+            return 0.0
+        span = hi - lo
+        if span <= 0:
+            return 0.0
+        ratio = min(1.0, (intent - lo) / span)
+        # 再夹一次硬顶：即使未来有人把上面的公式改坏，放宽量也出不了 cap。
+        return max(0.0, min(cap, cap * ratio))
+
     def _factor_attribution(
         self,
         *,
@@ -2256,13 +2348,23 @@ class ManasEngine:
         harmony_state: HarmonyState,
         action_type: ActionType,
         attribution: Optional[Dict[str, Any]] = None,
+        effective_threshold: Optional[float] = None,
+        intent_relaxation: float = 0.0,
+        intent_confidence: Optional[float] = None,
     ) -> str:
         """生成行动门原因。
 
         ❗**主因必须排在最前**：守望台表格把这一列截到 70 字符（守望行更短），
         把「主因=…」放到末尾等于没写。所以顺序固定为：
-            环境档位 → 主因 → 其余两维 → 风/折扣 → 行动 → 通过与否
+            环境档位 → 主因 → 意愿放宽（若有） → 其余两维 → 风/折扣 → 行动 → 通过与否
+
+        ❗**通过与否必须拿 effective_threshold 比**：人的意愿会在有限幅度内下调
+        门槛，如果用原 action_threshold 去比对，就会出现「理由说没到 0.5、行动却是
+        act」这种自相矛盾 —— 一句自相矛盾的理由比没有理由更坏。
         """
+        thr = self.config.action_threshold if effective_threshold is None else effective_threshold
+        # 意愿放宽的一句话（未放宽为 None）—— 在归因分支与兜底分支都会用
+        relax_note = self._intent_relax_note(intent_relaxation, intent_confidence, thr)
         reasons: List[str] = []
 
         if harmony_state == HarmonyState.RESISTANCE:
@@ -2279,6 +2381,10 @@ class ManasEngine:
                 # 被拒时它是「卡住你的那一维」；放行时它只是「最给力的一维」。
                 head = "主因" if action_type == ActionType.HOLD else "最强维"
                 reasons.append(f"{head}={dom['label']}{_factor_note(dom['key'], dom['display'])}")
+            # ❗意愿放宽紧挨主因写：这一列截到 70 字符，排到后面就被吃掉了。
+            #   它是**门槛侧的杠杆**，不是三维之一，所以单独列、不混进天时/地势/人和。
+            if relax_note:
+                reasons.append(relax_note)
             for f in factors:
                 if dom is not None and f["key"] == dom["key"]:
                     continue
@@ -2312,6 +2418,8 @@ class ManasEngine:
                 reasons.append("策略自信")
             elif confidence < 0.4:
                 reasons.append("策略不自信")
+            if relax_note:
+                reasons.append(relax_note)
 
         if bias == BiasState.GREED:
             reasons.append("⚠️检测到贪")
@@ -2322,15 +2430,14 @@ class ManasEngine:
 
         # 与 compute() 中 should_act 的判定保持一致：_determine_action_type 的共振通道
         # 可绕过分数门槛，若这里仍只比分数就会出现「should_act=True 但理由显示✗未通过」。
+        # ❗门槛一律用 effective_threshold（= 原门槛 − 意愿放宽），否则又会自相矛盾。
         gate_passed = action_type != ActionType.HOLD
         if gate_passed:
             reasons.append("✓通过")
-            if manas_score <= self.config.action_threshold:
-                reasons.append(
-                    f"(分数{manas_score:.2f}≤{self.config.action_threshold}，由共振/强时机豁免)"
-                )
+            if manas_score <= thr:
+                exempt = "共振/强时机" + ("/意愿" if relax_note else "")
+                reasons.append(f"(分数{manas_score:.2f}≤门槛{thr:.2f}，由{exempt}豁免)")
         else:
-            thr = self.config.action_threshold
             if manas_score < thr:
                 reasons.append(f"✗未通过(终分{manas_score:.3f}<门槛{thr:.3f})")
             else:
