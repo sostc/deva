@@ -269,6 +269,45 @@ class TradingCenter:
             pass
         return []
 
+    def _get_macro_liquidity_signal(self) -> Optional[float]:
+        """取当前宏观流动性信号（QueryState，口径 0~1），供决策链接线用。
+
+        为什么要专门走这一趟：Manas 的 RegimeEngine **只认**
+        ``market_state['macro_liquidity_signal']``（见 ``os_kernel.make_decision``
+        与 ``os_kernel.process``），而这里是**唯一**组装 ``market_state`` 的地方。
+        此前从不填这个键 → Manas 恒取默认 0.5 → 流动性分量 ``macro*2-1`` 恒为 0
+        → 宏观环境对 ``harmony_strength`` 的贡献凭空消失（regime 折扣恒 0.85）。
+
+        返回 ``None`` = 本次拿不到真值，调用方**不放这个键**，Manas 沿用默认
+        0.5（中性）。刻意与「真值恰好是 0.5」区分开，并留一次告警 ——
+        拿不到数据是链路问题，不是「环境中性」。
+        """
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            query_state = getattr(container, "query_state", None) if container else None
+            if query_state is None:
+                self._warn_macro_liquidity_missing("QueryState 未装配")
+                return None
+            value = getattr(query_state, "macro_liquidity_signal", None)
+            if value is None:
+                self._warn_macro_liquidity_missing("QueryState 无 macro_liquidity_signal")
+                return None
+            return float(value)
+        except Exception as e:
+            self._warn_macro_liquidity_missing(str(e))
+            return None
+
+    def _warn_macro_liquidity_missing(self, why: str) -> None:
+        """宏观流动性取不到时留痕（节流，避免心跳刷屏）。"""
+        count = getattr(self, "_macro_liquidity_miss_count", 0) + 1
+        self._macro_liquidity_miss_count = count
+        if count == 1 or count % 50 == 0:
+            log.warning(
+                "[TradingCenter] 宏观流动性不可用（%s），本次决策按中性 0.5 处理"
+                "（累计 %d 次）", why, count,
+            )
+
     def _get_awakening_level(self) -> str:
         """获取觉醒级别（读共享 ``AwakenedAlaya`` 的 ``awakening_engine``）。
 
@@ -744,6 +783,16 @@ class TradingCenter:
                     and signal['metadata'].get('intent')
                 ),
             }
+
+            # 宏观流动性（QueryState，0~1）→ Manas 的 RegimeEngine。
+            # ❗这条线曾经整条断着：内核只从 market_state 读这个键，而这里从不填
+            #   → 恒取默认 0.5 → 流动性分量 (macro*2-1) 恒 0，宏观环境对决策的
+            #   贡献为零（线上表现为 regime 折扣恒定 0.85）。取不到就**不放键**，
+            #   让 Manas 用默认 0.5 并在 _get_macro_liquidity_signal 里留痕，
+            #   而不是拿一个假的中性值去掩盖断链。
+            macro_liquidity = self._get_macro_liquidity_signal()
+            if macro_liquidity is not None:
+                market_state['macro_liquidity_signal'] = macro_liquidity
 
             narratives = self._get_current_narratives()
             if narratives:

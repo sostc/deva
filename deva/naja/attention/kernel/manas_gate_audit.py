@@ -118,6 +118,11 @@ class GateAuditLog:
             "manas_score": round(float(getattr(output, "manas_score", 0.0) or 0.0), 4),
             "alpha": round(float(getattr(output, "alpha", 0.0) or 0.0), 4),
             "timing_score": round(float(getattr(output, "timing_score", 0.0) or 0.0), 4),
+            # ❗regime_score 也留痕：它是「大环境（含宏观流动性）」进决策的唯一
+            #   通道 —— 由 trend / liquidity(macro*2-1) / diffusion 加权而来，
+            #   再经调节链折算成折扣。折扣恒 0.85 就等于 regime_score 恒 0，
+            #   只存折扣看不出来「是环境真的中性」还是「这条线压根没接上」。
+            "regime_score": round(float(getattr(output, "regime_score", 0.0) or 0.0), 4),
             "risk_temperature": round(float(getattr(output, "risk_temperature", 0.0) or 0.0), 4),
             "confidence_score": round(float(getattr(output, "confidence_score", 0.0) or 0.0), 4),
             "bias_state": _val("bias_state"),
