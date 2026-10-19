@@ -83,9 +83,10 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from .dedup import detect_lang, find_groups, pick_representative
 from .focus import NewsFocusState
 
 log = logging.getLogger(__name__)
@@ -296,6 +297,9 @@ class ScoredNews:
     narrative_hits: Tuple[str, ...] = ()
     theme_hits: Tuple[str, ...] = ()
     reasons: List[str] = field(default_factory=list)
+    #: 这条代表了多少条原始记录（同一事件的中英双版/重发会折叠成一条）。
+    #: 1 = 没有重复。UI 只在 >1 时显示 ``×N``。
+    dup_count: int = 1
 
     @property
     def title(self) -> str:
@@ -323,6 +327,8 @@ class ScoredNews:
             "tier": self.tier,
             "tier_band": [round(self.tier_floor, 3), round(self.tier_ceiling, 3)],
             "pierced": self.pierced,
+            # 呈现层只用它显示条数；1 表示这条没有并过别的记录
+            "dup_count": int(self.dup_count or 1),
             "holding_hits": list(self.holding_hits),
             "watchlist_hits": list(self.watchlist_hits),
             "narrative_hits": list(self.narrative_hits),
@@ -484,7 +490,7 @@ class NewsTriage:
             except Exception as e:  # pragma: no cover - 防御，单条坏了不拖垮整批
                 log.debug("[NewsTriage] 单条打分失败，跳过：%s", e)
 
-        deduped = _dedupe(scanned)
+        deduped, dedup_stats = _dedupe(scanned)
 
         groups: Dict[str, List[Dict[str, Any]]] = {g: [] for g in GROUP_ORDER}
         for scored in deduped:
@@ -509,6 +515,10 @@ class NewsTriage:
                 "theme": len(groups[GROUP_THEME]),
                 "macro": len(groups[GROUP_MACRO]),
                 "pierced": sum(1 for s in deduped if s.pierced),
+                # 折叠掉的条数必须能看见——否则"去重了"与"去重没生效"不可区分
+                # （旧版判据是标题全等，实测 101→101，一条都没去掉还不报错）。
+                "merged": int(dedup_stats.get("merged", 0)),
+                "merged_by_rule": dict(dedup_stats.get("by_rule") or {}),
             },
         }
 
@@ -528,17 +538,49 @@ def _group_for(
     return GROUP_MACRO
 
 
-def _dedupe(scored: Sequence[ScoredNews]) -> List[ScoredNews]:
-    """同标题只留相关度最高的那条（重复推送是信息过载的主要来源之一）。"""
-    best: Dict[str, ScoredNews] = {}
-    for s in scored:
-        key = s.title.strip()
-        if not key:
-            continue
-        current = best.get(key)
-        if current is None or s.relevance > current.relevance:
-            best[key] = s
-    return list(best.values())
+def _dedupe(scored: Sequence[ScoredNews]) -> Tuple[List[ScoredNews], Dict[str, Any]]:
+    """把**同一事件**的多条记录折成一条，返回 ``(代表列表, 统计)``。
+
+    判据在 ``deva/naja/news/dedup.py``（L1 规范化精确 / L2 前缀包含 /
+    L3 中英一对一配对）。旧版只按标题字符串全等去重，在真实数据上
+    命中率是 0——金十每条快讯的中文版与英文版标题字符交集为 0，
+    靠"长得像"永远合不上，所以改成按**发布时间结构**配对。
+
+    折叠后的代表条有两个细节：
+      * ``relevance`` 取簇内**最大值**——折叠不该让一条新闻排名下降；
+      * ``pierced`` 取**或**——风险不能因为被并进英文版就丢掉。
+    """
+    if not scored:
+        return [], {"input": 0, "output": 0, "merged": 0, "by_rule": {}}
+
+    records = [{"title": s.title, "timestamp": s.timestamp} for s in scored]
+    groups, stats = find_groups(records)
+
+    out: List[ScoredNews] = []
+    for members in groups:
+        rep_i = pick_representative(records, members)
+        rep = scored[rep_i]
+        if len(members) > 1:
+            langs = sorted({detect_lang(records[i]["title"]) for i in members})
+            # 「判定」取簇内最强的一版，「文本」取中文代表条：
+            # 同一事件的两版里，关键词命中往往只落在其中一版（中文原文提到
+            # "越南"、英文版只写 Vietnam），单纯取相关度最大会让代表条
+            # 挂着 0.42 分却落在错误的分组里。所以以最强证据为基底，
+            # 只把 item（标题/时间/来源）换成中文那条。
+            # 分档制保证档位区间**严格不重叠**，所以"相关度最高"就是"档位最强"，
+            # 不需要再排一遍档位表。
+            best_i = max(members, key=lambda i: scored[i].relevance)
+            rep = replace(
+                scored[best_i],
+                item=rep.item,
+                pierced=any(scored[i].pierced for i in members),
+                dup_count=len(members),
+                reasons=list(scored[best_i].reasons) + [
+                    f"同一事件合并 {len(members)} 条（{'+'.join(langs)}）"
+                ],
+            )
+        out.append(rep)
+    return out, stats
 
 
 def _as_float(value: Any, *, default: float) -> float:

@@ -4,8 +4,12 @@
     已评分新闻（FocusedNewsStore，只含 deep 级）
         → NewsTriage（持仓优先相关度）
         → build_digest（纯 dict）
-        → render_digest_html / render_digest_text（呈现）
+        → render_digest_html / render_digest_fragment / render_digest_text（呈现）
         → ~/.naja/news_digest/YYYY-MM-DD.html（可回看）
+
+两种呈现外壳、一套正文：
+    ``render_digest_html``      完整文档（归档文件、双击打开）
+    ``render_digest_fragment``  ``<style>`` + 正文（``/news`` 页面内嵌，一次 put_html）
 
 三条守约（与 decision 模块一致，本项目反复踩过的坑）：
   1. **不兜底合成**——没有新闻就 ``available=False`` + ``reason``，
@@ -25,6 +29,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from .dedup import format_dup_suffix
 from .focus import NewsFocusState, build_focus_state, collapse_identifiers
 from .triage import GROUP_LABELS, GROUP_ORDER, NewsTriage, TriageConfig
 
@@ -130,7 +135,8 @@ def get_news_digest_summary(
             "group_labels": dict(GROUP_LABELS),
             "tier_config": TriageConfig().to_dict(),
             "stats": {"scanned": 0, "deduped": 0, "shown": 0,
-                      "holding": 0, "theme": 0, "macro": 0, "pierced": 0},
+                      "holding": 0, "theme": 0, "macro": 0, "pierced": 0,
+                      "merged": 0, "merged_by_rule": {}},
         }
 
 
@@ -150,7 +156,9 @@ def render_digest_text(digest: Dict[str, Any]) -> str:
     lines: List[str] = [
         f"📰 今日新闻消化 · {digest.get('generated_at_text', '')}",
         "━━━━━━━━━━━━━━━━━━━━",
-        f"扫描 {stats.get('scanned', 0)} 条 → 精选 {stats.get('shown', 0)} 条"
+        f"扫描 {stats.get('scanned', 0)} 条"
+        + (f" → 合并 {stats['merged']} 条重复" if stats.get("merged") else "")
+        + f" → 精选 {stats.get('shown', 0)} 条"
         f"（持仓 {stats.get('holding', 0)} / 叙事 {stats.get('theme', 0)}"
         f" / 外部 {stats.get('macro', 0)}）",
     ]
@@ -180,7 +188,10 @@ def render_digest_text(digest: Dict[str, Any]) -> str:
                 tag = f" ⭐{'/'.join(str(h) for h in hits)}"
             else:
                 tag = ""
-            lines.append(f"  {i}. [{row.get('relevance', 0):.2f}] {row.get('title', '')}{tag}")
+            lines.append(
+                f"  {i}. [{row.get('relevance', 0):.2f}] {row.get('title', '')}"
+                f"{format_dup_suffix(row.get('dup_count'))}{tag}"
+            )
 
     degraded = focus.get("degraded") or []
     if degraded:
@@ -198,6 +209,18 @@ def render_digest_text(digest: Dict[str, Any]) -> str:
 
 def render_digest_html(digest: Dict[str, Any]) -> str:
     """渲染成自包含 HTML 报告（可双击打开、可归档）。"""
+    title, body = _render_body_parts(digest)
+    return _html_shell(title, body)
+
+
+def _render_body_parts(
+    digest: Dict[str, Any], *, include_title: bool = True
+) -> tuple[str, str]:
+    """返回 ``(标题, 正文片段)``。
+
+    ``include_title=False`` 供内嵌页面用：页面自己有 ``<h2>``，正文再带一个
+    ``<h1>`` 就成了双标题。
+    """
     title = f"今日新闻消化 · {digest.get('generated_at_text', '')}"
 
     if not digest.get("available"):
@@ -207,7 +230,7 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
             f'<div class="empty-reason">{_esc(digest.get("reason") or "")}</div>'
             "</div>"
         )
-        return _html_shell(title, body)
+        return title, body
 
     stats = digest.get("stats") or {}
     focus = digest.get("focus") or {}
@@ -292,11 +315,15 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
         + "</div>"
     )
 
+    merged = int(stats.get("merged", 0) or 0)
     header = (
         '<div class="head">'
-        f'<h1>{_esc(title)}</h1>'
-        f'<div class="sub">窗口 {digest.get("window_hours", 24)} 小时 · '
-        f'去重后 {stats.get("deduped", 0)} 条 · 精选 {stats.get("shown", 0)} 条</div>'
+        + (f'<h1>{_esc(title)}</h1>' if include_title else "")
+        + f'<div class="sub">窗口 {digest.get("window_hours", 24)} 小时 · '
+        f'去重后 {stats.get("deduped", 0)} 条'
+        + (f'（合并 {merged} 条重复）' if merged else "")
+        + f' · 精选 {stats.get("shown", 0)} 条 · {_esc(digest.get("generated_at_text", ""))}'
+        "</div>"
         "</div>"
     )
 
@@ -306,7 +333,7 @@ def render_digest_html(digest: Dict[str, Any]) -> str:
     body += degraded_html
     body += sections or '<div class="empty"><div class="empty-title">没有命中任何关注项</div></div>'
 
-    return _html_shell(title, body)
+    return title, body
 
 
 def _render_row_html(row: Dict[str, Any], group: str) -> str:
@@ -332,10 +359,16 @@ def _render_row_html(row: Dict[str, Any], group: str) -> str:
         if url
         else _esc(row.get("title", ""))
     )
+    # 同一事件被折叠了几条：只显示条数，不显示语言/来源（呈现口径）
+    dup_html = (
+        f'<span class="dup">{_esc(format_dup_suffix(row.get("dup_count")).strip())}</span>'
+        if int(row.get("dup_count") or 1) > 1
+        else ""
+    )
 
     return (
         '<div class="card">'
-        f'<div class="card-top"><div class="card-title">{title_html}</div>'
+        f'<div class="card-top"><div class="card-title">{title_html}{dup_html}</div>'
         f'<div class="card-rel" title="相关度">{rel:.2f}</div></div>'
         f'<div class="bar"><i style="width:{bar}%;background:{bar_color}"></i></div>'
         f'<div class="meta">{_esc(row.get("datetime", ""))} · {_esc(row.get("source", ""))}'
@@ -360,62 +393,102 @@ def _chips(label: str, values: List[str], color: str) -> str:
     return f'<div class="chip-row"><span class="chip-label">{_esc(label)}</span>{inner}</div>'
 
 
+_FOOT = "Naja · 新闻消化器 · 数据源：已评分新闻池（deep 级）"
+
+#: 报告的全部样式。**每条规则都挂在 ``.nj-digest`` 下**——同一份 CSS 既用于
+#: 归档文件（整页），也用于 ``/news`` 页面内嵌（PyWebIO 片段）。不作用域化的话，
+#: 内嵌时 ``body{padding:28px}``、``*{box-sizing}`` 会污染站点其它页面。
+_NJ_CSS = """
+.nj-digest{max-width:880px;margin:0 auto;color:#0f172a;line-height:1.5;
+  font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif}
+.nj-digest *{box-sizing:border-box}
+.nj-digest .head h1{font-size:20px;font-weight:600;margin:0 0 6px}
+.nj-digest .head .sub{font-size:12px;color:#64748b}
+.nj-digest .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));
+  gap:10px;margin:18px 0}
+.nj-digest .stat{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+  padding:12px;text-align:center}
+.nj-digest .stat-v{font-size:20px;font-weight:600}
+.nj-digest .stat-k{font-size:11px;color:#64748b;margin-top:2px}
+.nj-digest .stat-warn{border-color:#fecaca;background:#fef2f2}
+.nj-digest .stat-warn .stat-v{color:#b91c1c}
+.nj-digest .tierline{font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;
+  border-radius:8px;padding:8px 12px;margin:-8px 0 14px}
+.nj-digest .focus{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+  padding:12px;margin-bottom:14px}
+.nj-digest .chip-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}
+.nj-digest .chip-label{font-size:11px;color:#64748b;min-width:70px}
+.nj-digest .chip{font-size:11px;border:1px solid;border-radius:10px;padding:1px 8px;
+  background:#fff}
+.nj-digest .degraded{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;
+  padding:12px;margin-bottom:14px;font-size:12px;color:#92400e}
+.nj-digest .degraded-title{font-weight:600;margin-bottom:4px}
+.nj-digest .degraded ul{margin:0;padding-left:18px}
+.nj-digest .group{margin-top:22px}
+.nj-digest .group h2{font-size:14px;font-weight:600;margin:0 0 10px;display:flex;
+  align-items:center;gap:8px}
+.nj-digest .group h2 .count{font-size:11px;color:#64748b;background:#e2e8f0;
+  border-radius:8px;padding:1px 7px;font-weight:400}
+.nj-digest .cards{display:flex;flex-direction:column;gap:10px}
+.nj-digest .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+  padding:12px 14px}
+.nj-digest .card-top{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.nj-digest .card-title{font-size:13px;font-weight:500;line-height:1.5}
+.nj-digest .card-title a{color:#0f172a;text-decoration:none}
+.nj-digest .card-title a:hover{text-decoration:underline}
+.nj-digest .dup{font-size:10px;color:#64748b;background:#f1f5f9;border-radius:6px;
+  padding:0 5px;margin-left:6px}
+.nj-digest .card-rel{font-size:13px;font-weight:600;color:#334155;flex:none}
+.nj-digest .bar{height:3px;background:#f1f5f9;border-radius:2px;margin:8px 0 6px;
+  overflow:hidden}
+.nj-digest .bar i{display:block;height:100%;border-radius:2px}
+.nj-digest .meta{font-size:11px;color:#94a3b8}
+.nj-digest .tags{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}
+.nj-digest .tag{font-size:10px;border-radius:8px;padding:1px 7px;background:#f1f5f9;
+  color:#475569}
+.nj-digest .tag-star{background:#dbeafe;color:#1d4ed8}
+.nj-digest .tag-theme{background:#ede9fe;color:#6d28d9}
+.nj-digest .tag-pierce{background:#fee2e2;color:#b91c1c;font-weight:600}
+.nj-digest .reasons{margin-top:6px;display:flex;flex-direction:column;gap:2px}
+.nj-digest .reasons span{font-size:11px;color:#64748b}
+.nj-digest .empty{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
+  padding:28px;text-align:center}
+.nj-digest .empty-title{font-size:14px;font-weight:500;color:#334155}
+.nj-digest .empty-reason{font-size:12px;color:#94a3b8;margin-top:6px}
+.nj-digest .foot{margin-top:26px;font-size:11px;color:#94a3b8;text-align:center}
+/* 内嵌模式（/news）：报告是「浅灰纸 + 白卡片」的两层设计，站点正文是白底。
+   不铺纸底的话，卡片和白背景同色、只剩 1px 描边，整页糊成一片，
+   分组标题与卡片的分界也没了（第一版漏了这层，实测才看出来）。 */
+.nj-digest-embed{background:#f1f5f9;border-radius:14px;padding:22px 20px 26px}
+"""
+
+
 def _html_shell(title: str, body: str) -> str:
+    """完整 HTML 文档（归档文件 / 双击打开）。"""
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_esc(title)}</title>
 <style>
- *{{box-sizing:border-box}}
- body{{margin:0;padding:28px 20px 60px;background:#f1f5f9;
-   font-family:-apple-system,"PingFang SC","Helvetica Neue",sans-serif;color:#0f172a}}
- .wrap{{max-width:880px;margin:0 auto}}
- .head h1{{font-size:20px;font-weight:600;margin:0 0 6px}}
- .head .sub{{font-size:12px;color:#64748b}}
- .stats{{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:10px;margin:18px 0}}
- .stat{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;text-align:center}}
- .stat-v{{font-size:20px;font-weight:600}}
- .stat-k{{font-size:11px;color:#64748b;margin-top:2px}}
- .stat-warn{{border-color:#fecaca;background:#fef2f2}}
- .stat-warn .stat-v{{color:#b91c1c}}
- .tierline{{font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;
-   border-radius:8px;padding:8px 12px;margin:-8px 0 14px}}
- .focus{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:14px}}
- .chip-row{{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}}
- .chip-label{{font-size:11px;color:#64748b;min-width:70px}}
- .chip{{font-size:11px;border:1px solid;border-radius:10px;padding:1px 8px;background:#fff}}
- .degraded{{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;
-   padding:12px;margin-bottom:14px;font-size:12px;color:#92400e}}
- .degraded-title{{font-weight:600;margin-bottom:4px}}
- .degraded ul{{margin:0;padding-left:18px}}
- .group{{margin-top:22px}}
- .group h2{{font-size:14px;font-weight:600;margin:0 0 10px;display:flex;align-items:center;gap:8px}}
- .group h2 .count{{font-size:11px;color:#64748b;background:#e2e8f0;
-   border-radius:8px;padding:1px 7px;font-weight:400}}
- .cards{{display:flex;flex-direction:column;gap:10px}}
- .card{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 14px}}
- .card-top{{display:flex;justify-content:space-between;gap:12px;align-items:baseline}}
- .card-title{{font-size:13px;font-weight:500;line-height:1.5}}
- .card-title a{{color:#0f172a;text-decoration:none}}
- .card-title a:hover{{text-decoration:underline}}
- .card-rel{{font-size:13px;font-weight:600;color:#334155;flex:none}}
- .bar{{height:3px;background:#f1f5f9;border-radius:2px;margin:8px 0 6px;overflow:hidden}}
- .bar i{{display:block;height:100%;border-radius:2px}}
- .meta{{font-size:11px;color:#94a3b8}}
- .tags{{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}}
- .tag{{font-size:10px;border-radius:8px;padding:1px 7px;background:#f1f5f9;color:#475569}}
- .tag-star{{background:#dbeafe;color:#1d4ed8}}
- .tag-theme{{background:#ede9fe;color:#6d28d9}}
- .tag-pierce{{background:#fee2e2;color:#b91c1c;font-weight:600}}
- .reasons{{margin-top:6px;display:flex;flex-direction:column;gap:2px}}
- .reasons span{{font-size:11px;color:#64748b}}
- .empty{{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:28px;text-align:center}}
- .empty-title{{font-size:14px;font-weight:500;color:#334155}}
- .empty-reason{{font-size:12px;color:#94a3b8;margin-top:6px}}
- .foot{{margin-top:26px;font-size:11px;color:#94a3b8;text-align:center}}
-</style></head><body><div class="wrap">{body}
-<div class="foot">Naja · 新闻消化器 · 数据源：已评分新闻池（deep 级）</div>
+ body{{margin:0;padding:28px 20px 60px;background:#f1f5f9}}
+{_NJ_CSS}
+</style></head><body><div class="nj-digest">{body}
+<div class="foot">{_FOOT}</div>
 </div></body></html>"""
+
+
+def render_digest_fragment(digest: Dict[str, Any]) -> str:
+    """渲染成**可内嵌片段**（``/news`` 页面用）。
+
+    样式与正文拼成**一个字符串一次性**交给 ``put_html``：PyWebIO 把每次调用当
+    独立 DOM 片段插入，拆成两次调用会让 ``<style>`` 与内容分家（本仓踩过，
+    ``news/ui.py`` 头部有记）。
+    """
+    _title, body = _render_body_parts(digest, include_title=False)
+    return (
+        f"<style>{_NJ_CSS}</style>"
+        + f'<div class="nj-digest nj-digest-embed">{body}</div>'
+    )
 
 
 # ── 落盘 + 定时任务入口 ─────────────────────────────────────────────────
@@ -501,6 +574,7 @@ __all__ = [
     "get_news_digest_summary",
     "render_digest_text",
     "render_digest_html",
+    "render_digest_fragment",
     "write_daily_digest",
     "run_daily_digest",
     "DIGEST_DIR",

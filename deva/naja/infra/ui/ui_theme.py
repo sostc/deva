@@ -41,6 +41,7 @@ def get_nav_menu_items() -> List[Dict[str, str]]:
         {"name": "🎯 关注管理", "path": "/focusadmin"},
         {"name": "📡 雷达", "path": "/radaradmin"},
         {"name": "📊 市场", "path": "/market"},
+        {"name": "📰 新闻", "path": "/news"},
         {"name": "🧘 觉醒", "path": "/awakening"},
         {"name": "📚 学习", "path": "/learning"},
         {"name": "💰 信号流", "path": "/signaladmin"},
@@ -97,9 +98,11 @@ def get_nav_menu_js() -> str:
         link.innerText = item.name;
         var isActive = currentPath === item.path;
         Object.assign(link.style, {{
-            padding: '8px 14px',
+            // ❗13 项时 1280 屏会溢出（实测 12 项已占 1110px，余量仅 32px）。
+            // 收紧内边距与字号：每项省约 9px，13 项共省 ~120px，留出余量。
+            padding: '8px 11px',
             color: isActive ? '#60a5fa' : '#94a3b8',
-            textDecoration: 'none', borderRadius: '8px', fontSize: '14px',
+            textDecoration: 'none', borderRadius: '8px', fontSize: '13px',
             fontWeight: isActive ? '600' : '500',
             backgroundColor: isActive ? 'rgba(96, 165, 250, 0.15)' : 'transparent',
             transition: 'all 0.2s ease'

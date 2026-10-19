@@ -153,6 +153,15 @@ async def awakening_page():
     render_attention_monitor_page(ctx)
 
 
+async def news_digest_page():
+    """今日新闻消化（从觉醒页拆出的独立页面）"""
+    ctx = _ctx()
+    await ctx["init_naja_ui"]("今日新闻消化")
+
+    from deva.naja.news.page import render_news_digest_page
+    render_news_digest_page(ctx)
+
+
 async def dictadmin():
     """字典管理"""
     from deva.naja.dictionary.ui import render_dictionary_admin

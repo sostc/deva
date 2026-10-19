@@ -6,8 +6,8 @@
 ----------------
 ``attention/ui/components.py`` 里有一整批「Kernel 可视化」面板，它们**全仓零调用方**
 （唯一在跑的注意力页面是 ``/awakening`` → ``dashboard.render_attention_monitor_page``，
-只用 ``render_awakening_status`` / ``render_news_digest_panel`` /
-``render_decision_plan_panel``）。
+只用 ``render_awakening_status`` / ``render_decision_plan_panel``；
+新闻摘要自 2026-10-19 起搬到独立页面 ``/news``，不走这里）。
 
 其中 ``render_kernel_live_view`` **硬编码**了一份假 ``query_state``::
 

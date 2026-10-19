@@ -274,13 +274,14 @@ def main() -> int:
     print("=" * 68)
     print("⑥ 报告可渲染、可落盘")
     print("=" * 68)
-    from deva.naja.news import render_digest_html, render_digest_text, write_daily_digest
-    from deva.naja.attention.ui import render_news_digest_panel
+    from deva.naja.news import (
+        render_digest_fragment, render_digest_html, render_digest_text, write_daily_digest,
+    )
 
     digest = build_digest(items=items, focus_state=focus)
     html = render_digest_html(digest)
     text = render_digest_text(digest)
-    panel = render_news_digest_panel(digest)
+    frag = render_digest_fragment(digest)
 
     check("HTML 是完整文档且含关键区块",
           html.startswith("<!DOCTYPE html>") and "持仓相关" in html
@@ -293,8 +294,24 @@ def main() -> int:
           "持仓相关" in text and "扫描" in text, f"len={len(text)}")
     check("纯文本把持仓与自选分行（不再混为一谈）",
           "持仓：宁德时代" in text and "自选：特斯拉" in text, "")
-    check("dashboard 面板片段可渲染", "今日新闻消化" in panel and len(panel) > 300,
-          f"len={len(panel)}")
+    # ── /news 页面片段：样式与正文同一次输出，且样式必须作用域化 ──
+    check("页面片段自带样式与正文（一次 put_html 可用）",
+          frag.startswith("<style>") and 'class="nj-digest' in frag
+          and "持仓相关" in frag, f"len={len(frag)}")
+    # 报告是浅底设计、站点是深底。不铺纸底时分组标题/副标题/口径行都变成
+    # 「深底压深字」——能渲染、不报错，但基本看不清（实测截图才发现）。
+    check("嵌入模式铺了纸底（否则深底压深字看不清）",
+          ".nj-digest-embed{" in frag and 'nj-digest nj-digest-embed' in frag, "")
+    check("归档文档不加纸底（那是给嵌入式用的）",
+          '<div class="nj-digest">' in html, "")
+    check("页面片段不输出 <h1>（页面自己给标题，避免双标题）",
+          "<h1>" not in frag, "")
+    # ❗别写成 `"*{box-sizing" not in frag`：作用域版是 `.nj-digest *{...}`，
+    # 那个子串照样命中 → 会变成永远红（或者反过来，把真裸规则放过去）。
+    # 判据只认**行首**选择器：裸规则的特征是换行后直接 `*{` / `body{`。
+    check("片段样式作用域化（不污染站点其它页面）",
+          ".nj-digest .card{" in frag and "\n*{" not in frag
+          and "\nbody{" not in frag, "")
 
     tmp = Path(tempfile.mkdtemp(prefix="naja_news_digest_verify_"))
     out = write_daily_digest(digest, out_dir=tmp)
@@ -302,9 +319,60 @@ def main() -> int:
           out.exists() and out.suffix == ".html" and (tmp / "latest.json").exists(),
           str(out))
 
-    empty_panel = render_news_digest_panel(empty)
-    check("空数据面板显示诚实空态（不是假的表格）",
-          "没有已评分的新闻" in empty_panel, f"len={len(empty_panel)}")
+    empty_frag = render_digest_fragment(empty)
+    check("空数据片段显示诚实空态（不是假的表格）",
+          "暂无可以消化的新闻" in empty_frag, f"len={len(empty_frag)}")
+
+    # ── /news 页面真的能渲染 ──────────────────────────────────────────
+    # ❗碰 PyWebIO 输出口必须 monkeypatch：无会话时它会走
+    # ``_start_script_mode_server``，**真起 tornado 把进程挂住**（本仓踩过）。
+    import deva.naja.news.page as news_page
+
+    calls = []
+
+    class _NullScope:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, *exc):
+            return False
+
+    news_page.put_html = lambda html, *a, **kw: calls.append(html)
+    captured: dict = {}
+
+    def _fake_buttons(btns, *a, **kw):
+        captured["values"] = [b.get("value") for b in btns]
+        captured["onclick"] = kw.get("onclick")
+
+    news_page.put_buttons = _fake_buttons
+    news_page.put_scope = lambda *a, **kw: None
+    news_page.clear = lambda *a, **kw: None
+    news_page.use_scope = lambda *a, **kw: _NullScope()
+
+    news_page.render_news_digest_page({})
+    page_html = "".join(c for c in calls if isinstance(c, str))
+    buttons = captured.get("values") or []
+
+    check("/news 页面渲染出报告（样式 + 卡片齐全）",
+          "<style>" in page_html and 'class="nj-digest' in page_html
+          and page_html.count('class="card"') > 0, f"len={len(page_html)}")
+    check("/news 页面有刷新、窗口切换、存档三个动作",
+          {"refresh", "save"} <= set(buttons)
+          and any(str(b).startswith("win:") for b in buttons), f"{buttons}")
+    check("页面标题与回觉醒页的指针都在（不是孤立页）",
+          "今日新闻消化" in page_html and "/awakening" in page_html, "")
+
+    # 窗口切换真的换数据（不是只改按钮高亮）
+    # ❗必须**走按钮回调**，不能直接调 _render_body(72)：直接调等于手动喂参数，
+    # 页面里把 hours 写死也照样绿（本守卫第一版就这么假绿过）。
+    # 判据用「窗口 72 小时」——它只出现在报告正文里；页头文案是「最近 72 小时」，
+    # 两者措辞不同，不会被页头字符串蒙过去。
+    calls.clear()
+    onclick = captured.get("onclick")
+    if onclick is not None:
+        onclick("win:72")
+    check("切换窗口真的重取数据（72h ≠ 24h 口径）",
+          any(isinstance(c, str) and "窗口 72 小时" in c for c in calls), "")
 
     # ── ⑦ 静态守卫 ────────────────────────────────────────────────────
     print()
@@ -327,9 +395,21 @@ def main() -> int:
           "self._resolve_manas_state()" in scorer_src, "")
 
     dashboard_src = (PROJECT_ROOT / "deva/naja/attention/ui/dashboard.py").read_text(encoding="utf-8")
-    check("dashboard 有 news_digest 数据出口与渲染",
-          '"news_digest": _get_news_digest_state()' in dashboard_src
-          and "render_news_digest_panel" in dashboard_src, "")
+    components_src = (PROJECT_ROOT / "deva/naja/attention/ui/components.py").read_text(encoding="utf-8")
+    pages_src = (PROJECT_ROOT / "deva/naja/web_ui/pages.py").read_text(encoding="utf-8")
+    routes_src = (PROJECT_ROOT / "deva/naja/web_ui/routes.py").read_text(encoding="utf-8")
+    nav_src = (PROJECT_ROOT / "deva/naja/infra/ui/ui_theme.py").read_text(encoding="utf-8")
+
+    # 2026-10-19：新闻消化从 /awakening 拆成独立页面 /news
+    check("觉醒页不再渲染新闻内容，只留指针",
+          "render_news_digest_panel" not in dashboard_src
+          and "_news_digest_link_html" in dashboard_src, "")
+    check("旧紧凑面板已删除（不留两份 UI 各自漂移）",
+          "def render_news_digest_panel" not in components_src, "")
+    check("/news 页面三处接线齐全（页面函数 + 路由 + 导航）",
+          "news_digest_page" in pages_src
+          and "r'/news'" in routes_src
+          and '"/news"' in nav_src, "")
 
     # ── ⑧ 冷启动回归 ──────────────────────────────────────────────────
     print()

@@ -7,6 +7,10 @@
     focus.py    「我们关心什么」      —— 持仓 / 自选 / 关注叙事 / 关注主题（复用 manas + Portfolio）
     triage.py   「哪条更值得看」      —— 分档制相关度打分与分组（纯计算，持仓数学上必然优先）
     digest.py   「呈现出来」          —— 每日 HTML 报告 / 纯文本 / UI 出口
+    page.py     「给人看的页面」      —— ``/news`` 独立页面（复用报告的同一份片段）
+
+另有一个横切的小模块：``dedup.py``「把同一件事折成一条」——金十每发一条快讯
+会有中文版和英文版两条记录，不折叠的话托盘和面板的名额近一半被重复吃掉。
 
 用法::
 
@@ -26,10 +30,18 @@
 评分器的任何逻辑——一份实现，多处复用。
 """
 
+from .dedup import (
+    DedupConfig,
+    collapse,
+    find_groups,
+    format_dup_suffix,
+    normalize_title,
+)
 from .digest import (
     DIGEST_DIR,
     build_digest,
     get_news_digest_summary,
+    render_digest_fragment,
     render_digest_html,
     render_digest_text,
     run_daily_digest,
@@ -87,10 +99,17 @@ __all__ = [
     "THEME_NUDGE",
     "PIERCE_MIN_IMPORTANCE",
     "PIERCE_MAX_SENTIMENT",
+    # 去重（呈现前折叠）
+    "DedupConfig",
+    "collapse",
+    "find_groups",
+    "format_dup_suffix",
+    "normalize_title",
     # 报告
     "build_digest",
     "get_news_digest_summary",
     "render_digest_html",
+    "render_digest_fragment",
     "render_digest_text",
     "write_daily_digest",
     "run_daily_digest",

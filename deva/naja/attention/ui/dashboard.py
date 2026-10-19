@@ -27,7 +27,6 @@ def get_attention_monitor_data() -> Dict[str, Any]:
             "manas_engine": _get_manas_engine_state(kernel),
             "manas_gate_audit": _get_gate_audit_state(),
             "decision_plan": _get_decision_plan_state(),
-            "news_digest": _get_news_digest_state(),
             "strategy_learning": _get_strategy_learning_state(os),
             "attention_memory": _get_memory_state(kernel),
             "symbol_weights": _get_symbol_weights_state(kernel),
@@ -194,30 +193,6 @@ def _get_decision_plan_state() -> Dict[str, Any]:
         }
 
 
-def _get_news_digest_state() -> Dict[str, Any]:
-    """获取「今日新闻消化」数据（manas 注意力原则筛出的该看清单，纯 dict）。
-
-    与 ``decision_plan`` 同一约定：UI 只吃 query 层返回的 dict，不深入
-    ``NewsTriage`` / ``NewsFocusState``。
-    """
-    try:
-        from deva.naja.news import get_news_digest_summary
-        return get_news_digest_summary()
-    except Exception:
-        return {
-            "available": False,
-            "reason": "新闻消化服务不可用",
-            "generated_at_text": "",
-            "window_hours": 24,
-            "focus": {},
-            "groups": {"holding": [], "theme": [], "macro": []},
-            "group_labels": {"holding": "持仓相关", "theme": "关注叙事",
-                             "macro": "外部要闻（自选 / 宏观）"},
-            "stats": {"scanned": 0, "deduped": 0, "shown": 0,
-                      "holding": 0, "theme": 0, "macro": 0, "pierced": 0},
-        }
-
-
 def _get_gate_audit_state() -> Dict[str, Any]:
     """获取行动门留痕（「为什么不让你动」按次可查）。"""
     try:
@@ -352,13 +327,6 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "decision_plan": {"available": False, "latest": None, "recent": [],
                           "stats": {"total": 0, "shown": 0, "approved": 0,
                                     "actionable": 0, "persisted": False}},
-        "news_digest": {"available": False, "reason": "暂无数据",
-                        "generated_at_text": "", "window_hours": 24, "focus": {},
-                        "groups": {"holding": [], "theme": [], "macro": []},
-                        "group_labels": {"holding": "持仓相关", "theme": "关注叙事",
-                                         "macro": "外部要闻（自选 / 宏观）"},
-                        "stats": {"scanned": 0, "deduped": 0, "shown": 0,
-                                  "holding": 0, "theme": 0, "macro": 0, "pierced": 0}},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
         "symbol_weights": {"top_symbols": [], "top_blocks": []},
@@ -369,19 +337,39 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
     }
 
 
+def _news_digest_link_html() -> str:
+    """新闻消化的**指针**（内容已搬到 ``/news``，这里不重复渲染）。
+
+    2026-10-19 拆出：觉醒页回答「系统此刻怎么想」（manas 三维 / 决策计划 /
+    门审计），新闻页回答「今天该读什么」。两者刷新节奏与信息密度不同，混在
+    一页时新闻只能挤成 64 字截断的紧凑列表，条目一多就读不了。
+    """
+    return (
+        '<a href="/news" style="display:flex;align-items:center;justify-content:space-between;'
+        'gap:12px;text-decoration:none;background:#fff;border:1px solid #e2e8f0;'
+        'border-radius:10px;padding:12px 14px;margin:10px 0;">'
+        '<span style="display:flex;align-items:center;gap:8px;">'
+        '<span style="font-size:18px;">📰</span>'
+        '<span><span style="font-size:13px;font-weight:600;color:#0f172a;">今日新闻消化</span>'
+        '<span style="font-size:11px;color:#64748b;margin-left:8px;">'
+        '已独立成页（持仓优先 · 同一事件合并 ×N）</span></span></span>'
+        '<span style="font-size:12px;color:#1d4ed8;flex:none;">去看看 →</span></a>'
+    )
+
+
 def render_attention_monitor_page(ctx):
     """渲染注意力监控页面"""
     from pywebio.output import put_html, put_text, use_scope
     from .awakening import render_awakening_status
-    from .components import render_decision_plan_panel, render_news_digest_panel
+    from .components import render_decision_plan_panel
 
     data = get_attention_monitor_data()
     put_html("<h2>🧘 觉醒系统</h2>")
     put_text(f"Last updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp']))}")
 
     with use_scope("monitor_grid", clear=True):
+        put_html(_news_digest_link_html())
         put_html(render_awakening_status())
-        put_html(render_news_digest_panel(data.get("news_digest")))
         put_html(render_decision_plan_panel(data.get("decision_plan")))
 
 
