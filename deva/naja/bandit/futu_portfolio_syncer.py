@@ -41,6 +41,7 @@ moomoo 美国，其余为 moomoo 各地。老实现只连 ``FUTUSECURITIES``，
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
@@ -49,6 +50,13 @@ from deva import NB
 from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_FUTU_SYNC
 
 log = logging.getLogger(__name__)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return default
 
 UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
 FUTU_ACCOUNTS_TABLE = "naja_bandit_futu_accounts"
@@ -242,6 +250,20 @@ class FutuPortfolioSyncer:
         self.trd_env = trd_env
         self.firms = list(firms) if firms else list(SECURITY_FIRM_ACCOUNT_NAMES)
         self._ctx = None
+        # 账户枚举结果缓存。``get_sync_targets`` 要**逐品牌建连**（实测 7 个品牌
+        # = 7 次 OpenSecTradeContext + 37ms），而做 T 运行器每 30 秒就会按市场
+        # 各问一次「这个市场的模拟账户是哪个」——不缓存的话每轮白建 7~21 条连接。
+        # 账户清单是人工开户才变的东西，几分钟的缓存不影响正确性。
+        self._targets_cache: Optional[
+            Tuple[List[Dict[str, Any]], List[str], Set[str]]
+        ] = None
+        self._targets_ts: float = 0.0
+        self._targets_ttl: float = _env_float("NAJA_SYNC_TARGETS_TTL", 180.0)
+
+    def invalidate_targets(self) -> None:
+        """丢弃账户缓存（新建账户 / 切换账户后调用）。"""
+        self._targets_cache = None
+        self._targets_ts = 0.0
 
     # ---------------------------------------------------------- 连接
 
@@ -428,6 +450,14 @@ class FutuPortfolioSyncer:
         is_sim = self._is_simulate()
         seen_acc_ids: Set[int] = set()
 
+        # 命中缓存就直接返回（见 __init__ 里关于建连成本的说明）。
+        # 只缓存「全品牌探通、且拿到账户」的结果：OpenD 没起来时的空结果
+        # 绝不能缓存，否则三分钟内都以为"没有账户"。
+        if self._targets_cache is not None and (time.time() - self._targets_ts) < self._targets_ttl:
+            _t, _pe, _po = self._targets_cache
+            # 给副本：调用方拿去做名字后缀/过滤时不该改到缓存本体
+            return [dict(x) for x in _t], list(_pe), set(_po)
+
         for firm in self.firms:
             ok, rows = self._probe_firm(firm)
             if not ok:
@@ -461,6 +491,9 @@ class FutuPortfolioSyncer:
                     "acc_type": row["acc_type"],
                     "trd_env": self.trd_env.upper(),
                 })
+        if targets and not probe_errors:
+            self._targets_cache = (targets, probe_errors, probed_ok)
+            self._targets_ts = time.time()
         return targets, probe_errors, probed_ok
 
     # ---------------------------------------------------------- 取数

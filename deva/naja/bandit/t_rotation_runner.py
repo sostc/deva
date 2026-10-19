@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import replace
@@ -54,6 +55,7 @@ from .core_establish_gate import CoreEstablishGate
 from .core_establish_watch import CoreEstablishWatch
 from .market_session import (
     is_trading,
+    market_local,
     market_phase,
     minutes_to_close,
     session_date,
@@ -62,6 +64,43 @@ from .market_session import (
 from .t_rotation import TRotationConfig
 
 log = logging.getLogger(__name__)
+
+#: ``FutuQuote.update_time`` 的前 10 位就是交易日（``2026-10-16 16:07:56``）。
+_UPDATE_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _quote_update_date(quote: Any) -> Optional[str]:
+    """抠出行情自己声明的「最后更新日期」（YYYY-MM-DD）。抠不出返回 None。"""
+    raw = str(getattr(quote, "update_time", "") or "")
+    m = _UPDATE_DATE_RE.search(raw)
+    return m.group(1) if m else None
+
+
+def stale_session_reason(quote: Any, market: str, dt: datetime) -> Optional[str]:
+    """行情更新日期早于该市场今天 → 返回跳过原因，否则 None。
+
+    ❗**休市日（节假日）富途会把上一个交易日的快照原样吐回来**：价格、成交量
+    全部冻结，``update_time`` 停在上一交易日收盘。而 :func:`is_trading` 只看
+    星期与钟点，照样判「盘中」（这是 market_session 刻意的取舍 —— 不维护会
+    过期的节假日日历）。放任这种 tick 进引擎的代价不是「多算一次」，而是
+    **拿僵尸价下单**：底仓补足在死水检测刹住（12×30s≈6 分钟）之前就会动。
+
+    用 ``update_time`` 的日期当闸门，比维护日历可靠得多：那是行情自己说的
+    「我最后一次更新是哪天」，交易所放假、临时休市、数据源断流全都覆盖。
+    """
+    if quote is None or not getattr(quote, "ok", False):
+        # 取数失败交给 _pump 记 quote_miss/行情缺失，别在这里吞成「休市」
+        return None
+    qdate = _quote_update_date(quote)
+    if not qdate:
+        return None  # 没有 update_time 就不乱判，宁可信其有
+    now_local = market_local(market, dt)
+    if now_local is None:
+        return None
+    today = now_local.strftime("%Y-%m-%d")
+    if qdate < today:  # ISO 日期串比较即日期比较
+        return f"行情停更（最后更新 {qdate}，今日 {today}），按休市跳过"
+    return None
 
 
 class TRotationRunner:
@@ -182,6 +221,8 @@ class TRotationRunner:
         self._last_cum_vol: Dict[str, float] = {}
         self._flat_runs: Dict[str, int] = {}
         self._suspended: Dict[str, str] = {}
+        # 「行情停更」每 (标的, 交易日) 只喊一次：节假日它会每 30 秒复发
+        self._stale_warned: Dict[str, str] = {}
         self._last_diag: Dict[str, Dict[str, Any]] = {}
         self._errors: Dict[str, str] = {}
 
@@ -192,6 +233,10 @@ class TRotationRunner:
             "quote_miss": 0,
             "stale_quote": 0,
             "off_hours_skips": 0,
+            # 行情日期停在上一交易日（节假日/临时休市/数据源断流）。
+            # 与 off_hours_skips 分开数：一个是「本来就该休息」，
+            # 一个是「钟点说开盘、行情说今天没我」—— 后者才需要有人看一眼。
+            "stale_date_skips": 0,
             "settlements": 0,
             "cross_session_buyback": 0,
             "actions": 0,
@@ -392,6 +437,12 @@ class TRotationRunner:
         results: List[Dict[str, Any]] = []
 
         self._stats["polls"] += 1
+        # 先按市场筛出「此刻在盘中」的标的，再**一次**批量取行情。
+        # 原来在循环里逐标的 src.get()，等于每个标的各建一个 OpenQuoteContext：
+        # 20 个标的 = 20 次 TCP 建连 + 20 次上下文销毁（console 里
+        # `_init_connect_sync: New connect ready` 100ms 内刷 20 行就是这么来的）。
+        # 富途本身支持一次 get_market_snapshot 传一批代码，没有理由拆开。
+        trading_specs = []
         for spec in self._specs:
             # ❗时段必须**按市场各自判断**：三个市场的开盘时间互不重叠
             # （A股 09:30–15:00 / 港股 09:30–16:00 / 美股 21:30–04:00 北京时间）。
@@ -399,13 +450,47 @@ class TRotationRunner:
             if not is_trading(spec.market, dt):
                 self._stats["off_hours_skips"] += 1
                 continue
+            trading_specs.append(spec)
+
+        quotes = self._prefetch_quotes(trading_specs)
+
+        for spec in trading_specs:
             try:
-                results.append(self._pump(spec, dt, now))
+                # ❗钟点说「盘中」不等于行情说「今天有交易」：节假日富途会把
+                # 上一交易日的快照原样吐回来（价格/量全冻结、update_time 停更），
+                # 放任它进引擎就是拿僵尸价补底仓。这里一次性拦掉。
+                stale = stale_session_reason(quotes.get(spec.code), spec.market, dt)
+                if stale:
+                    self._stats["stale_date_skips"] += 1
+                    self._warn_stale_once(spec, stale, dt)
+                    results.append({
+                        "code": spec.code, "action": "NONE",
+                        "market": spec.market, "reason": stale,
+                    })
+                    continue
+                results.append(self._pump(spec, dt, now, quotes.get(spec.code)))
             except Exception as e:
                 log.error(f"[TRotationRunner] {spec.code} 处理失败: {e}", exc_info=True)
                 results.append({"code": spec.code, "error": str(e)})
         self._heartbeat(dt)
         return results
+
+    def _warn_stale_once(self, spec: CoreHoldingSpec, reason: str, dt: datetime) -> None:
+        """同一标的、同一交易日只喊一次。
+
+        节假日里这条判定每 30 秒成立一次，每次都喊会把 WARNING 刷成噪音；
+        可完全不喊，事后又没法解释「今天为什么一根 tick 都没喂」。
+        一天一条，正好。
+        """
+        day = session_date(spec.market, dt) or dt.strftime("%Y-%m-%d")
+        key = f"{spec.code}:{day}"
+        if self._stale_warned.get(key):
+            return
+        self._stale_warned[key] = reason
+        log.warning(f"[TRotationRunner] ⚠️ {spec.name}({spec.code}) {reason}")
+        # 只留当天的键，别让字典跨月长大
+        for k in [k for k in self._stale_warned if not k.endswith(day)]:
+            self._stale_warned.pop(k, None)
 
     # ------------------------------------------------------------------
     # 心跳
@@ -434,6 +519,7 @@ class TRotationRunner:
             f"行情 缺失={self._stats['quote_miss']} 错误={self._stats['fetch_errors']}",
             f"tick={self._stats['ticks']} 动作={self._stats['actions']}",
             f"休市跳过={self._stats['off_hours_skips']}",
+            f"停更跳过={self._stats.get('stale_date_skips', 0)}",
             f"模式={mode}",
         ]
         lines = ["[TRotationRunner] " + " | ".join(parts)]
@@ -469,6 +555,31 @@ class TRotationRunner:
     # ------------------------------------------------------------------
     # 单个标的
     # ------------------------------------------------------------------
+    def _prefetch_quotes(self, specs) -> Dict[str, Any]:
+        """一次批量取回本轮所有标的的行情。
+
+        失败时返回空字典：调用方按「行情缺失」逐标的跳过，
+        **不要**退化成逐标的再取一次 —— 那正是要消灭的建连风暴。
+        """
+        src = self._quotes
+        if src is None or not specs:
+            return {}
+        try:
+            return src.fetch([(s.code, s.market) for s in specs])
+        except Exception as e:  # pragma: no cover - 富途/OpenD 异常
+            self._stats["fetch_errors"] += 1
+            log.error(f"[TRotationRunner] 批量取行情失败: {e}")
+            # 每个标的都塞一个失败占位，避免 _pump 因为拿到 None 又退回逐标的取数
+            try:
+                from .futu_quote_source import FutuQuote
+                why = f"批量取行情失败: {e}"
+                return {
+                    s.code: FutuQuote(code=s.code, market=s.market, ok=False, error=why)
+                    for s in specs
+                }
+            except Exception:
+                return {}
+
     def _read_quote(self, spec: CoreHoldingSpec):
         """同步取最新行情（富途）。连不上/无此标的返回 None。"""
         src = self._quotes
@@ -489,7 +600,8 @@ class TRotationRunner:
             return None
         return quote
 
-    def _pump(self, spec: CoreHoldingSpec, dt: datetime, now: float) -> Dict[str, Any]:
+    def _pump(self, spec: CoreHoldingSpec, dt: datetime, now: float,
+              quote=None) -> Dict[str, Any]:
         code = spec.code
         market = spec.market
         # ❗会话锚点用**市场自己的交易日**：北京时间周三 03:35 属于美东周二
@@ -507,7 +619,9 @@ class TRotationRunner:
             else:
                 return {"code": code, "action": "NONE", "reason": suspended}
 
-        quote = self._read_quote(spec)
+        # 本轮已由 _prefetch_quotes 批量取过就直接用；None 时（测试/单点调用）才单独取
+        if quote is None:
+            quote = self._read_quote(spec)
         if quote is None or quote.current <= 0 or quote.prev_close <= 0:
             self._stats["quote_miss"] += 1
             return {
@@ -553,13 +667,6 @@ class TRotationRunner:
             self._last_diag[code] = diag
             return diag
 
-        # 底仓**每轮**都查，不能只在换日那一轮做：
-        #   ① 一次性买到位会撞虚拟仓的单笔限额（默认 20%），必须分批；
-        #   ② 底仓若因任何原因出现缺口，就该当天补回来。
-        # 位置刻意放在「价量无变化 → 跳过」之前 ——
-        # 横盘时价格不动，若放在后面，分批就永远补不到第二笔。
-        self._maybe_establish_core(spec, quote, now, open_ts, date)
-
         # 价格与成交量都没动 → 没有新信息，不值得占一根 bar
         if self._last_price.get(code) == price and dvol <= 0:
             runs = self._flat_runs.get(code, 0) + 1
@@ -575,6 +682,16 @@ class TRotationRunner:
 
         self._flat_runs[code] = 0
         self._last_price[code] = price
+
+        # 底仓**每轮**都查，不能只在换日那一轮做：
+        #   ① 一次性买到位会撞虚拟仓的单笔限额（默认 20%），必须分批；
+        #   ② 底仓若因任何原因出现缺口，就该当天补回来。
+        # ❗位置在「价量都没动 → 跳过」**之后**：那里判的是「价格与成交量
+        # 同时冻结」= 这一轮根本没有新信息（休市 / 断流 / 停牌），此时价格是
+        # 僵尸价，补底仓等于拿它下单。真正的横盘不在此列 —— 价格不动但成交
+        # 量在走（dvol > 0）照样往下走，分批不会因此卡住。
+        # 原来放在前面，节假日头 6 分钟（12×30s）会先补几笔再被死水检测拦住。
+        self._maybe_establish_core(spec, quote, now, open_ts, date)
 
         diag = self._eng(spec.market).on_tick(
             code,
