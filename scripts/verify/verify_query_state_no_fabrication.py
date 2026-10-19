@@ -153,7 +153,7 @@ class _RecordingQS:
         self.calls.append(kwargs)
 
 
-def _mk_updater():
+def _mk_updater(min_market_sample: int = 0):
     mod = importlib.reload(
         importlib.import_module("deva.naja.attention.kernel.state_updater")
     )
@@ -164,6 +164,8 @@ def _mk_updater():
     up._hotspot_skip_log_every = 10 ** 9       # 测试期不刷日志
     up._last_data_hash = None
     up._last_symbol_count = 0
+    # 默认关掉「薄样本闸门」，让用例只考伪造守卫；闸门单独在场景 5 里验
+    up._min_market_sample = min_market_sample
     return mod, up
 
 
@@ -213,6 +215,37 @@ def check_updater_behavior() -> list:
     up3._on_hotspot_computed(_mk_event(ret, [], pri))
     if up3.qs.calls:
         failures.append("returns 长度对齐但 volumes 缺失时仍写了 QueryState（口径混用）")
+
+    # 场景 4（线上真实故障）：symbol_weights 是 WeightPool 注册表全集（含快照外标的），
+    # 三件套只覆盖当次快照。以前用 `symbol_weights.keys()` 当标的清单 →
+    # len(weights)=注册表(62) ≠ len(returns)=快照(57) → 每轮都跳过（累计 500 次）。
+    # 正确行为：以 event.symbols 为准更新，且只透传快照那几只。
+    _mod4, up4 = _mk_updater()
+    ev4 = _mk_event(ret, vol, pri, symbols=("aaa", "bbb"))
+    ev4.symbol_weights = {"aaa": 1.1, "bbb": 1.2, "ccc": 1.45, "ddd": 1.45}  # 注册表更大
+    up4._on_hotspot_computed(ev4)
+    if len(up4.qs.calls) != 1:
+        failures.append(
+            "symbol_weights 含快照外标的时被整轮跳过"
+            f"（应仍更新一次，实得 {len(up4.qs.calls)} 次）"
+        )
+    elif list(up4.qs.calls[0].get("symbols") or []) != ["aaa", "bbb"]:
+        failures.append(
+            "更新时应用 event.symbols（当次快照），"
+            f"实得 {up4.qs.calls[0].get('symbols')}"
+        )
+
+    # 场景 5：薄样本闸门。热点按频率档位分批推（实测 6 只的批次也来过），
+    # 6 个标的的涨跌比不足以判 regime，必须被默认阈值挡掉，且不算「缺行情」。
+    _mod5, up5 = _mk_updater(min_market_sample=10)
+    thin = [f"s{i}" for i in range(6)]
+    up5._on_hotspot_computed(
+        _mk_event([1.0] * 6, [1.0] * 6, [10.0] * 6, symbols=tuple(thin))
+    )
+    if up5.qs.calls:
+        failures.append("6 只的薄样本批次仍写了市场级状态（regime 会被噪声翻面）")
+    if up5._hotspot_skip_count != 0:
+        failures.append("薄样本被误记成「未携带真实行情」（两类跳过必须可区分）")
     return failures
 
 
