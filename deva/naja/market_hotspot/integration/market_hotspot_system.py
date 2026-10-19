@@ -1363,10 +1363,23 @@ class MarketHotspotSystem:
         volumes: np.ndarray = None,
         prices: np.ndarray = None,
     ):
-        """发布热点计算完成事件到事件总线（携带真实市场数据）"""
+        """发布热点计算完成事件到事件总线（携带真实市场数据）
+
+        契约：`symbols` 与 `returns/volumes/prices` **逐位对齐**（当次快照）；
+        `symbol_weights` 是 WeightPool 的注册表全集（含快照里没有的标的），
+        下游只能拿它查权重，**不能**用它当标的清单或长度基准。
+        """
         try:
             from deva.naja.events import get_event_bus, HotspotComputedEvent
             event_bus = get_event_bus()
+            n_symbols = len(symbols) if symbols is not None else 0
+            for name, values in (("returns", returns), ("volumes", volumes), ("prices", prices)):
+                if values is not None and len(values) != n_symbols:
+                    log.warning(
+                        "[MarketHotspotSystem] 热点事件三件套长度不齐: "
+                        "symbols=%d, %s=%d（下游将按 symbols 对齐，多余/缺失已暴露）",
+                        n_symbols, name, len(values),
+                    )
             event = HotspotComputedEvent(
                 market=market,
                 timestamp=time.time(),
