@@ -88,17 +88,57 @@ class Quote:
         return 0.0
 
 
+class MissingQuote:
+    """替身版的「这个标的没取到」—— 对应 FutuQuote(ok=False, error=...)。
+
+    `ok=False` 必须显式给：runner 判的是 `quote.ok`，返回 None 会被当成
+    "批量取行情失败"，把替身的锅甩到被测代码头上。
+    """
+
+    def __init__(self, code):
+        self.code = code
+        self.name = ""
+        self.ok = False
+        self.error = f"替身里没有 {code}"
+        self.current = 0.0
+        self.prev_close = 0.0
+        self.volume = 0.0
+        self.market = ""
+
+    @property
+    def age(self):
+        return 0.0
+
+
 class QuoteSource:
-    """runner 的 `quotes` 依赖：同步 get(code, market)。"""
+    """runner 的 `quotes` 依赖：批量 `fetch(requests)` + 单点回退 `get(code, market)`。
+
+    ❗`fetch` 必须是必填的最小契约：`c34f551` 起 `_prefetch_quotes` 一轮只
+    `fetch` 一次再分给各标的，替身只有 `get` 的话整轮会走 except → 日志里刷
+    "批量取行情失败" → 本该被验证的分批逻辑一条没跑（2026-10-19：3/3 全假红）。
+
+    返回契约对齐 `FutuQuoteSource.fetch`：**原始代码 → quote**，取不到的条目
+    也要在 dict 里。
+    """
 
     def __init__(self):
         self.store = {}
+        self.fetches = []
 
     def put(self, key, quote):
         self.store[key] = quote
 
     def get(self, code, market=None):
         return self.store.get(code)
+
+    def fetch(self, requests):
+        self.fetches.append(list(requests))
+        out = {}
+        for code, market in requests:
+            key = str(code)
+            quote = self.get(key, market)
+            out[key] = quote if quote is not None else MissingQuote(key)
+        return out
 
 
 class LogTrap:
