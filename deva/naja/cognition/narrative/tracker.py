@@ -202,7 +202,16 @@ class NarrativeState:
     total_count: int = 0
     recent_count: int = 0
     trend: float = 0.0
+    # ❗两个时钟，语义不同，不许混用：
+    #   last_updated    = 摄入时钟（time.time()）—— 系统最近一次吃到相关文本。
+    #                     窗口算术、剪枝、冷却、恢复判据全部以此为准，单调可信赖。
+    #   last_event_ts   = 事件时钟（新闻发布时间）—— 只用于展示「这条叙事讲的事
+    #                     发生在什么时候」，以及观察数据源滞后。❗不可拿它做窗口
+    #                     算术：实测滞后 13~176 分钟（中位 ~65），且每条叙事不同，
+    #                     用它当 now 会让不同叙事的窗口端点互不相同、失去可比性，
+    #                     更会让停更的叙事窗口冻结、热度永不衰减。
     last_updated: float = 0.0
+    last_event_ts: float = 0.0
     last_stage_change: float = 0.0
     hits: Deque[Tuple[float, float, List[str]]] = field(default_factory=deque)
     last_keywords: List[str] = field(default_factory=list)
@@ -218,6 +227,7 @@ class NarrativeState:
             "recent_count": self.recent_count,
             "trend": self.trend,
             "last_updated": self.last_updated,
+            "last_event_ts": self.last_event_ts,
             "last_stage_change": self.last_stage_change,
             "hits": list(self.hits),
             "last_keywords": self.last_keywords,
@@ -234,6 +244,8 @@ class NarrativeState:
         state.recent_count = data.get("recent_count", 0)
         state.trend = data.get("trend", 0.0)
         state.last_updated = data.get("last_updated", 0.0)
+        # 旧快照没有这个字段，回落 0.0；UI 显示时必须能处理 0（=未采集，不是「很久以前」）
+        state.last_event_ts = data.get("last_event_ts", 0.0)
         state.last_stage_change = data.get("last_stage_change", 0.0)
         state.hits = Deque(data.get("hits", []))
         state.last_keywords = data.get("last_keywords", [])
@@ -592,18 +604,30 @@ class NarrativeTracker:
         双重身份处理：
         1. 外部叙事检测 - 更新 _states（现有逻辑）
         2. 供需动态检测 - 更新 _value_signals（新增逻辑）
+
+        ❗**两个时钟必须分开**（否则是静默失效，不报错、只是数不对）：
+          - ``ingest_ts = time.time()`` —— 摄入时钟。窗口算术（recent/prev 窗口）、
+            hits 记录、剪枝、emit 冷却、恢复判据**全部**用它。理由：单调、真实、
+            所有叙事共用一个端点，跨叙事可比。
+          - ``event_ts = self._get_timestamp(event)`` —— 新闻发布时间。只存进
+            ``last_event_ts`` 做展示/滞后观测，**不参与任何算术**。
+        实测新闻时间比摄入时间滞后 13~176 分钟（中位 ~65）；旧代码把它当 now，
+        后果是每条叙事的 6 小时窗口端点各不相同，且停更的叙事窗口冻结、热度永不衰减。
         """
         if not self.enabled:
             return []
 
-        now_ts = self._get_timestamp(event)
+        ingest_ts = time.time()
+        event_ts = self._get_timestamp(event)
         attention = self._clamp_score(getattr(event, "attention_score", 0.0))
         results: List[Dict[str, Any]] = []
 
-        external_results = self._process_external_narratives(event, now_ts, attention)
+        external_results = self._process_external_narratives(
+            event, ingest_ts, attention, event_ts=event_ts
+        )
         results.extend(external_results)
 
-        value_results = self._process_value_signals(event, now_ts)
+        value_results = self._process_value_signals(event, ingest_ts)
         results.extend(value_results)
 
         # 节流落库：避免每条事件都触发一次全量排序 + 整表写入
@@ -611,12 +635,15 @@ class NarrativeTracker:
         return results
 
     def _process_external_narratives(
-        self, event: Any, now_ts: float, attention: float
+        self, event: Any, now_ts: float, attention: float, event_ts: float = 0.0
     ) -> List[Dict[str, Any]]:
         """
         🚀 处理外部叙事 (WorldNarrativeTracker)
 
         从事件中检测外部叙事主题，更新 _states
+
+        ❗``now_ts`` 必须是**摄入时钟**（time.time()），不是新闻时间。``event_ts``
+        是新闻发布时间，只落进 ``last_event_ts`` 供展示，不参与窗口算术。
         """
         matches = self.detect_narratives(event)
         if not matches:
@@ -636,6 +663,7 @@ class NarrativeTracker:
             state.total_count += 1
             state.last_keywords = keywords
             state.last_updated = now_ts
+            state.last_event_ts = event_ts or now_ts
 
             self._prune_hits(state, now_ts)
             metrics = self._compute_metrics(state, now_ts)
@@ -840,9 +868,45 @@ class NarrativeTracker:
             return "中等"
         return "轻微"
 
+    def _refresh_state(self, state: "NarrativeState", now_ts: float) -> None:
+        """按**当前时间**重算该叙事的窗口指标并写回。
+
+        ❗热度只在 ``ingest_event`` 那一刻算过一次。若某叙事此后不再有新文本，
+        缓存的 ``recent_count / attention_score / stage`` 会**永久定格**——页面
+        显示「最近更新 3 小时前」，热度条却还是 3 小时前的样子，这是典型的
+        「假新鲜比异常更毒」：没有新数据 ≠ 热度不变。
+
+        读取路径必须按 ``time.time()`` 重算，让停更的叙事真的衰减。
+
+        ❗只读路径不做剪枝（剪枝会修改 hits，写回时改变持久内容），只重算派生量；
+        窗口外的命中由 ``hits[i][0] >= recent_cutoff`` 天然排除。
+        ❗不发事件：读取路径产生副作用（emit / publish）会把「看一眼页面」变成
+        「触发一轮决策信号」。阶段变化只更新 ``last_stage_change`` 字段。
+        """
+        metrics = self._compute_metrics(state, now_ts)
+        state.recent_count = metrics["recent_count"]
+        state.trend = metrics["trend"]
+        state.attention_score = metrics["attention_score"]
+        new_stage = self._determine_stage(metrics)
+        if new_stage != state.stage:
+            state.stage = new_stage
+            state.last_stage_change = now_ts
+
+    def _refresh_all(self) -> float:
+        """重算全部叙事，返回所用时间戳（供调用方标注口径）。"""
+        now_ts = time.time()
+        for state in self._states.values():
+            try:
+                self._refresh_state(state, now_ts)
+            except Exception:
+                # ❗单个叙事重算失败不许拖垮整张榜，但也不能静默：留日志
+                log.debug(f"[NarrativeTracker] 重算叙事失败: {state.name}")
+        return now_ts
+
     def get_summary(self, limit: int = 10) -> List[Dict[str, Any]]:
         if not self._states:
             return []
+        self._refresh_all()
         sorted_states = sorted(self._states.values(), key=lambda s: s.attention_score, reverse=True)
         summary = []
         for state in sorted_states[:limit]:
@@ -852,7 +916,10 @@ class NarrativeTracker:
                 "attention_score": round(state.attention_score, 3),
                 "recent_count": state.recent_count,
                 "trend": round(state.trend, 3),
+                # ❗摄入时钟：系统最近一次吃到相关文本。活性判据以它为准。
                 "last_updated": state.last_updated,
+                # 新闻发布时间：只用于展示「这条叙事讲的事发生在什么时候」
+                "last_event_ts": state.last_event_ts,
                 "keywords": state.last_keywords,
             })
         return summary
@@ -1356,7 +1423,11 @@ class NarrativeTracker:
         Returns:
             包含价值评分、市场叙事评分、投资建议的字典
         """
+        # ❗cutoff 用 time.time()，被比较的 signal.timestamp / state.last_updated
+        # 现在也都是摄入时钟（见 ingest_event 的双时钟说明）。旧代码里前者是真实现在、
+        # 后者是滞后 ~65 分钟的新闻时间，跨时钟比较会系统性漏掉最近一小时的叙事。
         recent_cutoff = time.time() - 72 * 3600
+        self._refresh_all()
 
         value_signals_by_type: Dict[str, Set[str]] = {
             k: set() for k in ["token供需", "电力供需", "技术瓶颈", "效率突破", "AI落地"]
@@ -2400,6 +2471,7 @@ class NarrativeTracker:
         """
         if not self._states:
             return []
+        self._refresh_all()
         active = []
         for state in self._states.values():
             if state.attention_score > 0:
@@ -2410,6 +2482,8 @@ class NarrativeTracker:
                     "attention_score": state.attention_score,
                     "trend": state.trend,
                     "recent_count": state.recent_count,
+                    "last_updated": state.last_updated,
+                    "last_event_ts": state.last_event_ts,
                 })
         return sorted(active, key=lambda x: x["attention_score"], reverse=True)
 

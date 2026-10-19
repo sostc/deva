@@ -10,8 +10,15 @@
 2. **名不副实**：它讲的是「供需 → 机会映射表 / 解决者追踪 / BUY-WATCH 推荐」，
    不是「市场在讲什么故事、热不热」。
 
-现在主视图换成叙事榜：名称 / 阶段 / 热度 / 趋势 / 关键词 / 最近更新；
+现在主视图换成叙事榜：名称 / 阶段 / 热度 / 趋势 / 关键词 / 最近摄入；
 供需价值那套降级成本卡内的折叠块，不再单独占一行空态。
+
+❗**两个时钟（2026-10-19 已分离）**：``last_updated`` 是**摄入时钟**（系统最近
+一次吃到相关文本，``time.time()``），``last_event_ts`` 是**新闻发布时间**。旧
+代码把新闻时间当 now 用，后果有三：①不同叙事的 6 小时窗口端点各不相同，
+跨叙事的 recent_count 不可比；②停更的叙事窗口冻结 → 热度永不衰减（假新鲜）；
+③``get_value_market_summary`` 拿 ``time.time()-72h`` 去比滞后的新闻时间 → 系统
+性漏掉最近一小时。现在窗口算术一律用摄入时钟，新闻时间只用于展示滞后。
 
 ❗**实例唯一性（2026-10-19 已收敛）**：历史上 ``engine._news_mind.narrative_tracker``
 （process_record 在喂）与 ``get_narrative_tracker()``（事件总线订阅）是**两个
@@ -208,7 +215,7 @@ def _narrative_row(item: dict) -> str:
             </div>
             <div style="font-size: 11px; color: #475569; margin-top: 2px;">
                 命中 <b style="color: #94a3b8; font-weight: 500;">{int(item.get("recent_count") or 0)}</b> 次
-                · {_ago(item.get("last_updated") or item.get("last_stage_change") or 0)}
+                · {_ingest_ago(item)}
             </div>
         </div>
         <div style="text-align: right;">
@@ -216,6 +223,30 @@ def _narrative_row(item: dict) -> str:
         </div>
     </div>
     """
+
+
+def _ingest_ago(item: dict) -> str:
+    """「摄入 X 前」，并在新闻时间明显更老时把滞后写出来。
+
+    ❗两个时钟语义不同，不能合并显示成一个「最近更新」：
+      - ``last_updated``  = 摄入时钟 —— 系统最近一次吃到相关文本。**活性判据**。
+      - ``last_event_ts`` = 新闻发布时间 —— 比摄入时间晚不了，通常更老。
+    旧代码用新闻时间当 last_updated，导致「最近更新」不动甚至倒退，且拿它做
+    窗口算术会让停更叙事的热度永不衰减（详见 tracker.ingest_event 的双时钟说明）。
+
+    ❗差值不足 5 分钟时不重复展示新闻时间（信息冗余）；新闻时间缺失（老快照
+    没这个字段）就只显示摄入时间，不显示「新闻 从未更新」这种自相矛盾的话。
+    """
+    ingest = float(item.get("last_updated") or 0.0)
+    if ingest <= 0:
+        return "从未摄入"
+    text = f'摄入 <span style="color: #94a3b8;">{_ago(ingest)}</span>'
+    event_ts = float(item.get("last_event_ts") or 0.0)
+    if event_ts > 0 and ingest - event_ts >= 300:
+        lag = ingest - event_ts
+        lag_txt = f"{int(lag // 60)} 分" if lag < 3600 else f"{lag / 3600:.1f} 小时"
+        text += f' <span style="color: #475569;">· 新闻早 {lag_txt}</span>'
+    return text
 
 
 def _saturation_note(rows: list) -> str:
@@ -253,12 +284,14 @@ def _saturation_note(rows: list) -> str:
 
 
 def _fingerprint(rows: list) -> str:
-    """实例指纹：条数 / 最近更新 / 最大命中。
+    """实例指纹：条数 / 最近摄入 / 最大命中。
 
     ❗为什么需要它：每个 ``NarrativeTracker()`` 在 ``__init__`` 里都会
     ``_load_state()`` 从同一张 NB 表恢复状态，所以**"有 10 条"证明不了这个
     实例在干活** —— 它可能只是启动时的快照，之后再没 ingest 过。要区分
-    "活实例"和"僵尸快照"，必须看最近更新时间会不会走。
+    "活实例"和"僵尸快照"，必须看最近摄入时间会不会走。
+
+    ❗``last_updated`` 现在是**摄入时钟**（新闻发布时间在 ``last_event_ts``）。
     """
     if not rows:
         return "0 条"
@@ -268,7 +301,7 @@ def _fingerprint(rows: list) -> str:
         time.strftime("%H:%M:%S", time.localtime(latest)) if latest > 0 else "无"
     )
     return (
-        f"{len(rows)} 条 · 最近 {_ago(latest)}（{clock}） · 峰值命中 {max_hits}"
+        f"{len(rows)} 条 · 最近摄入 {_ago(latest)}（{clock}） · 峰值命中 {max_hits}"
     )
 
 
@@ -303,7 +336,7 @@ def _source_diagnostics(picked_from: str, rows: list, others: list, dupes: list)
             f'<div style="font-size: 11px; color: #64748b; line-height: 1.7; margin-top: 6px;">'
             f'⚠️ 存在多个 tracker 实例：各自 ingest、各自维护一份状态，却往同一张'
             f'持久化表落库互相覆盖 —— 页面展示的这份<b>可能不是决策链路读的那份</b>。'
-            f'「最近更新」不走 = 僵尸快照（只在启动那一刻从表里 load 过）。</div>'
+            f'「最近摄入」不走 = 僵尸快照（只在启动那一刻从表里 load 过）。</div>'
         )
     else:
         tail = ""
