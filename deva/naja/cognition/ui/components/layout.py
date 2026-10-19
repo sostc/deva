@@ -166,6 +166,33 @@ def card(title: str, body: str, icon: str = "", meta: str = "") -> str:
     """
 
 
+def jump_card(icon: str, title: str, desc: str, href: str, meta: str = "") -> str:
+    """一行式跳转卡：模块**搬去别的页面**后，在本页留下的入口。
+
+    ❗搬走不等于「够不着」。认知页把供应链联动挪去 ``/supplychain`` 之后，
+    这里留一张 46px 的入口卡，指向它真正的家并写明「在那边能看到什么」，
+    否则用户只会看到这块内容凭空消失。
+    """
+    meta_html = f'<div class="cog-meta">{meta}</div>' if meta else ""
+    return f"""
+    <a href="{href}" style="text-decoration: none;">
+        <div class="cog-card" style="display: flex; align-items: center;
+                    justify-content: space-between; gap: 12px;">
+            <div>
+                <div class="cog-title">{icon} {title}</div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 3px;">{desc}</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+                {meta_html}
+                <div style="background: rgba(255,255,255,.05); padding: 5px 11px;
+                            border-radius: 8px; font-size: 11px; color: #94a3b8;
+                            white-space: nowrap;">查看 →</div>
+            </div>
+        </div>
+    </a>
+    """
+
+
 def fold(summary: str, body: str, meta: str = "", open_by_default: bool = False) -> str:
     """返回一个原生 ``<details>`` 折叠块。
 

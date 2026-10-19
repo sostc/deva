@@ -102,35 +102,60 @@ def _narrative_label(item) -> str:
     return str(item)
 
 
-def _compact_themes(items, limit: int = 4, prefix: int = 12, width: int = 34):
+def _first_clause(label: str) -> str:
+    """取首个分句（到第一个逗号/句号为止）。
+
+    用来判断「是不是在讲同一件事」：LLM 重述同一局面时，往往**首句同义改写、
+    后面整段换掉**，首句才是稳定的语义锚点。
+    """
+    for sep in ("，", ",", "。", "；", ";"):
+        pos = label.find(sep)
+        if pos > 0:
+            return label[:pos]
+    return label
+
+
+def _compact_themes(items, limit: int = 4, ratio: float = 0.72, width: int = 34):
     """把「主题长句」压缩成可读的短标签。
 
     `insight_engine.get_attention_hints()` 的 narratives 取的是 `item['theme']`，
     而 theme 是 LLM 生成的一整句（如「美林时钟过热维持但流动性信号持续缺失，
     AI叙事再创新高强化芯片与外汇叙事高位分化，商品>债券>美元>股票结构暂维持…」）。
-    它只按**全等**去重，于是同一叙事的多个快照（前 30 字相同、尾部略变）
-    会全部留下，上屏就是 4 行几乎一样的句子，占掉 190px 却零信息增量。
+    它只按**全等**去重，于是同一叙事的多个快照会全部留下，上屏就是 4 行几乎
+    一样的句子，占掉 190px 却零信息增量。
 
-    这里按前 ``prefix`` 字折叠（保留最长的一条），再截断到 ``width`` 字。
-    折叠是展示层的处理，不改数据源——上游仍是完整句子，别处要用还能拿到。
+    ❗**前缀折叠不够用**（第一版就是按前 12 字判同，实测漏掉一半）：
+    LLM 重述同一局面时会**同义换词**，比如
+
+        「美林时钟过热**延续**但流动性信号持续缺失，…」
+        「美林时钟过热**持续**但流动性信号**仍**缺失，…」
+
+    只差第 7 个字，前 12 字键不同 → 两条都留下。改成对**首句**算字符相似度，
+    超过 ``ratio`` 就判同一件事（保留最长的一条）。选首句而不是整句，是因为
+    同一叙事的后半段会被整段换掉（AI叙事高位强化 → AI绝对主导但边际减速）。
+
+    折叠是展示层处理，不改数据源 —— 上游仍是完整句子，别处要用还能拿到。
     """
-    seen = {}
-    order = []
+    from difflib import SequenceMatcher
+
+    kept: list = []          # [(首句, 完整标签)]
     for raw in items or []:
         label = _narrative_label(raw).strip()
         if not label:
             continue
-        key = label[:prefix]
-        if key in seen:
-            if len(label) > len(seen[key]):
-                seen[key] = label
-            continue
-        seen[key] = label
-        order.append(key)
+        head = _first_clause(label)
+        dup_at = None
+        for i, (kept_head, _kept_label) in enumerate(kept):
+            if SequenceMatcher(None, head, kept_head).ratio() >= ratio:
+                dup_at = i
+                break
+        if dup_at is None:
+            kept.append((head, label))
+        elif len(label) > len(kept[dup_at][1]):
+            kept[dup_at] = (kept[dup_at][0], label)   # 留信息最全的那条
 
     out = []
-    for key in order[:limit]:
-        label = seen[key]
+    for _head, label in kept[:limit]:
         out.append(label if len(label) <= width else label[:width] + '…')
     return out
 

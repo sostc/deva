@@ -420,6 +420,15 @@ def render_supply_chain_knowledge_graph_page() -> None:
     </div>
     """)
 
+    # ── 叙事联动（运行时）：本页原本只有静态图谱，缺「叙事这一侧现在发生了什么」
+    # 2026-10-19 从认知页「深度分析」搬回这里，它是供应链视图的另一半。
+    try:
+        from .linkage import build_supply_chain_linkage_html
+
+        html_parts.append(build_supply_chain_linkage_html())
+    except Exception:  # pragma: no cover - 联动挂了不该连累整页图谱
+        pass
+
     html_parts.append("""
     <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 12px 0;">
         <h3 style="margin: 0 0 16px 0; color: #f1f5f9; font-size: 16px;">🔍 英伟达供应链关系图</h3>

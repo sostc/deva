@@ -20,8 +20,10 @@
   ``render_digest_fragment()`` 已经把 ``<style>`` 和正文拼成一个字符串，
   这里不再拆开输出。
 * **按钮回调里重绘整块 scope**，不做局部 patch。
-* **数据只走 ``get_news_digest_summary()``**（纯 dict）；UI 不碰
+* **消化报告的数据只走 ``get_news_digest_summary()``**（纯 dict）；UI 不碰
   ``NewsTriage`` / ``NewsFocusState``。取不到就显示 ``reason``，绝不编造。
+* 顶部另有一块**金十实时快讯**（``news/jin10.py``），是未消化的原始流，
+  ❗**不受** 24/48/72h 窗口影响 —— 面板里写明了，别让人当成窗口失灵。
 """
 
 from __future__ import annotations
@@ -84,10 +86,26 @@ def _error_html(exc: BaseException) -> str:
     )
 
 
+def _render_jin10() -> None:
+    """金十实时快讯面板（新闻页顶部）。
+
+    2026-10-19 从认知页搬来：它是一条**未经消化的原始快讯流**，放在认知页
+    「概览」里会被误读成认知产出。这里与消化报告同页，一屏能看到
+    「刚刚发生」和「今天该读什么」。
+    """
+    try:
+        from deva.naja.news.jin10 import render_jin10_fragment
+
+        put_html(render_jin10_fragment())
+    except Exception:  # pragma: no cover - 快讯流挂了不该连累报告
+        log.exception("[NewsDigestPage] 金十快讯面板渲染失败")
+
+
 def _render_body(hours: int) -> None:
     """渲染报告正文（含样式，一次性 put_html）。"""
     from deva.naja.news.digest import get_news_digest_summary, render_digest_fragment
 
+    _render_jin10()
     try:
         digest = get_news_digest_summary(hours=hours)
         put_html(render_digest_fragment(digest))

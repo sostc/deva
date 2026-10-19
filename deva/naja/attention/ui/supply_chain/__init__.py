@@ -8,6 +8,7 @@ from .narrative import render_narrative_supply_chain_panel, render_supply_chain_
 from .graph import render_supply_chain_graph_mini, render_supply_chain_knowledge_graph_page
 from .market_data import _render_realtime_market_data, _render_valuation_analysis
 from .summary import get_supply_chain_summary_html
+from .linkage import build_supply_chain_linkage_html
 
 __all__ = [
     "render_supply_chain_risk_card",
@@ -16,4 +17,5 @@ __all__ = [
     "render_supply_chain_graph_mini",
     "render_supply_chain_knowledge_graph_page",
     "get_supply_chain_summary_html",
+    "build_supply_chain_linkage_html",
 ]

@@ -19,7 +19,6 @@ from .soft_info import render_soft_info
 from .liquidity_prediction import render_liquidity_prediction
 from .token_monitor import render_token_monitor
 from .narrative_value import render_narrative_value
-from .jin10_events import render_jin10_events
 
 __all__ = [
     "render_supply_chain",
@@ -40,5 +39,4 @@ __all__ = [
     "render_liquidity_prediction",
     "render_token_monitor",
     "render_narrative_value",
-    "render_jin10_events",
 ]

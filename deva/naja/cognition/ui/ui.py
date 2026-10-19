@@ -3,11 +3,16 @@
 页面版式（2026-10-19 重排）：18 个平铺组件归并为 5 个分节 + 顶部锚点导航，
 静态说明与长列表默认折叠。分组依据是"用户此刻想问什么"，不是代码模块归属。
 
-    ① 概览  —— 现在系统看到了什么（中枢指标 / 事件流 / 金十重要事件）
+    ① 概览  —— 现在系统看到了什么（中枢指标 / 事件流）
     ② 思考  —— 它得出了什么结论（洞察 / 反思 / 语义 / 跨信号）
     ③ 记忆  —— 它记住了什么（分层记忆 / 衰减参数 / 美林时钟）
-    ④ 深度分析 —— 结论背后的展开（供应链 / 叙事 / 传播 / 预测 / 第一性 / 软信息）
-    ⑤ 工具  —— 监控与自检（TOKEN 消耗 / 控制面板 / 帮助）
+    ④ 深度分析 —— 结论背后的展开（叙事 / 传播 / 预测 / 第一性 / 软信息）
+    ⑤ 工具  —— 监控与自检（算力消耗 / 反思调度 / 帮助）
+
+❗搬出去的两块（都留了跳转入口，别让它们凭空消失）：
+    * 金十实时快讯 → ``/news``（它是未消化的原始新闻流，不是认知产出）
+    * 供应链-叙事联动 → ``/supplychain``（它是供应链视图的一半，那页原本
+      只有静态图谱）
 """
 
 import logging
@@ -31,11 +36,11 @@ from .components import (
     render_liquidity_prediction,
     render_token_monitor,
     render_narrative_value,
-    render_jin10_events,
 )
 from .components.layout import (
     SECTION_COLORS,
     flush_empty_states,
+    jump_card,
     put_page_css,
     render_anchor_nav,
     render_section,
@@ -86,12 +91,19 @@ class CognitionUI:
         # ── ① 概览 ──────────────────────────────────────────────
         render_section(
             "sec-overview", "🧠", "概览",
-            "此刻系统看到了什么：认知中枢的四项关键指标、事件流吞吐、金十重要事件",
+            "此刻系统看到了什么：认知中枢的四项关键指标、事件流吞吐",
             SECTION_COLORS["overview"], first=True,
         )
         render_cognition_summary(self)
         render_event_bus(self)
-        render_jin10_events(self)
+        # 金十实时快讯已并入 /news（它是未消化的原始流，不是认知产出），
+        # 这里只留入口。
+        self._put_html(jump_card(
+            icon="📌",
+            title="金十重要事件",
+            desc="实时快讯流已并入新闻页，与「今日新闻消化」同屏",
+            href="/news",
+        ))
 
         # ── ② 思考 ──────────────────────────────────────────────
         render_section(
@@ -115,7 +127,7 @@ class CognitionUI:
         # ── ④ 深度分析 ──────────────────────────────────────────
         render_section(
             "sec-deep", "🔬", "深度分析",
-            "结论背后的展开：供应链联动、叙事价值、流动性传播与预测、第一性原理、软信息权重",
+            "结论背后的展开：叙事价值、流动性传播与预测、第一性原理、软信息权重",
             SECTION_COLORS["deep"],
         )
         render_supply_chain(self)
