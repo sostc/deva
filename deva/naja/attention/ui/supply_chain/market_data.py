@@ -1,7 +1,17 @@
-"""供应链 UI - 实时行情与估值"""
+"""供应链 UI - 实时行情与估值
+
+❗「加载中」不是状态，是借口
+═══════════════════════════════════════════════════════════════════════════
+这两个函数以前在拿不到数据时一律写「实时行情加载中...」/「估值分析加载中...」。
+问题是它会**永远**这么显示：东方财富被代理拒了、估值引擎导入断了，页面都只是
+温和地说「加载中」，看不出是数据源挂了还是代码挂了。
+
+合法的空比异常更危险。所以现在：拿不到数据时必须把**原因**写上去。
+"""
 
 from typing import List, Dict, Tuple
 from datetime import datetime
+import html as _html
 
 from pywebio.output import (
     put_html, put_row, put_column, put_text, put_button, put_table,
@@ -9,6 +19,40 @@ from pywebio.output import (
 )
 from pywebio.session import run_js
 import math
+
+def _source_status_banner(diag: Dict) -> str:
+    """数据来源状态条：有几只拿不到、为什么拿不到。
+
+    全成功时不占版面（返回空串）；只要有失败就必须上屏，且要写真实原因。
+    """
+    if not diag:
+        return ""
+
+    failed_count = diag.get("failed_count", 0)
+    if failed_count <= 0:
+        return ""
+
+    by_reason: Dict[str, int] = {}
+    for reason in diag.get("failed", {}).values():
+        key = str(reason).split("：")[0]
+        by_reason[key] = by_reason.get(key, 0) + 1
+
+    reasons = "、".join(f"{k} {v} 只" for k, v in sorted(by_reason.items(), key=lambda x: -x[1]))
+    detail = ""
+    for src, err in (diag.get("source_errors") or {}).items():
+        detail += (
+            f'<div style="font-size:10px;color:#64748b;margin-top:3px;">'
+            f'{_html.escape(str(src))}: {_html.escape(str(err)[:120])}</div>'
+        )
+
+    return (
+        '<div style="background:rgba(239,68,68,0.12);border-left:3px solid #ef4444;'
+        'border-radius:6px;padding:8px 10px;margin-bottom:12px;">'
+        f'<div style="font-size:11px;color:#fca5a5;">⚠ {failed_count} 只股票取不到行情 —— {_html.escape(reasons)}</div>'
+        f'{detail}'
+        "</div>"
+    )
+
 
 def _render_realtime_market_data() -> str:
     """渲染实时市场数据部分"""
@@ -18,12 +62,28 @@ def _render_realtime_market_data() -> str:
         fetcher = get_fundamental_data_fetcher()
         fundamentals = fetcher.get_supply_chain_fundamentals()
 
+        # ❗诊断必须在抓取之后取，否则负缓存还没记上，看不出失败原因
+        try:
+            diag = fetcher.get_fetch_diagnostics()
+        except Exception:
+            diag = {}
+
         if not fundamentals:
-            return """
-            <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 12px 0;">
-                <div style="font-size: 14px; color: #94a3b8;">实时行情加载中...</div>
-            </div>
-            """
+            # 一只都拿不到：必须说清楚是源挂了，不能说「加载中」
+            src_err = "；".join(
+                f"{k}: {str(v)[:100]}" for k, v in (diag.get("source_errors") or {}).items()
+            )
+            return (
+                '<div style="background:#1e293b;border-radius:12px;padding:20px;margin:12px 0;">'
+                '<div style="font-size:14px;color:#fca5a5;margin-bottom:6px;">'
+                "行情源不可达 —— 全部股票都取不到数据</div>"
+                + (
+                    f'<div style="font-size:11px;color:#64748b;">{_html.escape(src_err)}</div>'
+                    if src_err else
+                    '<div style="font-size:11px;color:#64748b;">未采集到任何数据源错误，检查抓取器是否被禁用</div>'
+                )
+                + "</div>"
+            )
 
         stocks_html = ""
         sorted_stocks = sorted(
@@ -62,20 +122,30 @@ def _render_realtime_market_data() -> str:
             </div>"""
 
         if not stocks_html:
-            return """
-            <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 12px 0;">
-                <div style="font-size: 14px; color: #94a3b8;">正在获取实时数据...</div>
-            </div>
-            """
+            return (
+                '<div style="background:#1e293b;border-radius:12px;padding:20px;margin:12px 0;">'
+                '<div style="font-size:14px;color:#fca5a5;">行情数据全部无效（价格为 0）</div>'
+                + _source_status_banner(diag)
+                + "</div>"
+            )
+
+        total_tried = diag.get("total", len(fundamentals))
+        ok_count = diag.get("ok", len(fundamentals))
+        scope = (
+            f"可取 {ok_count}/{total_tried} 只"
+            if total_tried and ok_count != total_tried
+            else f"共 {len(fundamentals)} 只"
+        )
 
         return f"""
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; padding: 20px; margin: 12px 0;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                 <h2 style="margin: 0; color: #f1f5f9; font-size: 16px;">📊 实时市场行情</h2>
                 <div style="font-size: 11px; color: #64748b;">
-                    共 {len(fundamentals)} 只股票 | 数据来源: 新浪/东方财富
+                    {scope} | 数据来源: 新浪(美股)/东方财富(A股)
                 </div>
             </div>
+            {_source_status_banner(diag)}
 
             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;">
                 <div style="max-height: 400px; overflow-y: auto;">
@@ -104,10 +174,10 @@ def _render_realtime_market_data() -> str:
         </div>
         """
     except Exception as e:
-        import traceback
         return f"""
         <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 12px 0;">
-            <div style="font-size: 12px; color: #64748b;">实时行情加载中... ({str(e)[:50]})</div>
+            <div style="font-size: 13px; color: #fca5a5;">实时行情渲染失败</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">{type(e).__name__}: {_html.escape(str(e)[:160])}</div>
         </div>
         """
 
@@ -178,7 +248,12 @@ def _render_valuation_analysis() -> str:
             </div>"""
 
         if not undervalued_html and not overvalued_html:
-            undervalued_html = '<div style="color: #64748b; font-size: 12px; text-align: center; padding: 20px;">正在计算估值数据...</div>'
+            # 不是「正在计算」，是这批股票里没有落在低估/高估区间的
+            undervalued_html = (
+                '<div style="color:#64748b;font-size:12px;text-align:center;padding:20px;">'
+                "当前无标的落入低估(&lt;60)或高估(&gt;70)区间 —— 共评估 "
+                f"{summary.get('total_stocks', 0)} 只</div>"
+            )
 
         return f"""
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 12px; padding: 20px; margin: 12px 0;">
@@ -215,9 +290,11 @@ def _render_valuation_analysis() -> str:
         </div>
         """
     except Exception as e:
+        # ❗导入断裂就靠这行暴露 —— 以前写「加载中」，估值面板死了半年没人发现
         return f"""
         <div style="background: #1e293b; border-radius: 12px; padding: 20px; margin: 12px 0;">
-            <div style="font-size: 12px; color: #64748b;">估值分析加载中...</div>
+            <div style="font-size: 13px; color: #fca5a5;">估值分析不可用</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px;">{type(e).__name__}: {_html.escape(str(e)[:160])}</div>
         </div>
         """
 
