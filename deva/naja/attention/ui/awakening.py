@@ -11,21 +11,36 @@
 """
 
 from html import escape
+import time
 from typing import Dict, Any, List
 
 LOW = "LOW"
 
 
-def _get_query_state():
-    """获取 QueryState（AppContainer 优先，SR fallback 仅开发用）"""
+def _get_query_state_obj():
+    """获取 **QueryState 对象本体**（AppContainer 优先，SR fallback 仅开发用）。
+
+    ❗本模块历史上定义过两个同名 ``_get_query_state``（本函数 + 下方返回
+    ``get_summary()`` 字典的那个），后定义者覆盖前者 —— 于是
+    ``_get_event_encoder_state`` / ``_get_multi_scorer_state`` 里
+    ``hasattr(qs, '_market_history')`` **永远为 False**，事件编码恒 0、
+    多维评分 Alpha 恒走 0.5 默认值（两块面板长期是死的，且不报错）。
+
+    取「对象本体」和取「摘要字典」是两种形状，必须分开命名：
+    - 要读 ``_market_history`` 这类原始属性 → 用本函数；
+    - 渲染 / 兜底判定 → 用 ``_get_query_state()``（summary 字典）。
+    """
     from deva.naja.application.container import get_app_container
     container = get_app_container()
     if container is not None:
         qs = getattr(container, 'query_state', None)
         if qs is not None:
             return qs
-    from deva.naja.register import SR
-    return SR('query_state')
+    try:
+        from deva.naja.register import SR
+        return SR('query_state')
+    except Exception:
+        return None
 
 
 def _get_cognition_engine():
@@ -49,6 +64,8 @@ def render_awakening_status() -> str:
     overall_level = manas_state.get("overall_level", 0)
     overall_percent = int(overall_level * 100)
     overall_color = _get_level_color(overall_level)
+    activity_pct = int(manas_state.get("activity_level_pct", 0) or 0)
+    manas_available = manas_state.get("available", True) is not False
 
     return f"""<div style="
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
@@ -73,8 +90,11 @@ def render_awakening_status() -> str:
                     border-radius: 12px;
                     padding: 8px 16px;
                 ">
-                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">觉醒进度</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;"
+                         title="引擎真值：读共享 AwakenedAlaya 的觉醒档位（决定 manas 觉醒维度乘子）">觉醒程度（引擎）</div>
                     <div style="font-size: 20px; font-weight: 700; color: {overall_color};">{overall_percent}%</div>
+                    <div style="font-size: 10px; color: #64748b; margin-top: 3px;"
+                         title="由末那识分值反推的观察值，不参与打分，也不是引擎档位">参考活动度 {activity_pct}%</div>
                 </div>
             </div>
         </div>
@@ -119,13 +139,17 @@ def _get_manas_state() -> Dict[str, Any]:
         if output is None:
             return _get_default_state()
 
-        awakened_level_str = output.get("awakening_level", "dormant")
-
-        if awakened_level_str == "dormant":
-            awakened_level_str = _compute_awakening_from_manas(output)
+        # ❗觉醒等级**只认引擎真值**（provider → TradingCenter → AwakenedAlaya）。
+        #   历史写法在引擎给出 "dormant" 时改用 _compute_awakening_from_manas()
+        #   反推一个更高的档位，于是同一张卡片上出现「觉醒进度 40% / 觉醒中」
+        #   与「末那识输出 dormant」并存 —— 那是 UI 在替引擎撒谎。
+        #   反推值保留，但降级为「参考活动度」，仅作观察用。
+        engine_level = str(output.get("awakening_level", "dormant") or "dormant")
+        activity_level = _compute_awakening_from_manas(output)
 
         awakening_map = {"dormant": 0.0, "awakening": 0.4, "illuminated": 0.7, "enlightened": 0.95}
-        overall_level = awakening_map.get(awakened_level_str, 0.0)
+        overall_level = awakening_map.get(engine_level, 0.0)
+        activity_level_pct = int(awakening_map.get(activity_level, 0.0) * 100)
 
         # 行为偏差镜子：同一份检测，对内是打分乘子，对外是提醒。
         bias_message = ""
@@ -138,8 +162,11 @@ def _get_manas_state() -> Dict[str, Any]:
             bias_message = ""
 
         return {
+            "available": True,
             "overall_level": overall_level,
-            "awakening_level": awakened_level_str,
+            "awakening_level": engine_level,
+            "activity_level": activity_level,
+            "activity_level_pct": activity_level_pct,
             "manas_score": output.get("manas_score", 0.5),
             "timing_score": output.get("timing_score", 0.5),
             "regime_score": output.get("regime_score", 0.0),
@@ -147,6 +174,7 @@ def _get_manas_state() -> Dict[str, Any]:
             "risk_temperature": output.get("risk_temperature", 0.5),
             "should_act": output.get("should_act", False),
             "action_type": output.get("action_type", "hold"),
+            "effective_threshold": output.get("effective_threshold", 0.5),
             "action_gate_reason": output.get("action_gate_reason", ""),
             "harmony_state": output.get("harmony_state", "neutral"),
             "harmony_strength": output.get("harmony_strength", 0.5),
@@ -188,8 +216,8 @@ def _get_qkv_state() -> Dict[str, Any]:
         }
     except Exception:
         return {
-            "event_encoder": {"total_encoded": 0, "key_features": [], "value_features": []},
-            "multi_scorer": {"heads_count": 0, "fusion_alpha": 0.0},
+            "event_encoder": {"symbols_covered": 0, "key_features": [], "value_features": []},
+            "multi_scorer": {"heads_count": 0, "fusion_alpha": None, "events_count": 0},
             "attention_memory": {"total": 0, "level_distribution": {"high": 0, "medium": 0, "low": 0}, "avg_score": 0.0},
             "awakened_memory": {"total_patterns": 0, "market_stats": {}},
             "transformer": {"enabled": False, "available": False, "config": {}},
@@ -231,22 +259,32 @@ def _get_in_context_learning_state(kernel) -> Dict[str, Any]:
 
 
 def _get_event_encoder_state(kernel) -> Dict[str, Any]:
-    """获取事件编码器状态"""
-    total_encoded = 0
+    """获取「事件编码」状态 —— 实际能取到的是**覆盖标的数**。
+
+    ❗两处历史问题：
+    1. 这里读的是 ``len(qs._market_history['symbols'])``，却标成
+       「事件编码 N events」。它是当前市场历史覆盖了多少标的，**不是**
+       编码过的事件数量；
+    2. 全模块曾有两个同名 ``_get_query_state``，后者覆盖前者并返回
+       ``get_summary()`` 的字典（没有 ``_market_history``），所以这段代码
+       从来没生效过，页面恒显示 0。
+    现在改读对象本体（:func:`_get_query_state_obj`），并把标签改成
+    它真正表示的东西。
+    """
+    symbols_covered = 0
     try:
-        qs = _get_query_state()
-        if qs and hasattr(qs, '_market_history'):
-            market_history = qs._market_history
-            total_encoded = len(market_history.get('symbols', []))
+        qs = _get_query_state_obj()
+        history = getattr(qs, "_market_history", None) if qs is not None else None
+        if isinstance(history, dict):
+            symbols_covered = len(history.get("symbols", []) or [])
     except Exception:
         pass
-    
-    encoder_state = {
-        "total_encoded": total_encoded,
+
+    return {
+        "symbols_covered": symbols_covered,
         "key_features": ["price", "sentiment", "volume", "alpha"],
-        "value_features": ["alpha", "risk", "confidence"]
+        "value_features": ["alpha", "risk", "confidence"],
     }
-    return encoder_state
 
 
 def _get_attention_memory_state(kernel) -> Dict[str, Any]:
@@ -329,31 +367,42 @@ def _get_awakened_memory_state() -> Dict[str, Any]:
 
 
 def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
-    """获取多维评分器状态"""
+    """获取多维评分器状态。
+
+    ⚠️ 这里的 ``fusion_alpha`` 是**估算值**：事件是用当前市场历史的
+    ``returns`` 现造的（``alpha = returns*0.5``、``risk = |returns|*0.1``、
+    ``confidence = 0.7``），再喂给多头注意力算出来，不是模型学到的输出，
+    页面上必须标「估算」（历史版本直接写「Alpha: x.xxx」，读者会当成真信号）。
+
+    没有事件时返回 ``None``（= 无读数），不再拿 0.5 冒充「中性 Alpha」。
+    """
     scorer_state = {
         "heads_count": 0,
-        "fusion_alpha": 0.0
+        "fusion_alpha": None,
+        "events_count": 0,
+        "estimated": True,
     }
     try:
         if hasattr(kernel, 'multi_head') and kernel.multi_head:
             scorer_state["heads_count"] = len(kernel.multi_head.heads)
-            
-            # 从QueryState获取市场数据来创建模拟事件
+
+            # 从 QueryState 的真实市场历史里造事件（见上：这是估算口径）
             events = []
             try:
                 from deva.naja.attention.kernel.event import AttentionEvent
-                qs = _get_query_state()
-                if qs and hasattr(qs, '_market_history'):
-                    market_history = qs._market_history
-                    symbols = market_history.get('symbols', [])
-                    returns = market_history.get('returns', [])
-                    volumes = market_history.get('volumes', [])
-                    
+                qs = _get_query_state_obj()
+                history = getattr(qs, '_market_history', None) if qs is not None else None
+                if isinstance(history, dict):
+                    symbols = history.get('symbols', [])
+                    returns = history.get('returns', [])
+                    volumes = history.get('volumes', [])
+                    avg_volume = (sum(volumes) / len(volumes)) if volumes else 1
+
                     for i, symbol in enumerate(symbols[:10]):  # 取前10个符号
                         if i < len(returns) and i < len(volumes):
                             features = {
                                 "price_change": returns[i],
-                                "volume_spike": volumes[i] / max(1, sum(volumes) / len(volumes)) if volumes else 1,
+                                "volume_spike": volumes[i] / max(1, avg_volume) if volumes else 1,
                                 "alpha": returns[i] * 0.5,  # 简单计算alpha
                                 "risk": abs(returns[i]) * 0.1,
                                 "confidence": 0.7
@@ -362,7 +411,7 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
                                 source=symbol,
                                 data={"symbol": symbol, "returns": returns[i], "volumes": volumes[i]},
                                 features=features,
-                                timestamp=market_history.get('last_update', 0)
+                                timestamp=history.get('last_update', 0)
                             )
                             # 设置value属性，这样AttentionHead.compute()才能获取到alpha, risk, confidence
                             event.value = {
@@ -373,14 +422,12 @@ def _get_multi_scorer_state(kernel) -> Dict[str, Any]:
                             events.append(event)
             except Exception:
                 pass
-            
+
             # 使用实际事件数据计算
             if events:
                 result = kernel.multi_head.compute(kernel.get_harmony(), events)
                 scorer_state["fusion_alpha"] = result.get("alpha", 0)
-            else:
-                # 如果没有事件，使用默认值
-                scorer_state["fusion_alpha"] = 0.5
+                scorer_state["events_count"] = len(events)
     except Exception:
         pass
     return scorer_state
@@ -416,10 +463,19 @@ def _compute_awakening_from_manas(output: Dict[str, Any]) -> str:
 
 
 def _get_default_state(error: str = None) -> Dict[str, Any]:
-    """获取默认状态"""
+    """末那识取数失败时的**兜底状态**。
+
+    ❗带着 ``available: False``：下面的 0.5 / 0.0 是**占位默认值，不是读数**。
+    渲染层见到 ``available`` 为 False 必须显式标注「引擎未产出」，不许把
+    0.50 当成「时机一般 / 风险中等」显示出去 —— 那就是「合法的空」。
+    """
     return {
+        "available": False,
+        "error": error,
         "overall_level": 0.0,
         "awakening_level": "dormant",
+        "activity_level": "dormant",
+        "activity_level_pct": 0,
         "manas_score": 0.5,
         "timing_score": 0.5,
         "regime_score": 0.0,
@@ -427,9 +483,17 @@ def _get_default_state(error: str = None) -> Dict[str, Any]:
         "risk_temperature": 0.5,
         "should_act": False,
         "action_type": "hold",
+        "effective_threshold": 0.5,
+        "action_gate_reason": "",
         "harmony_state": "neutral",
         "harmony_strength": 0.5,
-        "error": error,
+        "bias_state": "neutral",
+        "bias_correction": 1.0,
+        "bias_message": "",
+        "alpha": 1.0,
+        "attention_focus": 1.0,
+        "supply_chain_risk_level": LOW,
+        "portfolio_loss_pct": 0.0,
     }
 
 
@@ -522,6 +586,182 @@ def _get_level_color(level: float) -> str:
         return "#64748b"
 
 
+# ── 风险语义色阶 ─────────────────────────────────────────────────────────────
+# 红 = 危险/不利　橙 = 偏弱　蓝 = 中性　绿 = 健康　灰 = 不可用
+# ❗这套色阶回答的是「对我这个账户有没有利」，与 A 股「涨红跌绿」相反，
+#   所以卡片里必须带图例说明，不能让人误读成涨跌。
+TONE_RED = "#ef4444"
+TONE_AMBER = "#f59e0b"
+TONE_BLUE = "#38bdf8"
+TONE_GREEN = "#22c55e"
+TONE_GREY = "#64748b"
+
+#: 仓位系数 α 的地板（= ``ManasConfig.alpha_min``）。α 贴地板说明
+#: 「自信度 × 和谐度」几乎没有，值得单独标红。
+ALPHA_FLOOR = 0.3
+
+
+def _timing_tone(value: float) -> tuple:
+    """时机 ``timing_score ∈ [0,1]``，越高越适合动手。"""
+    if value < 0.25:
+        return TONE_RED, "不宜动"
+    if value < 0.40:
+        return TONE_AMBER, "偏弱"
+    if value < 0.60:
+        return TONE_BLUE, "一般"
+    return TONE_GREEN, "成熟"
+
+
+def _regime_tone(value: float) -> tuple:
+    """趋势 ``regime_score ∈ [-1,1]``，正 = 顺风。先归一到 [0,1] 再分档。"""
+    normalized = (max(-1.0, min(1.0, value)) + 1.0) / 2.0
+    if normalized < 0.35:
+        return TONE_RED, "强逆风"
+    if normalized < 0.45:
+        return TONE_AMBER, "偏逆风"
+    if normalized < 0.55:
+        return TONE_BLUE, "中性"
+    return TONE_GREEN, "顺风"
+
+
+def _confidence_tone(value: float) -> tuple:
+    """自信度 ``confidence_score ∈ [0,1.5]``（策略战绩，不是人的意愿）。
+
+    <0.5 策略失灵；>1.0 说明非常适配，但也要警惕过度自信。
+    """
+    if value < 0.35:
+        return TONE_RED, "策略失灵"
+    if value < 0.50:
+        return TONE_AMBER, "偏弱"
+    if value < 1.00:
+        return TONE_BLUE, "正常"
+    if value < 1.20:
+        return TONE_GREEN, "很适配"
+    return TONE_AMBER, "警惕过度自信"
+
+
+def _risk_tone(value: float) -> tuple:
+    """风险温度 ``risk_temperature ∈ [0.5,2.0]`` —— **反向指标**，越高越危险。
+
+    ``risk_safety = 1 - min(T, 1.5) / 1.5``：T=1.5 时安全余量归零，
+    所以 1.3 已经是「很危险」，不能像历史版本那样一律橙色。
+    """
+    if value >= 1.30:
+        return TONE_RED, "很危险"
+    if value >= 1.10:
+        return TONE_AMBER, "偏紧"
+    if value >= 0.90:
+        return TONE_BLUE, "中性"
+    return TONE_GREEN, "宽松"
+
+
+def _score_tone(value: float, threshold: float = 0.5) -> tuple:
+    """综合分（和谐度 / manas_score）相对**行动门槛**的位置。"""
+    if value < 0.35:
+        return TONE_RED, "远低于门槛"
+    if value < threshold:
+        return TONE_AMBER, "未过门槛"
+    if value < threshold + 0.10:
+        return TONE_BLUE, "刚过门槛"
+    return TONE_GREEN, "高于门槛"
+
+
+def _alpha_tone(value: float) -> tuple:
+    """仓位系数 α（clamp 到 [alpha_min, alpha_max]）。贴地板 = 几乎没信心。"""
+    if value <= ALPHA_FLOOR + 0.01:
+        return TONE_RED, "已到地板"
+    if value < 0.60:
+        return TONE_AMBER, "缩量"
+    if value < 1.00:
+        return TONE_BLUE, "常规"
+    return TONE_GREEN, "可放大"
+
+
+def _bias_tone(correction: float) -> tuple:
+    """偏差纠偏乘子：1.0 = 无偏差；<1 是引擎在自我踩刹车。"""
+    if correction >= 0.95:
+        return TONE_BLUE, "无偏差"
+    if correction >= 0.75:
+        return TONE_AMBER, "已纠偏"
+    return TONE_RED, "强纠偏"
+
+
+def _liquidity_tone(value: float) -> tuple:
+    """宏观流动性 ``∈ [0,1]``，越低越紧张（对风险资产不利）。"""
+    if value < 0.40:
+        return TONE_RED, "紧张"
+    if value < 0.46:
+        return TONE_AMBER, "偏紧"
+    if value < 0.56:
+        return TONE_BLUE, "中性"
+    return TONE_GREEN, "宽松"
+
+
+def _format_age(seconds: float) -> str:
+    """把「多少秒前」写成人话。"""
+    try:
+        seconds = max(0.0, float(seconds))
+    except (TypeError, ValueError):
+        return "时间未知"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} 分钟前"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} 小时前"
+    return f"{int(seconds // 86400)} 天前"
+
+
+def _read_merrill_signal():
+    """读美林时钟最近一次信号（独立成函数，方便替换 / 单测）。
+
+    返回 ``PhaseSignal`` 或 ``None``；永不抛异常。
+    """
+    try:
+        from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
+        return get_merrill_clock_engine().get_current_signal()
+    except Exception:
+        return None
+
+
+def _read_economic_cycle(query_state: Dict[str, Any]) -> tuple:
+    """经济周期：返回 ``(文案, 颜色, 悬浮说明)``。
+
+    三段语义**必须能区分**：
+    1. 事件已到（``QueryState.economic_cycle.phase`` 是真值）→ 直接显示；
+    2. 事件没到、但引擎/NB 里有历史信号 → 显示真值 **+ 多久前采集**
+       （4 天前的「过热」不能当现在的结论，假新鲜比异常更毒）；
+    3. 都没有 → 「未采集」+ 灰。**绝不把内部枚举名 ``unknown`` 摆到页面上**
+       （历史版本就是直接 f-string 插值，页面上赫然一个 unknown）。
+    """
+    cycle = (query_state or {}).get("economic_cycle") or {}
+    phase = cycle.get("phase")
+    if phase and str(phase).lower() not in ("unknown", "none", ""):
+        return str(phase), TONE_BLUE, "本次运行已更新"
+
+    signal = _read_merrill_signal()
+    if signal is not None:
+        try:
+            raw_phase = getattr(getattr(signal, "phase", None), "value", None) or getattr(signal, "phase", None)
+        except Exception:
+            raw_phase = None
+        if raw_phase and str(raw_phase).lower() not in ("unknown", "none", ""):
+            age_seconds = None
+            try:
+                age_seconds = time.time() - float(getattr(signal, "timestamp", 0) or 0)
+            except (TypeError, ValueError):
+                age_seconds = None
+            if age_seconds is None:
+                return str(raw_phase), TONE_AMBER, "历史信号，时间未知"
+            age_text = _format_age(age_seconds)
+            stale = age_seconds > 36 * 3600
+            return (
+                f"{raw_phase}（{age_text}）",
+                TONE_AMBER if stale else TONE_BLUE,
+                "历史信号，已过期" if stale else "历史信号，较新",
+            )
+
+    return "未采集", TONE_GREY, "美林时钟未产出"
+
+
 def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, Any]) -> str:
     """渲染系统工作原理概览"""
     market_regime = query_state.get("market_regime", "unknown")
@@ -532,12 +772,31 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
     # 认知系统数据
     narrative_state = query_state.get("narrative_state", {})
     current_narratives = narrative_state.get("current_narratives", [])
-    liquidity_state = query_state.get("liquidity_state", {})
-    liquidity_signal = liquidity_state.get("signal", 0.5)
-    economic_cycle = query_state.get("economic_cycle", {})
-    economic_phase = economic_cycle.get("phase", "unknown")
+
+    # ❗流动性**只走唯一口径** ``read_macro_liquidity_signal()``（0~1；None = 拿不到）。
+    #   历史写法读 ``query_state['liquidity_state']['signal']``，而那个键是
+    #   ``QueryState.__init__`` 里的构造默认值 0.5 —— ``LiquidityCognition``
+    #   全仓只在测试里被实例化，``LiquiditySignalEvent`` 一次都没发过，
+    #   于是这格永远显示「0.50」，看着像读数，其实是字面量。
+    from deva.naja.attention.kernel.macro_liquidity import (
+        read_macro_liquidity_signal,
+        warn_missing,
+    )
+    liquidity_value, liquidity_why = read_macro_liquidity_signal()
+    if liquidity_value is None:
+        warn_missing("AwakeningUI", liquidity_why)
+        liquidity_text = "不可用"
+        liquidity_color, liquidity_note = TONE_GREY, "取不到宏观流动性"
+    else:
+        liquidity_color, liquidity_note = _liquidity_tone(liquidity_value)
+        liquidity_text = f"{liquidity_value:.2f}"
+
+    economic_text, economic_color, economic_note = _read_economic_cycle(query_state)
+
     cognitive_insights = query_state.get("cognitive_insights", {})
     insights_count = len(cognitive_insights.get("insights", []))
+    insights_note = "本运行内已更新" if insights_count else "本运行内未产出"
+    insights_color = TONE_GREEN if insights_count else TONE_GREY
     
     regime_text = (
         "⚠️ 数据不可用"
@@ -631,15 +890,19 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">流动性信号</div>
-                        <div style="font-size: 14px; font-weight: 600; color: #06b6d4;">{liquidity_signal:.2f}</div>
+                        <div style="font-size: 14px; font-weight: 600; color: {liquidity_color};"
+                             title="宏观流动性 0~1，来自唯一口径 read_macro_liquidity_signal()；越低越紧张">{liquidity_text}</div>
+                        <div style="font-size: 9px; color: {liquidity_color}; margin-top: 2px;">{liquidity_note}</div>
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">经济周期</div>
-                        <div style="font-size: 10px; color: #f1f5f9;">{economic_phase}</div>
+                        <div style="font-size: 10px; font-weight: 600; color: {economic_color};" title="{escape(economic_note)}">{economic_text}</div>
+                        <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{escape(economic_note)}</div>
                     </div>
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">认知洞察</div>
-                        <div style="font-size: 14px; font-weight: 600; color: #a855f7;">{insights_count}</div>
+                        <div style="font-size: 14px; font-weight: 600; color: {insights_color};">{insights_count}</div>
+                        <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{insights_note}</div>
                     </div>
                 </div>
             </div>
@@ -880,7 +1143,12 @@ def _render_copilot_items(items: List[str], empty_text: str) -> str:
 
 
 def _render_manas_core(state: Dict[str, Any]) -> str:
-    """渲染末那识核心决策状态"""
+    """渲染末那识核心决策状态。
+
+    每个分数都带**风险语义色**（红危险 / 橙偏弱 / 蓝中性 / 绿健康）和一句判读，
+    因为裸数字看不出「0.35 的时机算好还是坏」——尤其风险温度是反向指标
+    （越高越危险），不给颜色和判读极容易被读反。
+    """
     manas_score = state.get("manas_score", 0.5)
     timing = state.get("timing_score", 0.5)
     regime = state.get("regime_score", 0.0)
@@ -888,14 +1156,17 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
     risk_temp = state.get("risk_temperature", 0.5)
     should_act = state.get("should_act", False)
     action_type = state.get("action_type", "hold")
-    harmony_state = state.get("harmony_state", "neutral")
     harmony_strength = state.get("harmony_strength", 0.5)
     awakening_level = state.get("awakening_level", "dormant")
+    activity_pct = int(state.get("activity_level_pct", 0) or 0)
     bias_state = state.get("bias_state", "neutral")
+    bias_correction = state.get("bias_correction", 1.0)
     alpha = state.get("alpha", 1.0)
     supply_risk = state.get("supply_chain_risk_level", "LOW")
+    threshold = state.get("effective_threshold", 0.5)
+    manas_available = state.get("available", True) is not False
 
-    status_color = "#22c55e" if should_act else "#f59e0b"
+    status_color = TONE_GREEN if should_act else TONE_AMBER
     status_text = f"行动:{action_type}" if should_act else "观望"
 
     awakening_text = {
@@ -905,12 +1176,6 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
         "enlightened": "觉悟",
     }.get(awakening_level, awakening_level)
 
-    harmony_text = {
-        "bullish": "多头",
-        "bearish": "空头",
-        "neutral": "中性",
-    }.get(harmony_state, harmony_state)
-
     bias_text = {
         # BiasState 的实际取值是 neutral / greed / fear（不是 bullish/bearish）。
         # 此前映射用 bullish/bearish 作键，永远查不中 → 面板直接漏出内部枚举名。
@@ -919,8 +1184,47 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
         "fear": "惧",
     }.get(bias_state, bias_state)
 
+    timing_color, timing_label = _timing_tone(timing)
+    regime_color, regime_label = _regime_tone(regime)
+    confidence_color, confidence_label = _confidence_tone(confidence)
+    risk_color, risk_label = _risk_tone(risk_temp)
+    harmony_color, harmony_label = _score_tone(harmony_strength, threshold)
+    manas_color, manas_label = _score_tone(manas_score, threshold)
+    alpha_color, alpha_label = _alpha_tone(alpha)
+    bias_color, bias_label = _bias_tone(bias_correction)
+
+    awaken_color = {
+        "dormant": TONE_GREY,
+        "awakening": TONE_AMBER,
+        "illuminated": TONE_BLUE,
+        "enlightened": TONE_GREEN,
+    }.get(awakening_level, TONE_GREY)
+
+    # ❗引擎本轮没产出时，下面的 0.5 / 0.0 全是占位值。统一压成灰色 +
+    #   「引擎未产出」，不许把占位值渲染成「时机一般 / 风险中等」。
+    if not manas_available:
+        timing_color = regime_color = confidence_color = risk_color = TONE_GREY
+        harmony_color = manas_color = alpha_color = bias_color = awaken_color = TONE_GREY
+        timing_label = regime_label = confidence_label = risk_label = "引擎未产出"
+        harmony_label = manas_label = alpha_label = bias_label = "引擎未产出"
+
+    bar_width = max(0.0, min(1.0, float(manas_score))) * 100.0
+    threshold_pos = max(0.0, min(1.0, float(threshold))) * 100.0
+    gap = float(manas_score) - float(threshold)
+    gap_text = f"过线 +{gap:.3f}" if gap >= 0 else f"差 {-gap:.3f}"
+
     gate_reason = state.get("action_gate_reason", "") or "（未记录）"
     bias_message = state.get("bias_message", "") or ""
+
+    unavailable_banner = ""
+    if not manas_available:
+        err = escape(str(state.get("error") or "原因未记录"))
+        unavailable_banner = (
+            f'<div style="margin-bottom: 10px; padding: 8px 10px; border-radius: 8px;'
+            f'background: {TONE_GREY}22; border: 1px solid {TONE_GREY};'
+            f'font-size: 11px; color: #cbd5e1;">'
+            f'末那识引擎本轮未产出（{err}）—— 下方数值是占位默认值，不是真实读数。</div>'
+        )
 
     return f"""<div style="margin-bottom: 16px;">
         <div style="
@@ -948,44 +1252,86 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
             </div>
         </div>
 
+        {unavailable_banner}
+
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="timing_score ∈ [0,1]：现在适不适合动手（微观时机）。越高越好。">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">时机</div>
-                <div style="font-size: 16px; font-weight: 600; color: #0ea5e9;">{timing:.2f}</div>
+                <div style="font-size: 16px; font-weight: 600; color: {timing_color};">{timing:.2f}</div>
+                <div style="font-size: 9px; color: {timing_color}; margin-top: 2px;">{timing_label}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="regime_score ∈ [-1,1]：大方向顺不顺（宏观环境）。正=顺风，负=逆风。">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">趋势</div>
-                <div style="font-size: 16px; font-weight: 600; color: #8b5cf6;">{regime:+.2f}</div>
+                <div style="font-size: 16px; font-weight: 600; color: {regime_color};">{regime:+.2f}</div>
+                <div style="font-size: 9px; color: {regime_color}; margin-top: 2px;">{regime_label}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="confidence_score ∈ [0,1.5]：策略战绩还管不管用（与人意愿无关）。<0.5 策略失灵，>1.0 警惕过度自信。">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">自信度</div>
-                <div style="font-size: 16px; font-weight: 600; color: #22c55e;">{confidence:.2f}</div>
+                <div style="font-size: 16px; font-weight: 600; color: {confidence_color};">{confidence:.2f}</div>
+                <div style="font-size: 9px; color: {confidence_color}; margin-top: 2px;">{confidence_label}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">风险温度</div>
-                <div style="font-size: 16px; font-weight: 600; color: #f59e0b;">{risk_temp:.2f}</div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="risk_temperature ∈ [0.5,2.0] 反向指标：越高越危险。risk_safety = 1 − min(T,1.5)/1.5，T=1.5 时安全余量归零。">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">风险温度 ↓</div>
+                <div style="font-size: 16px; font-weight: 600; color: {risk_color};">{risk_temp:.2f}</div>
+                <div style="font-size: 9px; color: {risk_color}; margin-top: 2px;">{risk_label}</div>
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="和谐度 = 0.4×时机 + 0.35×风险安全 + 0.25×自信度，再乘趋势/叙事/偏差折扣；它与 manas_score 是同一个数。">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">和谐度</div>
-                <div style="font-size: 14px; font-weight: 600; color: #06b6d4;">{harmony_text} {harmony_strength:.2f}</div>
+                <div style="font-size: 14px; font-weight: 600; color: {harmony_color};">{harmony_strength:.2f}</div>
+                <div style="font-size: 9px; color: {harmony_color}; margin-top: 2px;">{harmony_label}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="MetaManas 的纠偏乘子：1.00 = 无偏差；贪 0.70 / 惧 0.50~0.80。它已经作用在和谐度里。">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">偏见修正</div>
-                <div style="font-size: 14px; font-weight: 600; color: #ec4899;">{bias_text} {alpha:.2f}</div>
+                <div style="font-size: 14px; font-weight: 600; color: {bias_color};">{bias_text} ×{bias_correction:.2f}</div>
+                <div style="font-size: 9px; color: {bias_color}; margin-top: 2px;">{bias_label}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">觉醒</div>
-                <div style="font-size: 14px; font-weight: 600; color: #a855f7;">{awakening_text}</div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="仓位系数 α = clamp(自信度 × 和谐度, 0.3, 1.5)：决定下单量能放多大。贴 0.30 地板 = 几乎没信心。">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">仓位系数 α</div>
+                <div style="font-size: 14px; font-weight: 600; color: {alpha_color};">{alpha:.2f}</div>
+                <div style="font-size: 9px; color: {alpha_color}; margin-top: 2px;">{alpha_label}</div>
+            </div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="引擎真值（读共享 AwakenedAlaya 的觉醒档位）。它只影响 harmony 的乘子，不由分数反推。">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">觉醒（引擎）</div>
+                <div style="font-size: 14px; font-weight: 600; color: {awaken_color};">{awakening_text}</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">参考活动度 {activity_pct}%</div>
             </div>
         </div>
 
-        <div style="background: #0f172a; border-radius: 8px; padding: 12px; text-align: center;">
-            <div style="font-size: 10px; color: #64748b; margin-bottom: 6px;">末那识综合分数</div>
-            <div style="font-size: 28px; font-weight: 700; color: #22c55e;">{manas_score:.3f}</div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 4px;">供应链风险: {supply_risk}</div>
+        <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+                <div style="font-size: 10px; color: #64748b;">末那识综合分数（= 和谐度）</div>
+                <div style="font-size: 10px; color: {manas_color};">{manas_label} · {gap_text}（门槛 {threshold:.3f}）</div>
+            </div>
+            <div style="text-align: center;">
+                <span style="font-size: 28px; font-weight: 700; color: {manas_color};">{manas_score:.3f}</span>
+            </div>
+            <div style="position: relative; height: 8px; background: #1e293b; border-radius: 4px; margin: 8px 0 6px;">
+                <div style="width: {bar_width:.1f}%; height: 100%; background: {manas_color}; border-radius: 4px;"></div>
+                <div title="行动门槛：分数过线才可能不是 hold"
+                     style="position: absolute; left: {threshold_pos:.1f}%; top: -3px; width: 2px; height: 14px; background: #f59e0b;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b;">
+                <span>供应链风险: {supply_risk}</span>
+                <span>竖线 = 门槛；左侧条 = 当前分。过线才不是 hold</span>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 8px; font-size: 9px; color: #94a3b8;">
+            <div><span style="color: {TONE_RED};">■</span> 危险 / 不利</div>
+            <div><span style="color: {TONE_AMBER};">■</span> 偏弱</div>
+            <div><span style="color: {TONE_BLUE};">■</span> 中性</div>
+            <div><span style="color: {TONE_GREEN};">■</span> 健康 / 有利</div>
         </div>
 
         <div style="margin-top: 12px; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 11px; color: #94a3b8;">
@@ -1007,6 +1353,20 @@ def _render_manas_core(state: Dict[str, Any]) -> str:
                 <div><span style="color: #a855f7;">🌟 觉悟</span> - 完全觉醒，高确信行动</div>
             </div>
         </div>
+
+        <details style="margin-top: 8px; padding: 10px; background: #0f172a; border-radius: 8px;">
+            <summary style="cursor: pointer; font-size: 11px; font-weight: 600; color: #f1f5f9;">分数怎么读（区间 · 阈值 · 公式）</summary>
+            <div style="margin-top: 8px; font-size: 10px; line-height: 1.8; color: #cbd5e1;">
+                <div><b style="color: #f1f5f9;">时机</b> 0~1 · 现在适不适合动手，越高越好（&lt;0.25 不宜动 / &lt;0.40 偏弱 / &lt;0.60 一般 / ≥0.60 成熟）</div>
+                <div><b style="color: #f1f5f9;">趋势</b> −1~1 · 大方向顺不顺，正=顺风、负=逆风（按 (x+1)/2 归一后 0.35 / 0.45 / 0.55 分档）</div>
+                <div><b style="color: #f1f5f9;">自信度</b> 0~1.5 · 策略战绩还管不管用，<span style="color: #94a3b8;">与人的意愿无关</span>（&lt;0.35 失灵 / &lt;0.50 偏弱 / &lt;1.00 正常 / ≥1.00 很适配）</div>
+                <div><b style="color: #f1f5f9;">风险温度</b> 0.5~2.0 · <span style="color: #f59e0b;">反向指标</span>，越高越危险（≥1.30 很危险 / ≥1.10 偏紧 / ≥0.90 中性 / &lt;0.90 宽松）；1.5 = 安全余量归零</div>
+                <div><b style="color: #f1f5f9;">和谐度</b> = 0.4×时机 + 0.35×(1 − min(T,1.5)/1.5) + 0.25×自信度，再依次乘 趋势 0.7~1.0 / 叙事 / 共振 / 觉醒 / 偏差 折扣</div>
+                <div><b style="color: #f1f5f9;">行动门槛</b> 0.5（人的意愿可在有限幅度内放宽，故显示"实际门槛"）· 分数过线才可能不是 hold；"共振 + 强时机"是另一条通道</div>
+                <div><b style="color: #f1f5f9;">仓位系数 α</b> = clamp(自信度 × 和谐度, 0.3, 1.5) · 决定下单量能放多大，贴 0.30 地板 = 几乎没信心</div>
+                <div style="margin-top: 6px; color: #64748b;">颜色讲的是「对账户有利没有」，与 A 股涨红跌绿相反：红=危险/不利，绿=健康。</div>
+            </div>
+        </details>
     </div>
     """
 
@@ -1023,10 +1383,17 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
     transformer = qkv_state.get("transformer", {})
     in_context_learning = qkv_state.get("in_context_learning", {})
 
-    total_encoded = event_encoder.get("total_encoded", 0)
+    symbols_covered = event_encoder.get("symbols_covered", 0)
     key_features = event_encoder.get("key_features", [])
-    fusion_alpha = multi_scorer.get("fusion_alpha", 0.0)
+    fusion_alpha = multi_scorer.get("fusion_alpha")
+    alpha_events = multi_scorer.get("events_count", 0)
     heads_count = multi_scorer.get("heads_count", 0)
+    if isinstance(fusion_alpha, (int, float)):
+        alpha_text = f"Alpha(估) {fusion_alpha:.3f} · {alpha_events} 标的"
+        alpha_tip = "估算值：用当前市场收益现造事件后算出的多头融合 alpha，不是模型学到的信号"
+    else:
+        alpha_text = "Alpha 无读数"
+        alpha_tip = "没有可用市场事件，未产出 Alpha（不再用 0.5 冒充中性）"
 
     mem_total = attention_memory.get("total", 0)
     level_dist = attention_memory.get("level_distribution", {"high": 0, "medium": 0, "low": 0})
@@ -1078,15 +1445,16 @@ def _render_qkv_module(qkv_state: Dict[str, Any]) -> str:
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
-                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📊 事件编码</div>
-                <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">{total_encoded} events</div>
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;"
+                 title="当前市场历史覆盖的标的数（QueryState._market_history）。它不是编码事件数。">
+                <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">📊 覆盖标的</div>
+                <div style="font-size: 14px; font-weight: 600; color: #0ea5e9;">{symbols_covered} 个</div>
                 <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{features_str}</div>
             </div>
-            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
+            <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;" title="{escape(alpha_tip)}">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🎯 多维评分</div>
                 <div style="font-size: 14px; font-weight: 600; color: #22c55e;">{heads_count} heads</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">Alpha: {fusion_alpha:.3f}</div>
+                <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{alpha_text}</div>
             </div>
             <div style="background: #0f172a; border-radius: 8px; padding: 10px; text-align: center;">
                 <div style="font-size: 10px; color: #64748b; margin-bottom: 4px;">🧠 注意力记忆</div>
