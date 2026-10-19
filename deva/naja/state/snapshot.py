@@ -294,6 +294,19 @@ class SnapshotManager:
             hotspot_state = self._get_current_hotspot_state()
             portfolio_snapshot = self._get_portfolio_snapshot()
 
+            # 这笔决策当时那只票的基本面档位。只留在 market_state 里的话，
+            # 复盘时还得自己按日期去翻，等于没记。
+            try:
+                from deva.naja.application import get_app_container
+
+                qs = getattr(get_app_container(), "query_state", None)
+                getter = getattr(qs, "get_fundamental", None) if qs else None
+                fund = getter(symbol) if callable(getter) else None
+                if fund:
+                    market_state["fundamental"] = dict(fund)
+            except Exception as e:
+                log.debug(f"获取基本面快照失败: {e}")
+
             record = BanditDecisionContext(
                 decision_id=decision_id,
                 timestamp=now,
@@ -339,6 +352,30 @@ class SnapshotManager:
             state["alerts_count"] = len(alerts)
         except Exception as e:
             log.debug(f"获取market_state失败: {e}")
+
+        # 决策当时的**环境结论**。BanditDecisionContext 本来就是用来复盘的，
+        # 只记「哪只票、什么价」不够 —— 事后无法回答「当时市场是什么状态、
+        # 这个结论有多新、用了多少样本」。这里补的是决策输入，不是新指标。
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            qs = getattr(container, "query_state", None) if container else None
+            if qs is not None:
+                regime = getattr(qs, "market_regime", {}) or {}
+                state["query_state"] = {
+                    "regime": regime.get("type"),
+                    "regime_ts": regime.get("timestamp"),
+                    "avg_change": regime.get("avg_change"),
+                    "abs_change": regime.get("abs_change"),
+                    "sample_size": regime.get("sample_size"),
+                    "regime_stale": bool(qs.is_stale("market_regime"))
+                    if hasattr(qs, "is_stale") else None,
+                    "macro_liquidity_signal": round(float(getattr(qs, "macro_liquidity_signal", 0.5)), 4),
+                    "risk_bias": round(float(getattr(qs, "risk_bias", 0.5)), 4),
+                    "stale_fields": qs.health().get("stale_fields") if hasattr(qs, "health") else [],
+                }
+        except Exception as e:
+            log.debug(f"获取QueryState快照失败: {e}")
 
         return state
 

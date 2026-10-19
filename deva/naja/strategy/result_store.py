@@ -129,35 +129,54 @@ class StrategyResult:
             portfolio_state = getattr(query_state, 'portfolio_state', {}) or {}
             market_regime = getattr(query_state, 'market_regime', {}) or {}
 
+            # ❗字段过期就不参与加权：QueryState 是进程内快照，没有 TTL 时
+            #   「20 分钟前的 regime」和「刚刚的 regime」在调用方看来一样新。
+            is_stale = getattr(query_state, 'is_stale', None)
+            def _fresh(field):
+                return True if not callable(is_stale) else not is_stale(field)
+
             symbol = self.get_symbol()
             block = self.get_block()
 
-            held_symbols = set(portfolio_state.get("held_symbols", []))
-            if symbol and symbol in held_symbols:
-                priority *= 0.3
-                self.matches_held_symbol = True
-                self.tags.append("already_held")
+            if _fresh("portfolio_state") and portfolio_state:
+                held_symbols = {
+                    str(s).strip().lower()
+                    for s in (portfolio_state.get("held_symbols") or [])
+                }
+                if symbol and symbol.strip().lower() in held_symbols:
+                    priority *= 0.3
+                    self.matches_held_symbol = True
+                    if "already_held" not in self.tags:
+                        self.tags.append("already_held")
 
-            if attention_focus:
+            if _fresh("attention_focus") and attention_focus:
+                # attention_focus 现在是**绝对强度**（0~1，不再按 max 归一化），
+                # 所以这里的加成才有区分度：强题材 ×1.5，弱题材几乎不加。
                 max_focus_weight = 0.0
+                symbol_key = (symbol or "").strip().lower()
+                block_key = str(block or "").strip().lower()
                 for focus_key, focus_weight in attention_focus.items():
-                    if focus_key == symbol or focus_key == block:
-                        max_focus_weight = max(max_focus_weight, focus_weight)
+                    key = str(focus_key).strip().lower()
+                    if key == symbol_key or key == block_key:
+                        max_focus_weight = max(max_focus_weight, float(focus_weight))
 
                 if max_focus_weight > 0:
-                    priority *= (1 + max_focus_weight * 0.5)
+                    priority *= (1 + min(max_focus_weight, 1.0) * 0.5)
                     self.matches_attention_focus = True
-                    self.tags.append("attention_focus")
+                    if "attention_focus" not in self.tags:
+                        self.tags.append("attention_focus")
 
             regime_type = market_regime.get("type", "neutral") if isinstance(market_regime, dict) else "neutral"
-            if regime_type in ("trend_up", "trend_down"):
+            if _fresh("market_regime") and regime_type in ("trend_up", "trend_down"):
                 priority *= 1.2
-                self.tags.append(f"regime_{regime_type}")
+                if f"regime_{regime_type}" not in self.tags:
+                    self.tags.append(f"regime_{regime_type}")
 
             global_attention = getattr(query_state, '_last_global_attention', None)
             if global_attention is not None and global_attention < 0.3:
                 priority *= 0.7
-                self.tags.append("low_attention_period")
+                if "low_attention_period" not in self.tags:
+                    self.tags.append("low_attention_period")
 
         self.priority = max(0.0, min(1.0, priority))
         return self.priority
