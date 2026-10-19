@@ -225,8 +225,17 @@ revoke_derived_topics()  ── 只删 derived + 记撤销名单
 4. **推导候选**（score + 理由）——`🔄 重新推导`｜`✅ 推导并采纳`｜`↩️ 撤销推导`
 
 路由：`web_ui/routes.py` 注册 `(r'/focusadmin', webio_handler(focusadmin))`，
-页面壳 `web_ui/pages.py::focusadmin`；导航菜单 `infra/ui/ui_theme.py` 加
-「🎯 关注管理」。
+页面壳 `web_ui/pages.py::focusadmin`。
+
+**入口放哪（2026-10-19 定）**：**不进顶部导航**。导航当时已 13 项 / 实测约 1048px
+（1280 屏只剩 ~230px 余量），而本页是「配置关注主题」的低频页，不是每天要看的结果页。
+现有三处入口，都够用：
+
+| 位置 | 形态 | 用途 |
+|---|---|---|
+| `/news` 标题右侧 | `⚙️ 关注设置` 链接 | **主入口**——新闻页的「持仓优先排序」就吃本页数据，看到结果顺手改配置 |
+| `/devtools` → 策略与交易 | 卡片 | 找不到时兜底 |
+| 菜单栏托盘 → 常用页面 | 菜单项 | 不开浏览器也能进 |
 
 **PyWebIO 铁律**：每次 `put_html` 都是**独立 DOM 片段**，未闭合标签会被浏览器补闭合
 → 本页每个 HTML 片段都**自闭合**，写完重绘整块 scope（`clear(SCOPE)` + `use_scope`）。
