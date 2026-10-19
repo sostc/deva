@@ -100,6 +100,10 @@ ROUND_CARRIED = "CARRIED"
 
 T_ROTATION_TABLE = "naja_t_rotation_rounds"
 
+#: 逆风日「跌了是机会」的分批系数：第 1/2/3 次低吸依次递减，用完即止。
+#: 不设这一层，趋势下跌里会一路接飞刀把子弹打光。
+DIP_BATCH_SCALES = (0.5, 0.3, 0.2)
+
 
 @dataclass
 class TRotationConfig:
@@ -375,6 +379,7 @@ class TRotationEngine:
         volume: float = 0.0,
         minutes_to_close: Optional[float] = None,
         session_open_ts: Optional[float] = None,
+        env: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """每个分时点调用。
 
@@ -386,6 +391,16 @@ class TRotationEngine:
             minutes_to_close: 距收盘分钟数。**务必提供**，
                 它决定能否新开倒 T、以及是否触发强制买回。
                 给 None 时倒 T 与强保逻辑都会退化，这是刻意的保守行为。
+            env: 环境门。粗字段 ``allow_open`` 表示「整体宜不宜加仓」，
+                但正 T / 倒 T 的风险方向相反，实际准入由
+                ``allow_forward`` / ``allow_reverse`` 分别决定
+                （缺省时回落到 ``allow_open``）；缩放用
+                ``forward_size_scale`` / ``reverse_size_scale``。
+                逆风日正 T 还会检查 ``require_dip`` 许可：
+                ``dip_ok``（不弱于同批中位数）、``dip_ratio``（跌幅需达阈值的倍数）、
+                ``dip_batch_scales``（分批递减，用完即止）。
+                只影响**新开轮次**的准入与仓位，不影响了结/买回 ——
+                拦住开仓可以，拦住平仓会把人锁死在里面。
 
         Returns:
             诊断字典，永远包含 signal / action / reason，便于排查为什么没动。
@@ -444,7 +459,7 @@ class TRotationEngine:
             return diag
 
         ok, reason, round_obj = self._open_round_for(
-            signal, snapshot, now, session_open, minutes_to_close
+            signal, snapshot, now, session_open, minutes_to_close, env=env
         )
         diag["reason"] = reason
         if ok and round_obj is not None:
@@ -456,6 +471,91 @@ class TRotationEngine:
     # ------------------------------------------------------------------
     # 开仓
     # ------------------------------------------------------------------
+    @staticmethod
+    def _env_gate(
+        env: Optional[Dict[str, Any]], action: Optional[str] = None
+    ) -> Tuple[bool, str, float]:
+        """解析环境门：返回 (是否允许开仓, 原因, 仓位缩放)。
+
+        ``allow_open`` 是「整体宜不宜加仓」的粗结论，但正 T 与倒 T 的风险方向
+        恰好相反：下跌日里倒 T 是顺风的（先卖后买，跌了更容易买回），
+        正 T 才是「接下跌的刀」。一刀切会把这天最好用的工具一起收起来。
+
+        因此按动作分别解析：优先读 ``allow_forward`` / ``allow_reverse``，
+        缺失时回落到 ``allow_open``（兼容只给粗结论的老调用方）。
+        """
+        if not env:
+            return True, "", 1.0
+        if action == ACTION_BUY_T:
+            allowed = env.get("allow_forward", env.get("allow_open", True))
+            scale_key = "forward_size_scale"
+        elif action == ACTION_SELL_T:
+            allowed = env.get("allow_reverse", env.get("allow_open", True))
+            scale_key = "reverse_size_scale"
+        else:
+            allowed = env.get("allow_open", True)
+            scale_key = "size_scale"
+        if allowed is False:
+            return False, str(env.get("reason") or "环境门拦截新开仓"), 0.0
+        raw = env.get(scale_key, env.get("size_scale", 1.0))
+        try:
+            scale = float(raw)
+        except (TypeError, ValueError):
+            scale = 1.0
+        return True, "", max(0.1, min(1.0, scale))
+
+    def _forward_rounds_today(self, code: str, now: float) -> int:
+        """该标的今天已经开了几轮正 T（用于逆势抄底的分批递减）。"""
+        today = time.localtime(now)[:3]
+        n = 0
+        for rnd in self._rounds.values():
+            if rnd.stock_code != code or rnd.kind != KIND_FORWARD:
+                continue
+            try:
+                if time.localtime(rnd.first_time)[:3] == today:
+                    n += 1
+            except (OSError, OverflowError, ValueError):
+                continue
+        return n
+
+    def _forward_gate(
+        self,
+        signal: RotationSignal,
+        env: Optional[Dict[str, Any]],
+        now: float,
+    ) -> Tuple[bool, str, float]:
+        """正 T 的准入：环境门 + 逆势抄底许可（dip license）。
+
+        逆风日不是「一律不许买」，而是把「好公司跌了是机会」翻译成可判定条件：
+        核心持仓（本引擎只跑核心持仓，天然满足）+ 不弱于同批中位数
+        + 跌够深 + 分批递减。四条缺一不可，缺的那条就是接飞刀的入口。
+        """
+        allowed, why, scale = self._env_gate(env, ACTION_BUY_T)
+        if not allowed:
+            return False, why, 0.0
+        if not env or not env.get("require_dip"):
+            return True, "", scale
+
+        if env.get("dip_ok") is False:
+            return False, str(env.get("dip_reason") or "个股弱于同批中位数，不抄底"), 0.0
+
+        thr = self._thresholds_for(signal.stock_code)
+        try:
+            ratio = float(env.get("dip_ratio", 1.5) or 1.5)
+        except (TypeError, ValueError):
+            ratio = 1.5
+        need = thr.buy_dev_close * ratio
+        if signal.ret > -need:
+            return False, (
+                f"逆风日正 T 需跌幅 ≥{need:.1f}%（当前 {signal.ret:+.2f}%），浅跌不接"
+            ), 0.0
+
+        batches = env.get("dip_batch_scales") or list(DIP_BATCH_SCALES)
+        n = self._forward_rounds_today(signal.stock_code, now)
+        if n >= len(batches):
+            return False, f"今日逆势低吸批次已用完（{n}/{len(batches)}）", 0.0
+        return True, "", scale * float(batches[n])
+
     def _open_round_for(
         self,
         signal: RotationSignal,
@@ -463,6 +563,7 @@ class TRotationEngine:
         now: float,
         session_open: Optional[float],
         minutes_to_close: Optional[float],
+        env: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
@@ -471,13 +572,25 @@ class TRotationEngine:
         if signal.action == ACTION_BUY_T:
             if not cfg.enable_forward_t:
                 return False, "正 T 已停用", None
-            return self._open_forward_t(signal, snapshot, now, session_open)
+            ok, why, scale = self._forward_gate(signal, env, now)
+            if not ok:
+                return False, why, None
+            opened, reason, rnd = self._open_forward_t(
+                signal, snapshot, now, session_open, size_scale=scale
+            )
+            if opened and rnd is not None and env and env.get("require_dip"):
+                # 留痕：复盘时能把「逆势低吸」单独拎出来算胜率
+                rnd.note = f"{rnd.note} ·dip_buy"
+            return opened, reason, rnd
 
         if signal.action == ACTION_SELL_T:
             if not cfg.enable_reverse_t:
                 return False, "倒 T 已停用", None
+            allowed, why, scale = self._env_gate(env, ACTION_SELL_T)
+            if not allowed:
+                return False, why, None
             return self._open_reverse_t(
-                signal, snapshot, now, session_open, minutes_to_close
+                signal, snapshot, now, session_open, minutes_to_close, size_scale=scale
             )
 
         return False, f"未知动作 {signal.action}", None
@@ -494,6 +607,7 @@ class TRotationEngine:
         snapshot: DeviationSnapshot,
         now: float,
         session_open: Optional[float],
+        size_scale: float = 1.0,
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
@@ -523,12 +637,13 @@ class TRotationEngine:
         cap_by_amount = cfg.max_round_amount / snapshot.last if snapshot.last > 0 else 0
         cap_by_pos = sellable * cfg.max_round_pct
 
-        raw_qty = min(cap_by_cash, cap_by_amount, cap_by_pos)
+        raw_qty = min(cap_by_cash, cap_by_amount, cap_by_pos) * size_scale
         qty = self._lot_size(code, raw_qty)
         if qty < max(ctx.round_lot, cfg.min_round_shares):
             return False, (
                 f"可买份额 {qty:.0f} < 最小 {cfg.min_round_shares:.0f} 份"
-                f"（资金上限 {cap_by_cash:.0f} / 持仓上限 {cap_by_pos:.0f}）"
+                f"（资金上限 {cap_by_cash:.0f} / 持仓上限 {cap_by_pos:.0f}"
+                f" / 环境缩放 {size_scale:.2f}）"
             ), None
 
         before = self._ledger.effective_shares(
@@ -582,6 +697,7 @@ class TRotationEngine:
         now: float,
         session_open: Optional[float],
         minutes_to_close: Optional[float],
+        size_scale: float = 1.0,
     ) -> Tuple[bool, str, Optional[RotationRound]]:
         code = signal.stock_code
         ctx = self._ctx[code]
@@ -602,12 +718,13 @@ class TRotationEngine:
             ), None
 
         cap_by_amount = cfg.max_round_amount / snapshot.last if snapshot.last > 0 else 0
-        raw_qty = min(quota * cfg.max_round_pct, cap_by_amount)
+        raw_qty = min(quota * cfg.max_round_pct, cap_by_amount) * size_scale
         qty = self._lot_size(code, raw_qty)
         if qty < max(ctx.round_lot, cfg.min_round_shares):
             return False, (
                 f"可做T份额 {qty:.0f} < 最小 {cfg.min_round_shares:.0f} 份"
-                f"（今日额度 {quota:.0f}，单次上限 {cfg.max_round_pct:.0%}）"
+                f"（今日额度 {quota:.0f}，单次上限 {cfg.max_round_pct:.0%}"
+                f"，环境缩放 {size_scale:.2f}）"
             ), None
 
         allowed, why = self._ledger.can_sell(
