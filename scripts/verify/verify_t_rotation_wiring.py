@@ -115,12 +115,40 @@ class Quote:
         return (self.current - self.prev_close) / self.prev_close * 100 if self.prev_close else 0.0
 
 
+class _MissingQuote:
+    """替身版的「这个标的没取到」—— 对应 FutuQuote(ok=False, error=...)。
+
+    runner 的 ``_pump`` 判的是 ``quote.ok`` 和 ``quote.current``，所以这里必须
+    老老实实给 ``ok=False`` + 0 价，不能返回 None 让上层误判成"批量失败"。
+    """
+
+    def __init__(self, code):
+        self.code = code
+        self.name = ""
+        self.ok = False
+        self.error = f"替身里没有 {code}"
+        self.current = 0.0
+        self.prev_close = 0.0
+        self.volume = 0.0
+        self.market = ""
+
+    @property
+    def age(self):
+        return 0.0
+
+
 class FakeQuotes:
     """富途行情源（``futu_quote_source``）的最小替身。
 
-    ❗接口已不是 MarketDataBus：runner 读的是 ``src.get(code, market)``，
-    返回对象必须带 ``ok`` / ``current`` / ``prev_close`` / ``volume``。
-    旧替身是 ``fetch`` + ``get_quote``，2026-10-14 换富途后已经对不上了。
+    ❗接口已是 ``FutuQuoteSource``：runner 批量测得走 ``src.fetch([(code, market)])``，
+    单点回退才是 ``src.get(code, market)``；返回对象必须带 ``ok`` / ``current`` /
+    ``prev_close`` / ``volume``。旧替身是 ``fetch`` + ``get_quote``（MarketDataBus
+    时代），2026-10-14 换富途后已经对不上。
+
+    ❗``fetch`` 是必须的，而且**契约要和真实实现一致**：返回 dict 的键是**入参里的
+    原始代码**，取不到的条目也要在结果里（``ok=False`` + ``error``）。缺了这个
+    方法，``_prefetch_quotes`` 会走 except → 整轮算「批量取行情失败」→ 所有检查
+    报的不是真 bug，而是替身自己的 AttributeError（2026-10-19：25 项里 9 项如此）。
     """
 
     PRIORITY_HIGH = "HIGH"
@@ -146,6 +174,21 @@ class FakeQuotes:
             if k == code or k.endswith(code):
                 return v
         return None
+
+    def fetch(self, requests):
+        """批量入口：一次调用取回本轮全部标的（``c34f551`` 起 runner 走这里）。
+
+        返回值对齐 ``FutuQuoteSource.fetch``：**原始代码 → quote**，取不到的条目
+        也要在 dict 里且 ``ok=False`` —— 真实实现就是这样"失败的标的也在场"，
+        守卫的替身必须同构，否则测出来的行为是假的。
+        """
+        self.fetches.append(list(requests))
+        out = {}
+        for code, market in requests:
+            key = str(code)
+            quote = self.get(key, market)
+            out[key] = quote if quote is not None else _MissingQuote(key)
+        return out
 
 
 def _dt(y, m, d, h, mi):

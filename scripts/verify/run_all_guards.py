@@ -16,6 +16,11 @@
 **24 项里有 17 项崩掉**，就这样躺了一个版本，直到有人逐个手跑才发现。
 根因不是退出策略，是**没有一个统一入口去跑**。
 
+❗第二个实锤（同一份守卫，2026-10-19）：``first_reason()`` 原来倒着扫输出，
+把进程收尾的 ``redis ConnectionError``（deva 总线底层 RedisStream 的退出噪声）
+当成了失败原因 → 真正的 ``❌ 9/25 项失败``（替身缺 ``fetch``）被压了一整轮没
+人看见。**摘要也是展示，摘要错了＝诊断错了**，所以现在先取结论行。
+
 跑法
 ----
     # 全跑（推荐，等价于 CI 的闸门）
@@ -37,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -74,9 +80,26 @@ def accepts_strict(path: Path) -> bool:
         return False
 
 
+#: 结论行，例如 ``❌ 9/25 项失败`` / ``❌ 3/3 项失败：a, b, c``。
+#: 守卫跑完会**先**打印自己的结论，再退出；而进程收尾阶段常常还会甩出一堆
+#: 无关 traceback（最典型的是 deva 总线底层的 RedisStream 在退出时抛
+#: ``redis ConnectionError``）。只看最后一行必然吃到噪声。
+CONCLUSION_RE = re.compile(r"^\s*❌\s*\d+\s*/\s*\d+")
+
+
 def first_reason(out: str) -> str:
-    """从输出里挑一行最能说明问题的，做摘要。"""
+    """从输出里挑一行最能说明问题的，做摘要。
+
+    ❗**必须先取结论行，不能只倒着扫**。倒着取第一行含 ``❌``/``失败``/``Error:``
+    的行看似省事，但真实输出里结论之后还有一堆退出噪声 —— 实测两份做 T 守卫的
+    失败摘要长期被末尾的 ``redis.exceptions.ConnectionError`` 顶掉，于是"为什么
+    失败"被记成了完全无关的 redis。这是**日志展示的数 ≠ 真正用来算的数**的同一
+    个病：摘要也是展示，它错了就等于诊断错了。
+    """
     lines = [ln.rstrip() for ln in out.splitlines() if ln.strip()]
+    for ln in lines:
+        if CONCLUSION_RE.match(ln):
+            return ln.strip()[:110]
     for ln in reversed(lines):
         s = ln.strip()
         if s.startswith("❌") or "违约" in s or "失败" in s or "Error:" in s:

@@ -904,7 +904,20 @@ class RedisStream(Stream):
                     if results:
                         yield self._emit_redis_records(results)
                 break
-            except Exception:
+            except Exception as e:
+                # ❗**已停止时的连接错误是预期的，不是故障**。进程收尾阶段
+                # ``stop()`` 会把 redis 连接关掉，此时阻塞中的 ``xreadgroup``
+                # 必然抛 ``ConnectionError: Connection closed by server``。
+                # 按异常处理会在退出日志**之后**再甩一整条 traceback —— 它
+                # 排在守卫自己的结论行后面，于是 ``run_all_guards`` 的摘要把
+                # 失败原因记成了 redis（真实吃过一次，见 run_all_guards.py
+                # 的 second case）。这里是运行 cessation，不是故障，闭嘴即可。
+                if self.stopped:
+                    logger.debug(
+                        "RedisStream(%s) 已停止，忽略退出时的连接断开: %s",
+                        self.topic, e,
+                    )
+                    return
                 retry_count += 1
                 logger.exception(
                     "RedisStream(%s) loop failed (retry %s/%s)",
