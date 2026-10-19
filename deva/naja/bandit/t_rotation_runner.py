@@ -61,7 +61,7 @@ from .market_session import (
     session_date,
     session_open_ts,
 )
-from .t_rotation import TRotationConfig
+from .t_rotation import DIP_BATCH_SCALES, TRotationConfig
 
 log = logging.getLogger(__name__)
 
@@ -224,6 +224,8 @@ class TRotationRunner:
         # 「行情停更」每 (标的, 交易日) 只喊一次：节假日它会每 30 秒复发
         self._stale_warned: Dict[str, str] = {}
         self._last_diag: Dict[str, Dict[str, Any]] = {}
+        # 最近一次环境门结论（可观测：为什么没开仓，一眼能看到）
+        self._last_env_gate: Dict[str, Any] = {}
         self._errors: Dict[str, str] = {}
 
         self._stats: Dict[str, int] = {
@@ -600,6 +602,161 @@ class TRotationRunner:
             return None
         return quote
 
+    def _environment_gate(
+        self, code: Optional[str] = None, ret: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """把 QueryState 的环境结论翻译成「正 T / 倒 T 各自的准入 + 仓位缩放」。
+
+        为什么不给一个 ``allow_open`` 就完事
+        ------------------------------------
+        正 T 与倒 T 的风险方向相反：下跌日里倒 T 是顺风的（先卖后买，跌了更
+        容易买回），正 T 才是接刀。一刀切会把当天最好用的工具一起收起来。
+
+        逆风日对正 T 也不是一律禁止，而是翻译成「好公司跌了是机会」的可判定
+        条件：核心持仓（本引擎只跑核心持仓，天然满足）+ 不弱于同批中位数
+        + 跌幅达到阈值的倍数 + 分批递减。
+
+        只作用于**新开轮次**；了结/买回永远放行（拦住平仓会把人锁死在里面）。
+        环境字段过期时不拦截，只把仓位打折 —— 监控停摆不该让交易层瘫痪。
+
+        Args:
+            code: 标的代码，用于算相对强度（缺省则不做个股强弱判断）。
+            ret: 该标的当日涨跌（%），仅用于诊断留痕。
+        """
+        gate: Dict[str, Any] = {
+            "tier": "calm",
+            "allow_open": True,
+            "allow_forward": True,
+            "allow_reverse": True,
+            "size_scale": 1.0,
+            "forward_size_scale": 1.0,
+            "reverse_size_scale": 1.0,
+            "require_dip": False,
+            "dip_ok": True,
+            "dip_reason": "",
+            "rel_strength": None,
+            "ret": ret,
+            "reason": "",
+        }
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            qs = getattr(container, "query_state", None) if container else None
+            if qs is None:
+                gate["reason"] = "无 QueryState"
+                return gate
+
+            regime = str((getattr(qs, "market_regime", {}) or {}).get("type", "unknown"))
+            liquidity = float(getattr(qs, "macro_liquidity_signal", 0.5) or 0.5)
+            is_stale = getattr(qs, "is_stale", None)
+            stale = bool(is_stale("market_regime")) if callable(is_stale) else False
+
+            rel: Optional[float] = None
+            if code:
+                try:
+                    rel_fn = getattr(qs, "relative_strength", None)
+                    if callable(rel_fn):
+                        rel = rel_fn(code)
+                except Exception:
+                    rel = None
+            gate["rel_strength"] = rel
+            if rel is not None and rel < -2.0:
+                # 明显弱于同批中位数：这时候的跌多半是自己的事，不是「打折」
+                gate["dip_ok"] = False
+                gate["dip_reason"] = (
+                    f"{code} 弱于同批中位数 {rel:+.1f}pct（个股跌 {ret:+.1f}%），"
+                    f"疑似自身问题，不抄底"
+                )
+
+            if regime == "trend_down" and liquidity < 0.45:
+                gate.update({
+                    "tier": "storm",
+                    # 整体不宜加仓，但这不等于把两个方向一起关掉
+                    "allow_open": False,
+                    "allow_forward": True,
+                    "allow_reverse": True,
+                    "forward_size_scale": 0.8,
+                    "reverse_size_scale": 0.8,
+                    "require_dip": True,
+                    "dip_ratio": 1.5,
+                    "dip_batch_scales": list(DIP_BATCH_SCALES),
+                    "reason": (
+                        f"逆势许可：{regime} + 流动性 {liquidity:.2f}；"
+                        f"倒 T 照做（0.8 倍），正 T 需跌 ≥1.5 倍阈值并分批"
+                    ),
+                })
+            elif regime in ("trend_down", "weak_trend_down") or liquidity < 0.4:
+                gate.update({
+                    "tier": "headwind",
+                    "forward_size_scale": 0.5,
+                    "reverse_size_scale": 1.0,
+                    "require_dip": True,
+                    "dip_ratio": 1.2,
+                    "dip_batch_scales": list(DIP_BATCH_SCALES),
+                    "reason": (
+                        f"逆风：{regime} / 流动性 {liquidity:.2f}；"
+                        f"倒 T 正常，正 T 半仓且需更深偏离"
+                    ),
+                })
+            elif stale:
+                gate.update({
+                    "tier": "stale",
+                    "forward_size_scale": 0.7,
+                    "reverse_size_scale": 0.7,
+                    "reason": "环境数据过期，仓位七折",
+                })
+
+            # 基本面裁决只调**正 T**：它回答的是「这是不是一家值得在下跌中
+            # 加仓的公司」。倒 T 是日内价差，与季度财报无关，硬套上去只会
+            # 让顺风的动作被无关信息拖住。
+            self._apply_fundamental(gate, code, qs)
+            return gate
+        except Exception as e:  # pragma: no cover - 环境门不许影响主流程
+            log.debug("[TRotationRunner] 环境门异常: %s", e)
+            gate["reason"] = "环境门异常"
+            return gate
+
+    def _apply_fundamental(self, gate: Dict[str, Any], code: Optional[str], qs) -> None:
+        """把 QueryState.fundamentals 的档位折进正 T 的准入与仓位。"""
+        gate.setdefault("fund_tier", None)
+        gate.setdefault("fund_scale", 1.0)
+        gate.setdefault("fund_note", "")
+        if not code:
+            gate["fund_note"] = "无标的代码，跳过基本面"
+            return
+        try:
+            getter = getattr(qs, "get_fundamental", None)
+            fund = getter(code) if callable(getter) else None
+        except Exception:
+            fund = None
+        if not fund:
+            # 过期或没有记录：不拦，但打折。把「不知道」当成「没问题」是风控大忌。
+            gate["forward_size_scale"] = float(gate.get("forward_size_scale", 1.0)) * 0.7
+            gate["fund_note"] = "无基本面结论（过期/未覆盖），正 T 七折"
+            return
+
+        tier = str(fund.get("tier") or "NA")
+        scale = float(fund.get("forward_scale") or 0.0)
+        gate["fund_tier"] = tier
+        gate["fund_scale"] = scale
+        gate["fund_total"] = fund.get("total")
+
+        if tier == "NA":
+            # ETF/基金：本来就没有企业财报，不能因此否掉核心持仓的日内策略
+            gate["fund_note"] = "无企业财报（ETF/基金），仅按核心持仓+相对强度"
+            return
+        if tier in ("C", "D") or scale <= 0:
+            gate["allow_forward"] = False
+            gate["dip_ok"] = False
+            gate["dip_reason"] = f"基本面 {tier} 档（{fund.get('total')} 分），不参与逆势低吸"
+            gate["fund_note"] = f"基本面 {tier} 档，正 T 关闭"
+            return
+        gate["forward_size_scale"] = float(gate.get("forward_size_scale", 1.0)) * max(scale, 0.1)
+        if not bool(fund.get("allows_dip")):
+            gate["dip_ok"] = False
+            gate["dip_reason"] = f"基本面 {tier} 档未授予抄底许可"
+        gate["fund_note"] = f"基本面 {tier} 档 ×{scale:.1f}"
+
     def _pump(self, spec: CoreHoldingSpec, dt: datetime, now: float,
               quote=None) -> Dict[str, Any]:
         code = spec.code
@@ -693,6 +850,19 @@ class TRotationRunner:
         # 原来放在前面，节假日头 6 分钟（12×30s）会先补几笔再被死水检测拦住。
         self._maybe_establish_core(spec, quote, now, open_ts, date)
 
+        ret = (
+            (price - float(quote.prev_close)) / float(quote.prev_close) * 100.0
+            if float(quote.prev_close) > 0
+            else 0.0
+        )
+        env_gate = self._environment_gate(code=code, ret=ret)
+        # tier 变化才打一行：逆势许可开/关是运营上要看的事，但不该每 30 秒刷屏
+        if env_gate.get("tier") != (self._last_env_gate or {}).get("tier"):
+            log.info(
+                "[TRotationRunner] 环境门 → %s：%s",
+                env_gate.get("tier"), env_gate.get("reason") or "正常",
+            )
+        self._last_env_gate = env_gate
         diag = self._eng(spec.market).on_tick(
             code,
             price,
@@ -700,6 +870,7 @@ class TRotationRunner:
             volume=dvol,
             minutes_to_close=mtc,
             session_open_ts=open_ts,
+            env=env_gate,
         )
         self._last_diag[code] = diag
         self._stats["ticks"] += 1
@@ -1316,6 +1487,9 @@ class TRotationRunner:
             # 「UI 显示在做 T 但实际全在虚拟盘」是静默失效里最伤的一种。
             "on_sim": self._on_sim,
             "sim_markets": sorted(self._portfolios),
+            # 环境门：allow_open / size_scale / reason。逆风时在这里一眼可见，
+            # 不用去翻「为什么今天一笔 T 都没做」。
+            "env_gate": dict(self._last_env_gate),
             # 三个市场时段不同，这里**逐市场**给出，不再只有一个 A 股 phase
             "phases": {
                 spec.code: {
