@@ -639,6 +639,31 @@ class AppContainer:
                 except Exception as e:
                     log.warning(f"[AppContainer] 调度器启动失败: {e}")
 
+            def init_supply_chain_page():
+                """预热 ``/supplychain`` 页：把模块 import 和首轮取数挪到启动阶段。
+
+                ❗不预热的话，**服务重启后第一次打开这页要付约 5 秒**，其中
+                4.7 秒是模块首次 import（bandit 2.1s + market_hotspot +
+                cognition 那一串懒加载），只有 0.5 秒是真正取数。
+
+                而 import 是**没法缓存**的——内存缓存重启即清空，模块加载这一锤子
+                买卖只能靠**提前付**来挪走。放在这里付，用户打开页面时已经是热的。
+                """
+                from ..bandit import (
+                    get_supply_chain_graph,
+                    get_fundamental_data_fetcher,
+                    get_supply_chain_valuation_engine,
+                )
+                from ..attention.ui.supply_chain.linkage import _get_linker
+                from ..market_hotspot.ui_components.common import get_hot_blocks_and_stocks
+
+                # 顺序有讲究：先建图（纯内存，0s），再取数，最后算估值（要用前两者的结果）
+                get_supply_chain_graph()
+                _get_linker()
+                get_hot_blocks_and_stocks()
+                get_fundamental_data_fetcher().get_supply_chain_fundamentals()
+                get_supply_chain_valuation_engine().analyze_all_stocks()
+
             def _timed(name, fn):
                 """跑一项初始化并**两侧留痕**。
 
@@ -694,6 +719,14 @@ class AppContainer:
                 return
 
             log.info("[AppContainer] 后台初始化完成")
+
+            # ❗供应链页预热**刻意不进 tasks**：tasks 里的项参与上面的超时判定，
+            # 卡住会被报成「服务以残缺状态运行」。但预热只是让页面首次打开变快，
+            # 它慢了/挂了不该影响服务健康判定 —— 最坏结果是那页自己现抓一次。
+            threading.Thread(
+                target=_timed, args=("供应链页预热", init_supply_chain_page),
+                name="naja-init-supplychain-warm", daemon=True,
+            ).start()
 
         thread = threading.Thread(target=background_init, daemon=True)
         thread.start()
