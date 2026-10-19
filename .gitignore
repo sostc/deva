@@ -90,3 +90,7 @@ test_*.pyc
 
 # Naja runtime data
 deva/naja/data/
+
+# 临时诊断输出（脚本跑完即弃的运行产物，别进仓库）
+# 注意不能写 /*.txt —— 根目录的 requirements.txt 是要提交的
+xinhua_news_summary.txt
