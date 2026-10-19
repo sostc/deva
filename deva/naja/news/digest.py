@@ -38,8 +38,10 @@ log = logging.getLogger(__name__)
 DIGEST_DIR = Path.home() / ".naja" / "news_digest"
 DEFAULT_WINDOW_HOURS = 24
 DEFAULT_PER_GROUP_LIMIT = 8
-# 扫描上限：先把最近的一批读进来，再按相关度挑（不是只取前 N 条）
-DEFAULT_SCAN_LIMIT = 300
+# 扫描上限：先把最近的一批读进来，再按相关度挑（不是只取前 N 条）。
+# ❗必须 >= FocusedNewsStore.MAX_CACHE_SIZE（800）：否则 72h 窗口会被这里
+# 静默截断 —— 页面写着"窗口 72 小时"，实际只扫了 300 条，看着像数据少。
+DEFAULT_SCAN_LIMIT = 1000
 
 
 def _esc(value: Any) -> str:
@@ -69,9 +71,14 @@ def build_digest(
 
     if items is None:
         items, source_reason = _load_scored_news(hours=hours, limit=scan_limit)
+        pool = _load_pool_coverage()
     else:
         items = list(items)
         source_reason = None
+        # 注入数据（测试 / 验证）没有真实池子：只如实报条数，不编造覆盖时长
+        pool = {"total": len(items), "oldest_age_hours": None,
+                "retention_hours": None, "capacity": None,
+                "at_capacity": False, "source": "injected"}
 
     triage = NewsTriage(focus)
     analyzed = triage.analyze(items, per_group_limit=per_group_limit)
@@ -94,7 +101,27 @@ def build_digest(
         # 口径透明：把生效的档位区间一并带出去，UI 才能显示"凭什么这么排"
         "tier_config": analyzed["tier_config"],
         "stats": analyzed["stats"],
+        # 池子实际覆盖多长：窗口大于覆盖时结果与更小窗口相同，必须能解释
+        "pool": pool,
     }
+
+
+def _load_pool_coverage() -> Dict[str, Any]:
+    """池子的实际覆盖情况（条数 / 最早一条距今多久）。
+
+    ❗这条信息存在的唯一理由：**窗口切换可能"没效果"而看起来像坏了**。
+    池子只留 72h，若当前只积累了 19h，那么 48h 与 72h 返回的就是同一批 ——
+    接线全对、参数都传了，但用户看不到任何差别。带上覆盖信息，页面就能
+    把"为什么一样"写出来，而不是让人猜。
+    """
+    try:
+        from deva.naja.events.focused_news_store import get_focused_news_store
+
+        return get_focused_news_store().get_coverage()
+    except Exception as e:  # pragma: no cover - 防御
+        log.warning("[NewsDigest] 读取池子覆盖信息失败: %s", e)
+        return {"total": 0, "oldest_age_hours": None, "retention_hours": None,
+                "capacity": None, "at_capacity": False, "source": "unavailable"}
 
 
 def _load_scored_news(*, hours: int, limit: int) -> tuple[List[Dict[str, Any]], Optional[str]]:
@@ -297,11 +324,19 @@ def _render_body_parts(
         )
 
     pierced = int(stats.get("pierced", 0))
+    merged_total = int(stats.get("merged", 0) or 0)
     summary = (
         '<div class="stats">'
         f'<div class="stat"><div class="stat-v">{stats.get("scanned", 0)}</div>'
         f'<div class="stat-k">扫描</div></div>'
-        f'<div class="stat"><div class="stat-v">{stats.get("holding", 0)}</div>'
+        + (
+            # 合并条数独立成卡：藏在副标题里等于看不见，"去重生效了"与
+            # "去重没生效"就不可区分（旧版正是这么静默失效的）
+            f'<div class="stat stat-merged"><div class="stat-v">{merged_total}</div>'
+            f'<div class="stat-k">已合并重复</div></div>'
+            if merged_total else ""
+        )
+        + f'<div class="stat"><div class="stat-v">{stats.get("holding", 0)}</div>'
         f'<div class="stat-k">持仓</div></div>'
         f'<div class="stat"><div class="stat-v">{stats.get("theme", 0)}</div>'
         f'<div class="stat-k">关注叙事</div></div>'
@@ -327,13 +362,56 @@ def _render_body_parts(
         "</div>"
     )
 
-    body = header + summary + tier_line
+    body = header + summary + _render_coverage_html(digest) + tier_line
     if focus_chips:
         body += f'<div class="focus">{focus_chips}</div>'
     body += degraded_html
     body += sections or '<div class="empty"><div class="empty-title">没有命中任何关注项</div></div>'
 
     return title, body
+
+
+def _render_coverage_html(digest: Dict[str, Any]) -> str:
+    """池子覆盖说明。
+
+    ❗这是「按钮没反应」的解药。窗口 72h 而池子只积累 19h 时，48h/72h 与 24h
+    返回的是同一批数据 —— 参数传对了、代码没错，只是**数据不存在**。
+    不写明的话，用户只能得出"按钮坏了"这个结论（本次就是这么被问到的）。
+    """
+    pool = digest.get("pool") or {}
+    if not pool or pool.get("source") == "injected":
+        return ""
+
+    total = int(pool.get("total") or 0)
+    covered = pool.get("oldest_age_hours")
+    window = int(digest.get("window_hours") or 0)
+    retention = pool.get("retention_hours")
+    capacity = pool.get("capacity")
+
+    if covered is None:
+        # 空池 / 时间戳缺失：如实说，不假装覆盖了 0 小时
+        if total:
+            return ('<div class="cover">池内 %d 条，但缺少时间戳，无法判断覆盖时长</div>'
+                    % total)
+        return ""
+
+    covered = float(covered)
+    if window > covered + 1.0:
+        # 措辞要对所有窗口都成立：覆盖 19.6h 时，24h 窗口说"与更小窗口相同"是错的，
+        # 说"再往上调也不会多出内容"才对。
+        return (
+            '<div class="cover cover-warn">⚠️ 窗口 %d 小时，但池内只覆盖最近 %.1f 小时'
+            "（%d 条）—— 再往上调窗口也不会多出内容。池子保留 %s 小时，"
+            "攒满后窗口之间才会有差别。</div>"
+            % (window, covered, total,
+               retention if retention is not None else "?")
+        )
+
+    tail = f"保留 {retention} 小时 · 上限 {capacity} 条" if retention is not None else ""
+    if pool.get("at_capacity"):
+        tail = (tail + " · " if tail else "") + "已顶到容量上限，覆盖时长被裁剪"
+    return ('<div class="cover">池内覆盖最近 %.1f 小时（%d 条%s）</div>'
+            % (covered, total, "；" + tail if tail else ""))
 
 
 def _render_row_html(row: Dict[str, Any], group: str) -> str:
@@ -412,8 +490,14 @@ _NJ_CSS = """
 .nj-digest .stat-k{font-size:11px;color:#64748b;margin-top:2px}
 .nj-digest .stat-warn{border-color:#fecaca;background:#fef2f2}
 .nj-digest .stat-warn .stat-v{color:#b91c1c}
+.nj-digest .stat-merged{border-color:#dbe4ee;background:#f6f9fc}
+.nj-digest .stat-merged .stat-v{color:#475569}
 .nj-digest .tierline{font-size:11px;color:#64748b;background:#f8fafc;border:1px solid #e2e8f0;
   border-radius:8px;padding:8px 12px;margin:-8px 0 14px}
+/* 池子实际覆盖：窗口大于覆盖时结果与更小窗口逐字相同，必须写出来 */
+.nj-digest .cover{font-size:11px;color:#64748b;padding:2px 2px;margin:-8px 0 12px}
+.nj-digest .cover-warn{color:#92400e;background:#fffbeb;border:1px solid #fde68a;
+  border-radius:8px;padding:7px 12px;margin:-6px 0 12px}
 .nj-digest .focus{background:#fff;border:1px solid #e2e8f0;border-radius:10px;
   padding:12px;margin-bottom:14px}
 .nj-digest .chip-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0}
@@ -436,8 +520,8 @@ _NJ_CSS = """
 .nj-digest .card-title{font-size:13px;font-weight:500;line-height:1.5}
 .nj-digest .card-title a{color:#0f172a;text-decoration:none}
 .nj-digest .card-title a:hover{text-decoration:underline}
-.nj-digest .dup{font-size:10px;color:#64748b;background:#f1f5f9;border-radius:6px;
-  padding:0 5px;margin-left:6px}
+.nj-digest .dup{font-size:11px;color:#475569;background:#eef2f7;border:1px solid #e2e8f0;
+  border-radius:6px;padding:0 5px;margin-left:6px;font-weight:600}
 .nj-digest .card-rel{font-size:13px;font-weight:600;color:#334155;flex:none}
 .nj-digest .bar{height:3px;background:#f1f5f9;border-radius:2px;margin:8px 0 6px;
   overflow:hidden}
