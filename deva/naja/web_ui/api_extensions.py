@@ -931,6 +931,10 @@ class QueryStateHandler(RequestHandler):
                 "economic_cycle": query_state.economic_cycle,
                 "active_value_type": query_state.active_value_type,
                 "last_decision_reason": query_state.last_decision_reason,
+                "portfolio_state": query_state.portfolio_state,
+                "liquidity_components": getattr(query_state, "liquidity_components", {}),
+                "fundamentals": getattr(query_state, "fundamentals", {}),
+                "health": query_state.health() if hasattr(query_state, "health") else {},
             }
             
             result = {
