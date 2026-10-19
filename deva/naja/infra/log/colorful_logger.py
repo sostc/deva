@@ -238,36 +238,49 @@ def setup_colorful_logger(
     console_formatter = ColorfulFormatter(use_color=use_color, show_timestamp=True) if use_color else PlainFormatter(show_timestamp=True)
     file_formatter = PlainFormatter(show_timestamp=True)
 
+    # 文件 handler 全进程只建一个，所有 logger 共用。
+    # 此前是每个 logger 各建一个 RotatingFileHandler 写同一个 naja.log：8 个 handler
+    # 各持 fd、各自判大小各自 rename，谁先轮转就把别人的写入带到 .1/.2，主文件反而
+    # 空着（巡检据此误判「日志停更=假死」）。Handler 自带锁，多 logger 共用是安全的。
+    file_handler = None
+    if log_file:
+        try:
+            log_path = Path(log_file)
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=max_bytes,
+                backupCount=backup_count,
+                encoding='utf-8'
+            )
+            file_handler.setLevel(level)
+            file_handler.setFormatter(file_formatter)
+        except Exception as e:
+            print(f"⚠ 无法设置文件日志: {e}", file=sys.stderr)
+
+    # 后台 daemon（stdout 不是终端）又已经写文件日志时，不再挂 console handler：
+    # 那份输出和文件内容完全重复，且父进程把 stdout 重定向到别的文件后，
+    # 轮转一旦 rename，fd 1 会继续往改名的旧文件里写 —— 日志分散的第二个源头。
+    add_console = sys.stdout.isatty() or file_handler is None
+
     def configure_logger(logger_name):
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
         logger.propagate = False
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
-        
+
         # Add console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(level)
-        console_handler.setFormatter(console_formatter)
-        logger.addHandler(console_handler)
-        
-        # Add file handler with rotation if log_file is specified
-        if log_file:
-            try:
-                log_path = Path(log_file)
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                file_handler = RotatingFileHandler(
-                    log_file,
-                    maxBytes=max_bytes,
-                    backupCount=backup_count,
-                    encoding='utf-8'
-                )
-                file_handler.setLevel(level)
-                file_handler.setFormatter(file_formatter)
-                logger.addHandler(file_handler)
-            except Exception as e:
-                print(f"⚠ 无法设置文件日志: {e}", file=sys.stderr)
+        if add_console:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(level)
+            console_handler.setFormatter(console_formatter)
+            logger.addHandler(console_handler)
+
+        # Add the single shared rotating file handler if log_file is specified
+        if file_handler is not None:
+            logger.addHandler(file_handler)
 
     configure_logger('')
     configure_logger('deva')

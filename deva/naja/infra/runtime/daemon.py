@@ -16,6 +16,10 @@ PID_FILE = NAJA_DIR / "naja.pid"
 TRAY_PID_FILE = NAJA_DIR / "naja_tray.pid"
 PORT_FILE = NAJA_DIR / "naja.port"
 LOG_FILE = NAJA_DIR / "logs" / "naja.log"
+# 后台进程的 stdout/stderr 通道（启动 banner、print、未捕获异常的回溯）。
+# 必须与 LOG_FILE 分开：naja.log 由 logging handler 独占写入并自行轮转，
+# 若 stdout 也指向它，轮转 rename 之后 fd 1 会继续往旧 inode（.1）里写，日志就被拆散了。
+CONSOLE_LOG_FILE = NAJA_DIR / "logs" / "naja.console.log"
 
 
 def _atomic_write_pid(pid_file: Path, pid: int) -> bool:

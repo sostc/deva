@@ -12,7 +12,7 @@ from deva import NW, Deva
 from .container import AppContainer
 from .runtime_config import AppRuntimeConfig
 from deva.naja.infra.runtime.daemon import (
-    PID_FILE, PORT_FILE, NAJA_DIR, save_pid, clear_pid, setup_reload_handler,
+    PID_FILE, PORT_FILE, NAJA_DIR, CONSOLE_LOG_FILE, save_pid, clear_pid, setup_reload_handler,
 )
 
 
@@ -194,7 +194,9 @@ def run_web_application(config: AppRuntimeConfig):
         env = os.environ.copy()
         if sys.platform == "darwin":
             env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
-        log_file = NAJA_DIR / "logs" / "naja.log"
+        # 走 console 通道，不直接写 naja.log：那个文件由日志 handler 独占并自行轮转，
+        # 多一个长期打开的 fd 会让 rename 后的写入落到旧 inode（.1）里。
+        log_file = CONSOLE_LOG_FILE
         cmd = [sys.executable, "-m", "deva.naja", f"--port={rport}"]
         subprocess.Popen(
             cmd,
