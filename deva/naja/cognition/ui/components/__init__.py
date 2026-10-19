@@ -18,7 +18,7 @@ from .first_principles import render_first_principles
 from .soft_info import render_soft_info
 from .liquidity_prediction import render_liquidity_prediction
 from .token_monitor import render_token_monitor
-from .narrative_value import render_narrative_value
+from .narrative_track import render_narrative_track
 
 __all__ = [
     "render_supply_chain",
@@ -38,5 +38,5 @@ __all__ = [
     "render_soft_info",
     "render_liquidity_prediction",
     "render_token_monitor",
-    "render_narrative_value",
+    "render_narrative_track",
 ]

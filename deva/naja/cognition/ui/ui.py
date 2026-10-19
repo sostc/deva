@@ -4,9 +4,9 @@
 静态说明与长列表默认折叠。分组依据是"用户此刻想问什么"，不是代码模块归属。
 
     ① 概览  —— 现在系统看到了什么（中枢指标 / 事件流）
-    ② 思考  —— 它得出了什么结论（洞察 / 反思 / 语义 / 跨信号）
+    ② 思考  —— 它得出了什么结论（洞察 / 叙事追踪 / 反思 / 语义 / 跨信号）
     ③ 记忆  —— 它记住了什么（分层记忆 / 衰减参数 / 美林时钟）
-    ④ 深度分析 —— 结论背后的展开（叙事 / 传播 / 预测 / 第一性 / 软信息）
+    ④ 深度分析 —— 结论背后的展开（供应链 / 传播 / 预测 / 第一性 / 软信息）
     ⑤ 工具  —— 监控与自检（算力消耗 / 反思调度 / 帮助）
 
 ❗搬出去的两块（都留了跳转入口，别让它们凭空消失）：
@@ -35,7 +35,7 @@ from .components import (
     render_soft_info,
     render_liquidity_prediction,
     render_token_monitor,
-    render_narrative_value,
+    render_narrative_track,
 )
 from .components.layout import (
     SECTION_COLORS,
@@ -108,10 +108,13 @@ class CognitionUI:
         # ── ② 思考 ──────────────────────────────────────────────
         render_section(
             "sec-thinking", "💡", "思考",
-            "它得出了什么：洞察结论、LLM 深度反思、语义冷启动图谱、跨信号共振",
+            "它得出了什么：洞察结论、叙事追踪、LLM 深度反思、语义冷启动图谱、跨信号共振",
             SECTION_COLORS["thinking"],
         )
         render_insight(self)
+        # 叙事追踪是"系统认定市场在讲什么故事"，属于结论而非下钻分析，
+        # 因此放在思考节紧跟洞察；供需价值那套已降级为卡内折叠。
+        render_narrative_track(self)
         render_semantic(self)
         render_cross_signal(self)
 
@@ -127,11 +130,10 @@ class CognitionUI:
         # ── ④ 深度分析 ──────────────────────────────────────────
         render_section(
             "sec-deep", "🔬", "深度分析",
-            "结论背后的展开：叙事价值、流动性传播与预测、第一性原理、软信息权重",
+            "结论背后的展开：供应链联动、流动性传播与预测、第一性原理、软信息权重",
             SECTION_COLORS["deep"],
         )
         render_supply_chain(self)
-        render_narrative_value(self)
         render_propagation(self)
         render_liquidity_prediction(self)
         render_first_principles(self)
