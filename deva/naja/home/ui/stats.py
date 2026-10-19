@@ -55,6 +55,36 @@ def render_stats_cards(ctx: dict, ds_stats: dict, task_stats: dict,
     except Exception:
         pass
 
+    # 算力消耗 —— 全局运维指标，和数据源/任务/策略同级，放在首页首屏而不是
+    # 某个业务页的角落。口径与认知页那张卡共用 get_compute_headline()，
+    # 不在这里另算一遍（周期粒度、环比、停更判定写两遍必然写歪）。
+    compute = {
+        "state": "unavailable",
+        "value": "未采集",
+        "label": "算力消耗",
+        "change": "",
+        "change_color": "#94a3b8",
+        "color": "#94a3b8",
+        "alert": ("未采集", "#94a3b8"),
+        "sub": "监控任务尚无数据",
+    }
+    try:
+        from deva.naja.cognition.ui.components.token_monitor import get_compute_headline
+        compute = get_compute_headline()
+    except Exception:
+        pass
+
+    compute_chg = ""
+    if compute["change"]:
+        compute_chg = (
+            ' · 环比 <b style="color:'
+            + compute["change_color"]
+            + ';">'
+            + compute["change"]
+            + "</b>"
+        )
+    compute_alert_text, compute_alert_color = compute["alert"]
+
     ctx["put_html"](f"""
     <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin: 20px 0;">
         <div style="background: linear-gradient(135deg, #1a3a5c 0%, #0d2137 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
@@ -103,6 +133,12 @@ def render_stats_cards(ctx: dict, ds_stats: dict, task_stats: dict,
             <div style="font-size: 32px; font-weight: 700; color: #43e97b;">{dict_stats['total']}</div>
             <div style="font-size: 14px; color: #fff; margin-top: 8px;">📚 字典</div>
             <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">参考数据，配置管理</div>
+        </div>
+        <div title="算力消耗（OpenRouter 用量）。风险色衡量的是用量/需求强弱，与股价涨红跌绿相反：环比上升=绿、下降=红。数据停止更新时整卡转灰并标注停更天数。" style="background: linear-gradient(135deg, #3a2a0a 0%, #2a1a05 100%); border-radius: 12px; padding: 20px; text-align: center; transition: transform 0.2s; cursor: pointer;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <div style="font-size: 32px; font-weight: 700; color: {compute['color']};">{compute['value']}</div>
+            <div style="font-size: 14px; color: #fff; margin-top: 8px;">🔥 算力消耗</div>
+            <div style="font-size: 11px; color: #94a3b8; margin-top: 5px;">{compute['label']}{compute_chg}</div>
+            <div style="font-size: 10px; color: {compute_alert_color}; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{compute_alert_text} · {compute['sub']}</div>
         </div>
     </div>
     """)
