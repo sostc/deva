@@ -68,6 +68,15 @@ from .tuner import (
     TuningResult,
     get_bandit_tuner,
 )
+# ❗原来只有 __all__ 里写了这几个名字，真实 import 缺失 ——
+# `from deva.naja.bandit import get_supply_chain_valuation_engine` 一直 ImportError
+# （供应链页的估值面板被 except 吞掉，永远显示「加载中」）。
+from .supply_chain_valuation import (
+    SupplyChainValuationEngine,
+    ValuationLevel,
+    ValuationResult,
+    get_supply_chain_valuation_engine,
+)
 from .market_data_bus import (
     MarketDataBus,
     MarketQuote,
