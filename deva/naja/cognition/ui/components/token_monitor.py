@@ -55,24 +55,24 @@ _CONFIDENCE_LABEL = {
 }
 
 
-def _badge(text, color, bg_alpha=0.15):
+def _badge(text, color):
     return (
-        f'<span style="font-size:8px;color:{color};background:rgba(0,0,0,0);'
-        f'border:1px solid {color}44;padding:1px 4px;border-radius:3px;margin-left:4px;">'
+        f'<span style="font-size:11px;color:{color};background:{color}1f;'
+        f'border:1px solid {color}55;padding:1px 6px;border-radius:3px;margin-left:4px;">'
         f"{text}</span>"
     )
 
 
-def _cell(value, label, value_color, sub="", sub_color="#64748b"):
+def _cell(value, label, value_color, sub="", sub_color="#7b8aa0"):
     sub_html = (
-        f'<div style="font-size:8px;color:{sub_color};margin-top:2px;">{sub}</div>' if sub else ""
+        f'<div style="font-size:11px;color:{sub_color};margin-top:2px;">{sub}</div>' if sub else ""
     )
     return f"""
-        <div style="background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.12);
+        <div style="background:rgba(245,158,11,0.07);border:1px solid rgba(245,158,11,0.14);
                     padding:8px 6px;border-radius:8px;text-align:center;min-width:0;">
-            <div style="font-size:14px;color:{value_color};font-weight:700;white-space:nowrap;
+            <div style="font-size:15px;color:{value_color};font-weight:700;white-space:nowrap;
                         overflow:hidden;text-overflow:ellipsis;">{value}</div>
-            <div style="font-size:9px;color:#94a3b8;margin-top:1px;">{label}</div>
+            <div style="font-size:11px;color:#94a3b8;margin-top:1px;">{label}</div>
             {sub_html}
         </div>
     """
@@ -99,6 +99,8 @@ def render_token_monitor(ui):
 
     from pywebio.output import put_html
 
+    from .layout import card, empty_line, legend_bar
+
     try:
         or_trend = get_openrouter_trend()
         ai_trend = get_ai_compute_trend()
@@ -107,15 +109,14 @@ def render_token_monitor(ui):
         ai_trend = None
 
     if not or_trend and not ai_trend:
-        put_html(f"""
-        <div style="margin-bottom:12px;background:rgba(255,255,255,0.02);border-radius:12px;
-                    padding:10px 16px;border:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:12px;color:{C_GRAY};">📡 TOKEN 监控</div>
-            <div style="font-size:10px;color:#475569;margin-top:2px;">
-                尚未采集：缓存为空（openrouter_trend 表无 trend 记录），任务可能从未成功运行过
-            </div>
-        </div>
-        """)
+        put_html(card(
+            title="TOKEN 消耗监控",
+            icon="🔥",
+            body=empty_line(
+                "尚未采集",
+                "缓存为空（openrouter_trend 表无 trend 记录），任务可能从未成功运行过",
+            ),
+        ))
         return
 
     blocks = []
@@ -127,27 +128,6 @@ def render_token_monitor(ui):
     if is_stale:
         # 数据都停了，业务告警「正常」只会误导：改成明确的不可用
         alert_label, alert_color = "⚪ 数据不可用", C_GRAY
-    header_color = C_GRAY if is_stale else "#f59e0b"
-
-    blocks.append(f"""
-    <div style="margin-bottom:12px;background:rgba(255,255,255,0.03);border-radius:12px;
-                padding:14px 18px;border:1px solid rgba(255,255,255,0.08);">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div style="font-size:13px;font-weight:600;color:{header_color};">🔥 TOKEN 消耗监控</div>
-            <div style="font-size:10px;color:#475569;">
-                告警: <span style="color:{alert_color};">{alert_label}</span>
-            </div>
-        </div>
-        <div style="font-size:11px;color:#475569;margin-top:3px;">
-            OpenRouter 日频用量 × AI 算力趋势 → 行业基本面信号
-            <span style="color:#334155;">·</span>
-            <span style="color:{C_RED};">红=需求不利</span>
-            <span style="color:{C_ORANGE};">橙=偏弱</span>
-            <span style="color:{C_BLUE};">蓝=中性</span>
-            <span style="color:{C_GREEN};">绿=健康</span>
-            <span style="color:{C_GRAY};">灰=不可用</span>
-        </div>
-    """)
 
     # ================= 陈旧 / 失败横幅 =================
     if or_trend:
@@ -155,7 +135,6 @@ def render_token_monitor(ui):
         last_ok = (or_trend.get("last_success_ts") or "")[:10]
         last_err = or_trend.get("last_error") or ""
         fails = or_trend.get("consecutive_failures") or 0
-        parse_n = or_trend.get("parse_count")
 
         if is_stale:
             detail = f"最新数据 {or_trend.get('latest_date') or '未知'}"
@@ -168,19 +147,19 @@ def render_token_monitor(ui):
             if last_err:
                 detail += f"：{last_err}"
             blocks.append(f"""
-            <div style="background:rgba(148,163,184,0.10);border-left:3px solid {C_GRAY};
-                        padding:6px 10px;margin:0 0 10px 0;border-radius:0 6px 6px 0;">
-                <div style="font-size:10px;color:{C_GRAY};font-weight:600;">
+            <div style="background:rgba(148,163,184,0.12);border-left:3px solid {C_GRAY};
+                        padding:7px 11px;margin:0 0 10px 0;border-radius:0 6px 6px 0;">
+                <div style="font-size:11px;color:{C_GRAY};font-weight:600;">
                     ⚠️ 数据已停止更新，下方结论不可采信
                 </div>
-                <div style="font-size:9px;color:#64748b;margin-top:2px;">{detail}</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">{detail}</div>
             </div>
             """)
         elif fails and last_err:
             blocks.append(f"""
-            <div style="background:rgba(239,68,68,0.08);border-left:3px solid {C_RED};
-                        padding:6px 10px;margin:0 0 10px 0;border-radius:0 6px 6px 0;">
-                <div style="font-size:10px;color:{C_RED};">
+            <div style="background:rgba(239,68,68,0.10);border-left:3px solid {C_RED};
+                        padding:7px 11px;margin:0 0 10px 0;border-radius:0 6px 6px 0;">
+                <div style="font-size:11px;color:{C_RED};">
                     本次取数失败（连续 {fails} 次）：{last_err}，以下为上次成功的数据
                 </div>
             </div>
@@ -190,8 +169,8 @@ def render_token_monitor(ui):
     if or_trend:
         latest_fmt = or_trend.get("latest_total_formatted") or "N/A"
         latest_date = or_trend.get("latest_date") or "未知"
-        gran = or_trend.get("granularity") or "unknown"
         period_days = int(or_trend.get("period_days") or 1)
+        gran = or_trend.get("granularity") or "unknown"
         is_weekly = gran == "weekly"
         period_label = or_trend.get("period_label") or ("周" if is_weekly else "日")
 
@@ -222,7 +201,6 @@ def render_token_monitor(ui):
         }.get(trend_basis, trend_basis)
         points = or_trend.get("comparable_points") or 0
         data_points = or_trend.get("data_points") or or_trend.get("data_days") or 0
-        window_ok = or_trend.get("rolling_window_complete", False)
         missing = or_trend.get("rolling_window_missing_days") or 0
         conflict = or_trend.get("momentum_conflict") or ""
 
@@ -258,7 +236,7 @@ def render_token_monitor(ui):
         if or_trend.get("is_incomplete_period"):
             inc_fmt = or_trend.get("incomplete_total_formatted") or "N/A"
             incomplete_line = f"""
-            <div style="font-size:9px;color:{C_ORANGE};margin:-4px 0 10px 0;">
+            <div style="font-size:11px;color:{C_ORANGE};margin:0 0 10px 0;">
                 ⏳ 本{period_label}未完，已录 {inc_fmt} —— 上方为最近一个完整{period_label}，不参与环比
             </div>
             """
@@ -266,7 +244,7 @@ def render_token_monitor(ui):
         # ---- 四格：按粒度换标签，绝不把日频标签贴到周频数据上 ----
         if is_weekly:
             cells = (
-                _cell(latest_fmt, f"本{period_label}消耗", "#f59e0b", f"{latest_date} 起 7 天")
+                _cell(latest_fmt, f"本{period_label}消耗", "#f59e0b", f"{latest_date} 起 {period_days} 天")
                 + _cell(prev_fmt, f"上一{period_label}", "#94a3b8", "环比基准")
                 + _cell(latest_val, f"{period_label}环比", latest_color, f"vs {prev_fmt}")
                 + _cell(
@@ -293,6 +271,7 @@ def render_token_monitor(ui):
             sample_label = f"样本 {data_points} 天" if data_points else "样本 未知"
             header_txt = "📡 OpenRouter 用量（日频）"
 
+        # 表头必须自证粒度：只看这一行的人也要知道下面 4 个格子是周桶还是日桶
         blocks.append(f"""
         <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;font-weight:500;">
             {header_txt}{badges}
@@ -311,8 +290,8 @@ def render_token_monitor(ui):
         <div style="background:rgba(245,158,11,0.05);border:1px solid rgba(245,158,11,0.10);
                     border-radius:8px;padding:8px 12px;margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-                <span style="font-size:10px;color:#94a3b8;">趋势强度 {strength:.2f}</span>
-                <span style="font-size:9px;color:#64748b;">
+                <span style="font-size:11px;color:#94a3b8;">趋势强度 {strength:.2f}</span>
+                <span style="font-size:11px;color:#64748b;">
                     口径 {basis_label} · 可比点 {points} · {sample_label} · 加速 {accel:+.1f}pp
                 </span>
             </div>
@@ -332,25 +311,22 @@ def render_token_monitor(ui):
                 short = str(m.get("name", "")).split("/")[-1]
                 bars += f"""
                 <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-                    <span style="font-size:9px;color:#94a3b8;width:150px;overflow:hidden;
+                    <span style="font-size:11px;color:#94a3b8;width:150px;overflow:hidden;
                                  text-overflow:ellipsis;white-space:nowrap;">{short}</span>
                     <div style="flex:1;height:4px;background:rgba(255,255,255,0.05);border-radius:2px;">
                         <div style="width:{min(share * 4, 100):.1f}%;height:100%;
                                     background:rgba(168,85,247,0.55);border-radius:2px;"></div>
                     </div>
-                    <span style="font-size:9px;color:#cbd5e1;width:52px;text-align:right;">{m.get("formatted")}</span>
-                    <span style="font-size:9px;color:#64748b;width:38px;text-align:right;">{share:.1f}%</span>
+                    <span style="font-size:11px;color:#cbd5e1;width:52px;text-align:right;">{m.get("formatted")}</span>
+                    <span style="font-size:11px;color:#64748b;width:38px;text-align:right;">{share:.1f}%</span>
                 </div>
                 """
             other_txt = f" · Others {other_share:.1f}%" if other_share is not None else ""
             blocks.append(f"""
-            <div style="background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.10);
-                        border-radius:8px;padding:8px 12px;margin-bottom:10px;">
-                <div style="font-size:9px;color:#64748b;margin-bottom:5px;">
-                    {period_label}消耗构成（Top {len(top_models)} 模型{other_txt}）
-                </div>
-                {bars}
-            </div>
+            <details class="cog-fold">
+                <summary>{period_label}消耗构成（Top {len(top_models)} 模型{other_txt}）</summary>
+                <div class="cog-fold-body">{bars}</div>
+            </details>
             """)
 
         recommendation = or_trend.get("recommendation") or ""
@@ -364,7 +340,7 @@ def render_token_monitor(ui):
             blocks.append(f"""
             <div style="background:rgba(245,158,11,0.04);border-left:3px solid rgba(245,158,11,0.3);
                         padding:6px 10px;margin-bottom:12px;border-radius:0 6px 6px 0;">
-                <div style="font-size:10px;color:{rec_color};">💡 {recommendation}</div>
+                <div style="font-size:11px;color:{rec_color};">💡 {recommendation}</div>
             </div>
             """)
 
@@ -389,33 +365,63 @@ def render_token_monitor(ui):
         if ai_trend.get("is_abnormal"):
             ai_badges += _badge("⚠️ 异常", C_RED)
         ai_conflict = ai_trend.get("momentum_conflict") or ""
+        # 背离时 ai_label 已经改成「上升转弱 / 下降转强」，再挂一个同义徽标
+        # 就是并排两句话说同一件事，这里只在不冲突时补徽标。
         if ai_conflict == "trend_up_latest_down":
-            ai_badges += _badge("⚠️ 涨势逆转", C_RED)
             ai_label, ai_color = "⚠️ 上升转弱", C_RED
         elif ai_conflict == "trend_down_latest_up":
-            ai_badges += _badge("🔄 跌势反转", C_BLUE)
             ai_label, ai_color = "🔄 下降转强", C_BLUE
 
-        blocks.append(f"""
-        <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;font-weight:500;">
-            🖥️ AI 算力趋势{ai_badges}
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
-            {_cell(total_fmt, f"本{'周' if ai_period >= 7 else '日'}消耗", "#a855f7", ai_trend.get("latest_date") or "未知")}
-            {_cell(f"{cum:+.1%}", f"{win_label}增长", C_GREEN if cum > 0 else (C_RED if cum < 0 else C_BLUE), win_label + "滚动")}
-            {_cell(ai_label, "趋势", ai_color, conf)}
-            {_cell(f"{ai_trend.get('base_strength') or 0:.2f}", "需求强度", "#a855f7", "0~1")}
-        </div>
-        """)
-
-        ai_message = ai_trend.get("message") or ""
-        if ai_message and not ai_stale:
+        # ❗`get_ai_compute_trend()` 读的是**同一张** TREND_TABLE，只是给决策层换了个视角：
+        # 四格里「总量 / 趋势方向 / 环比」跟上方 OpenRouter 主区逐字相同，
+        # 再铺一遍等于把同三个数字放两次。两者同时有数据时压成一行，
+        # 只保留它独有的信息（需求强度、增长窗口、置信度）。
+        if or_trend:
             blocks.append(f"""
-            <div style="background:rgba(168,85,247,0.04);border-left:3px solid rgba(168,85,247,0.3);
-                        padding:6px 10px;border-radius:0 6px 6px 0;">
-                <div style="font-size:10px;color:#a855f7;">🖥️ {ai_message}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+                        padding:7px 11px;border-radius:8px;margin-bottom:10px;
+                        background:rgba(168,85,247,0.05);border:1px solid rgba(168,85,247,0.14);">
+                <span style="font-size:11px;color:#94a3b8;">🖥️ 算力需求信号</span>
+                <span style="font-size:11px;color:{ai_color};font-weight:600;">{ai_label}</span>{ai_badges}
+                <span style="font-size:11px;color:#64748b;">·</span>
+                <span style="font-size:11px;color:#94a3b8;">需求强度
+                    <b style="color:#a855f7;">{ai_trend.get('base_strength') or 0:.2f}</b></span>
+                <span style="font-size:11px;color:#64748b;">·</span>
+                <span style="font-size:11px;color:#94a3b8;">{win_label}增长
+                    <b style="color:{C_GREEN if cum > 0 else (C_RED if cum < 0 else C_BLUE)};">{cum:+.1%}</b></span>
+                <span style="font-size:11px;color:#64748b;">·</span>
+                <span style="font-size:11px;color:#64748b;">{conf}</span>
+            </div>
+            """)
+        else:
+            # 只有 AI 趋势有数（OpenRouter 主区拿不到）时，数字得自己站出来
+            blocks.append(f"""
+            <div style="font-size:11px;color:#94a3b8;margin:10px 0 6px;font-weight:500;">
+                🖥️ AI 算力趋势{ai_badges}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
+                {_cell(total_fmt, f"本{'周' if ai_period >= 7 else '日'}消耗", "#a855f7", ai_trend.get("latest_date") or "未知")}
+                {_cell(f"{cum:+.1%}", f"{win_label}增长", C_GREEN if cum > 0 else (C_RED if cum < 0 else C_BLUE), win_label + "滚动")}
+                {_cell(ai_label, "趋势", ai_color, conf)}
+                {_cell(f"{ai_trend.get('base_strength') or 0:.2f}", "需求强度", "#a855f7", "0~1")}
             </div>
             """)
 
-    blocks.append("</div>")
-    put_html("".join(blocks))
+        ai_message = ai_trend.get("message") or ""
+        # ❗message 是同一份趋势数据的自然语言复述（「周消耗 164.04T(+4.5%) …
+        # 本周未完 已录 4.52T」），每个数字上方四格与「本周未完」提示都已经写过。
+        # 主区在时不重复；只有 AI 段单独存在时它才是唯一的信息来源。
+        if ai_message and not ai_stale and not or_trend:
+            blocks.append(f"""
+            <div style="background:rgba(168,85,247,0.04);border-left:3px solid rgba(168,85,247,0.3);
+                        padding:6px 10px;border-radius:0 6px 6px 0;">
+                <div style="font-size:11px;color:#a855f7;">🖥️ {ai_message}</div>
+            </div>
+            """)
+
+    put_html(card(
+        title="TOKEN 消耗监控",
+        icon="🔥",
+        meta=f'告警: <b style="color: {alert_color};">{alert_label}</b>',
+        body=f'{legend_bar()}<div style="margin-top: 8px;">{"".join(blocks)}</div>',
+    ))

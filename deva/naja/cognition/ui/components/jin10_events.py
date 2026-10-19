@@ -1,11 +1,19 @@
-"""
-Jin10 重要事件组件
+"""Jin10 重要事件组件
 
-展示从金十数据获取的重要事件（Important News / topListItems）
+展示从金十数据获取的重要事件（Important News / topListItems）。
+
+2026-10-19：改用统一卡片版式，正文与次要信息统一到 11px 下限。
 """
 
+import os
+import json
 import time
+
+from pywebio.output import put_html
+
 from deva.naja.infra.ui.ui_style import format_timestamp
+
+from .layout import card, empty_line
 
 
 def _get_jin10_events_data(limit: int = 20):
@@ -34,9 +42,6 @@ def _get_jin10_events_data(limit: int = 20):
         # 如果事件总线里没有，从文件缓存读取
         if not jin10_events:
             try:
-                import os
-                import json
-                from datetime import datetime
                 cache_file = os.path.expanduser("~/.naja/jin10_news.json")
                 if os.path.exists(cache_file):
                     with open(cache_file, 'r') as f:
@@ -50,7 +55,7 @@ def _get_jin10_events_data(limit: int = 20):
                             "timestamp": time.time(),
                             "datetime": news.get('display_time', ''),
                         })
-            except Exception as e:
+            except Exception:
                 pass
 
         return jin10_events
@@ -73,102 +78,73 @@ def _get_wake_sync_handler():
 
 def render_jin10_events(ui):
     """渲染 Jin10 重要事件面板"""
-    from pywebio.output import put_html
-
     events = _get_jin10_events_data(limit=15)
     handler = _get_wake_sync_handler()
 
     cache_info = ""
     if handler:
-        cache_size = len(handler._pushed_flash_ids)
-        cache_info = f" | 缓存 {cache_size} 条"
+        cache_info = f"缓存 <b>{len(handler._pushed_flash_ids)}</b> 条"
 
     if not events:
-        empty_state = f"""
-        <div style="text-align: center; padding: 20px; color: #64748b;">
-            <div style="font-size: 32px; margin-bottom: 8px;">📌</div>
-            <div style="font-size: 12px;">暂无金十重要事件</div>
-            <div style="font-size: 10px; margin-top: 4px;">系统休眠 30 分钟后自动抓取{cache_info}</div>
-        </div>
-        """
-        put_html(f"""
-        <div style="
-            margin-bottom: 12px;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            padding: 14px 18px;
-            border: 1px solid rgba(255,255,255,0.08);
-        ">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <div style="font-size: 13px; font-weight: 600; color: #f97316;">
-                    📌 金十重要事件
-                </div>
-                <div style="font-size: 10px; color: #64748b;">
-                    {cache_info}
-                </div>
-            </div>
-            {empty_state}
-        </div>
-        """)
+        put_html(card(
+            title="金十重要事件",
+            icon="📌",
+            meta=cache_info,
+            body=empty_line("暂无金十重要事件", "系统休眠 30 分钟后自动抓取"),
+        ))
         return
 
-    event_items = ""
+    items = []
     for i, event in enumerate(events):
         is_new = i < 3
-        bg_color = "rgba(249,115,22,0.1)" if is_new else "rgba(255,255,255,0.02)"
-        border_color = "rgba(249,115,22,0.3)" if is_new else "rgba(255,255,255,0.05)"
+        bg_color = "rgba(249,115,22,0.10)" if is_new else "rgba(255,255,255,0.02)"
+        border_color = "rgba(249,115,22,0.45)" if is_new else "rgba(255,255,255,0.08)"
 
-        title = event.get("title", "")[:50]
-        text = event.get("text", "")[:80]
+        full_title = event.get("title", "") or ""
+        full_text = event.get("text", "") or ""
+        # ❗金十快讯的 text 常常就是标题的完整版（只差一两个字），
+        # 排成两行等于同一句话写两遍：每条多 18px，15 条就是 270px 的纯重复。
+        # 这里用前 24 字判「是不是同一句话」，是就只留标题。
+        if full_text and full_title and (
+            full_text.startswith(full_title[:24]) or full_title.startswith(full_text[:24])
+        ):
+            full_text = ""
+
+        title = full_title[:50]
+        text = full_text[:80]
         url = event.get("url", "")
         ts = event.get("datetime", "")[-8:]
 
-        link_html = f'<a href="{url}" target="_blank" style="color: #f97316; font-size: 9px;">🔗</a>' if url else ""
+        text_html = (
+            f'<div style="font-size: 11px; color: #64748b; margin-top: 2px;'
+            f' overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{text}</div>'
+            if text else ""
+        )
 
-        event_items += f"""
-        <div style="
-            display: flex;
-            align-items: flex-start;
-            gap: 8px;
-            padding: 8px 10px;
-            background: {bg_color};
-            border-left: 3px solid {border_color};
-            border-radius: 4px;
-            margin-bottom: 6px;
-        ">
-            <div style="flex-shrink: 0; font-size: 10px; color: #64748b; min-width: 55px;">{ts}</div>
+        link_html = (
+            f'<a href="{url}" target="_blank" style="color: #f97316; font-size: 11px; '
+            f'text-decoration: none; flex-shrink: 0;">🔗</a>' if url else ""
+        )
+        items.append(f"""
+        <div style="display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px;
+                    background: {bg_color}; border-left: 3px solid {border_color};
+                    border-radius: 4px; margin-bottom: 4px;">
+            <div style="flex-shrink: 0; font-size: 11px; color: #64748b; min-width: 56px;">{ts}</div>
             <div style="flex: 1; min-width: 0;">
-                <div style="font-size: 11px; color: #f1f5f9; line-height: 1.4;">{title}</div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{text}</div>
+                <div style="font-size: 11px; color: #e2e8f0; line-height: 1.5;">{title}</div>
+                {text_html}
             </div>
             {link_html}
         </div>
-        """
+        """)
 
-    put_html(f"""
-    <div style="
-        margin-bottom: 12px;
-        background: rgba(255,255,255,0.03);
-        border-radius: 12px;
-        padding: 14px 18px;
-        border: 1px solid rgba(255,255,255,0.08);
-    ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">📌</span>
-                <div style="font-size: 13px; font-weight: 600; color: #f97316;">
-                    金十重要事件
-                </div>
-                <span style="font-size: 10px; color: #64748b; background: rgba(249,115,22,0.15); padding: 2px 6px; border-radius: 4px;">
-                    {len(events)} 条
-                </span>
-            </div>
-            <div style="font-size: 10px; color: #64748b;">
-                {cache_info}
-            </div>
-        </div>
-        <div style="max-height: 300px; overflow-y: auto;">
-            {event_items}
-        </div>
-    </div>
-    """)
+    # 概览区只负责「最近发生了什么」，给 6~7 条的高度即可，其余滚动查看。
+    # 原来的 288px 会让这张卡固定吃掉 348px，跟它的信息量不成比例。
+    body = f'<div style="max-height: 208px; overflow-y: auto;">{"".join(items)}</div>'
+
+    put_html(card(
+        title="金十重要事件",
+        icon="📌",
+        meta=f"{len(events)} 条 {('· ' + cache_info) if cache_info else ''}",
+        body=body,
+    ))

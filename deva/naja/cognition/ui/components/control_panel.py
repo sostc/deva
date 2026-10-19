@@ -1,8 +1,11 @@
-"""
-Control Panel 组件
+"""Control Panel 组件 —— 反思调度参数
+
+2026-10-19：合并成一次 put_html（原实现跨调用开/关 div，容器实际不成立）。
 """
 
 from pywebio.output import put_html
+
+from .layout import card
 
 
 def _get_insight_pool():
@@ -22,44 +25,30 @@ def render_control_panel(ui):
     from ....market_hotspot.intelligence.feedback_report import get_feedback_report_generator
 
     llm_engine = get_llm_reflection_engine()
-    pool = _get_insight_pool()
     feedback_reporter = get_feedback_report_generator()
 
     stats = llm_engine.get_stats()
     pending_signals = stats.get('pending_signals', 0)
     interval = int(stats.get('interval_seconds', 3600))
 
-    signals = pool.get_recent_insights(limit=100) if pool else []
-    narratives_data = ui.engine.get_memory_report().get('narratives', {}).get('summary', []) if ui.engine else []
-
     feedback_data = feedback_reporter.get_summary() if feedback_reporter else {}
     experiment_results = feedback_data.get('experiment_feedback', {})
 
-    put_html("""
-    <div style="
-        background: rgba(255,255,255,0.03);
-        border-radius: 12px;
-        padding: 14px 18px;
-        border: 1px solid rgba(255,255,255,0.08);
-    ">
-        <div style="font-size: 13px; font-weight: 600; color: #64748b; margin-bottom: 10px;">
-            🎛️ 控制面板
-        </div>
-    """)
-    put_html(f"""
-    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px;">
-        <div style="background: rgba(96,165,250,0.1); border: 1px solid rgba(96,165,250,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 11px; color: #60a5fa; font-weight: 600;">待反思</div>
-            <div style="font-size: 18px; font-weight: 700; color: #93c5fd;">{pending_signals}</div>
-        </div>
-        <div style="background: rgba(168,85,247,0.1); border: 1px solid rgba(168,85,247,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 11px; color: #a855f7; font-weight: 600;">间隔</div>
-            <div style="font-size: 18px; font-weight: 700; color: #c084fc;">{interval}s</div>
-        </div>
-        <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.2); padding: 8px 12px; border-radius: 8px; text-align: center;">
-            <div style="font-size: 11px; color: #4ade80; font-weight: 600;">反馈实验</div>
-            <div style="font-size: 18px; font-weight: 700; color: #6ee7b7;">{len(experiment_results)}</div>
-        </div>
-    </div>
-    """)
-    put_html('</div>')
+    cells = "".join(
+        f'<div style="background: {color}14; border: 1px solid {color}2e; padding: 7px 12px;'
+        f'border-radius: 8px; text-align: center;">'
+        f'<div style="font-size: 11px; color: {color};">{label}</div>'
+        f'<div style="font-size: 17px; font-weight: 700; color: #e2e8f0;">{value}</div></div>'
+        for label, value, color in (
+            ("待反思", pending_signals, "#60a5fa"),
+            ("反思间隔", f"{interval}s", "#a855f7"),
+            ("反馈实验", len(experiment_results), "#22c55e"),
+        )
+    )
+
+    put_html(card(
+        title="控制面板",
+        icon="🎛️",
+        meta="反思调度",
+        body=f'<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">{cells}</div>',
+    ))
