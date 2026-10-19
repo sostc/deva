@@ -89,6 +89,83 @@ def _fmt_change(value):
     return "0.0%", C_BLUE
 
 
+def get_compute_headline() -> dict:
+    """算力消耗的一行摘要 —— 首页卡片与认知页折叠条共用这一份口径。
+
+    ❗ 周期粒度不写死：周频取「本周期消耗 + 周环比」，日频取「7 日合计 + 环比」，
+    判定全部来自 get_openrouter_trend() 自己的 granularity / period_label。
+    两处各算一遍必然写歪（历史教训：日频标签贴到周频数据上，量级差 8 倍）。
+
+    返回 dict：
+        state   available / stale / unavailable
+        value   主数字（已格式化）
+        label   主数字含义
+        change  环比文本；change_color 为其颜色
+        alert   (告警文本, 颜色)
+        sub     一行说明（日期 / 停更天数 / 未采集原因）
+    """
+    try:
+        from deva.naja.cognition.openrouter_monitor import get_openrouter_trend
+    except Exception:
+        get_openrouter_trend = None
+
+    trend = None
+    if get_openrouter_trend is not None:
+        try:
+            trend = get_openrouter_trend()
+        except Exception:
+            trend = None
+
+    if not trend:
+        return {
+            "state": "unavailable",
+            "value": "未采集",
+            "label": "算力消耗",
+            "change": "",
+            "change_color": C_GRAY,
+            "color": C_GRAY,
+            "alert": ("未采集", C_GRAY),
+            "sub": "监控任务尚无数据",
+        }
+
+    stale = bool(trend.get("is_stale"))
+    is_weekly = trend.get("granularity") == "weekly"
+    period_label = trend.get("period_label") or ("周" if is_weekly else "日")
+
+    if is_weekly:
+        value = trend.get("latest_total_formatted") or "N/A"
+        label = f"本{period_label}消耗"
+        change, change_color = _fmt_change(trend.get("latest_change"))
+    else:
+        value = trend.get("rolling_7d_formatted") or trend.get("latest_total_formatted") or "N/A"
+        label = "7 日合计"
+        change, change_color = _fmt_change(trend.get("rolling_7d_change_pct"))
+
+    if stale:
+        # 数据都停了，还显示「正常」比不显示更危险 —— 灰色 + 停更天数顶到最显眼处
+        alert = ("数据已停止更新", C_GRAY)
+        color = C_GRAY
+        age = trend.get("data_age_days")
+        sub = f"最新 {trend.get('latest_date') or '未知'}"
+        if age is not None:
+            sub += f" · 距今 {age} 天"
+    else:
+        alert = ALERT_STYLE.get(trend.get("alert_level", "normal"), ("❓ 未知级别", C_GRAY))
+        color = C_ORANGE
+        sub = f"{period_label}频 · {trend.get('latest_date') or '未知'}"
+
+    return {
+        "state": "stale" if stale else "available",
+        "value": value,
+        "label": label,
+        "change": change,
+        "change_color": change_color,
+        "color": color,
+        "alert": alert,
+        "sub": sub,
+    }
+
+
 def render_token_monitor(ui):
     try:
         from deva.naja.cognition.openrouter_monitor import (
@@ -99,7 +176,7 @@ def render_token_monitor(ui):
 
     from pywebio.output import put_html
 
-    from .layout import card, empty_line, legend_bar
+    from .layout import card, empty_line, fold, legend_bar
 
     try:
         or_trend = get_openrouter_trend()
@@ -419,9 +496,27 @@ def render_token_monitor(ui):
             </div>
             """)
 
+    # ❗算力消耗是全局运维指标，收起不等于藏起来：
+    #   摘要（数值 + 环比 + 停更）钉在卡片右上角，任何时候都看得见；
+    #   趋势、告警、模型构成收进折叠，要看再点开。首页还有一张同名卡。
+    head = get_compute_headline()
+    if head["state"] == "unavailable":
+        meta = '<b style="color: #94a3b8;">未采集</b>'
+    elif head["state"] == "stale":
+        meta = f'{head["value"]} · <b style="color:{C_GRAY};">已停更</b>'
+    else:
+        chg_html = ""
+        if head["change"]:
+            chg_html = f' · 环比 <b style="color:{head["change_color"]};">{head["change"]}</b>'
+        meta = f'{head["value"]} · {head["label"]}{chg_html}'
+
     put_html(card(
-        title="TOKEN 消耗监控",
+        title="算力消耗",
         icon="🔥",
-        meta=f'告警: <b style="color: {alert_color};">{alert_label}</b>',
-        body=f'{legend_bar()}<div style="margin-top: 8px;">{"".join(blocks)}</div>',
+        meta=meta,
+        body=fold(
+            f'告警 <b style="color: {alert_color};">{alert_label}</b> · {head["sub"]}',
+            f'{legend_bar()}<div style="margin-top: 8px;">{"".join(blocks)}</div>',
+            meta="趋势/构成",
+        ),
     ))
