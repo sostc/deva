@@ -261,8 +261,21 @@ class FundamentalDataFetcher:
             if suffix in code_upper:
                 return Market.US
 
+        # ❗白名单**只能当快速通道，不能当唯一判据**（2026-10-20 实测）：
+        # 白名单里只有 14 个老代码，ALAB / AVGO / CRDO / ANET / PLTR / MRVL
+        # 这些后加的标的全不在里面 → 被判 UNKNOWN → 抓取直接返回 None，
+        # 页面上显示成「—」且不写原因。"结构性增长"监控池里一半的股票
+        # 拿不到任何行情，根因就是这一行。
         if code_upper in ['NVDA', 'AMD', 'INTC', 'TSM', 'ASML', 'MU', 'SMCI',
                           'MSFT', 'GOOGL', 'AMZN', 'CRWV', 'LUMENTUM', 'CGnx', 'SKX']:
+            return Market.US
+
+        # 形态判定：纯 ASCII 字母（1-5 位）＝美股 ticker。
+        # ❗必须在数字/前缀分支之后，且**只对纯字母生效**：
+        # A 股是 6 位数字、港股是 5 位数字，走不到这里；``SH.600487`` 这类
+        # 带点前缀的也不会被误判（含 '.' 就不是 isalpha 的纯字母串）。
+        # 上限 5 位是为了避免把 'UNKNOWN' 这种非代码串当美股。
+        if stock_code.isascii() and stock_code.isalpha() and 1 <= len(stock_code) <= 5:
             return Market.US
 
         return Market.UNKNOWN
@@ -539,6 +552,7 @@ class FundamentalDataFetcher:
         if prev_close > 0:
             change_pct = (current - prev_close) / prev_close * 100
 
+        pe = float(eastmoney_data.get('pe') or 0.0)
         fundamental = StockFundamental(
             stock_code=stock_code,
             stock_name=eastmoney_data.get('name', stock_code),
@@ -546,9 +560,12 @@ class FundamentalDataFetcher:
             current_price=current,
             prev_close=prev_close,
             change_pct=change_pct,
-            pe_ratio=eastmoney_data.get('pe', 0),
+            pe_ratio=pe,
+            pe_source="eastmoney" if pe > 0 else "",
+            pe_note="" if pe > 0 else "eastmoney 未返回该标的 PE",
             pb_ratio=eastmoney_data.get('pb', 0),
             market_cap=eastmoney_data.get('market_cap', 0),
+            market_cap_str=_fmt_cap(float(eastmoney_data.get('market_cap') or 0.0)),
             total_volume=eastmoney_data.get('volume', 0),
             timestamp=time.time(),
             raw_data=eastmoney_data
