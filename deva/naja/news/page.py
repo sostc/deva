@@ -63,8 +63,12 @@ def _head_html(hours: int) -> str:
         f"最近 {_esc(hours)} 小时已评分新闻 · 持仓优先排序 · "
         "同一事件已合并（标 <b>×N</b> 的是同一条的不同版本/语种）"
         "</div></div>"
-        '<div><a href="/awakening" style="font-size:12px;color:#1d4ed8;'
-        'text-decoration:none;">← 回觉醒页</a></div>'
+        '<div style="display:flex;align-items:center;gap:16px;">'
+        '<a href="/focusadmin" style="font-size:12px;color:#1d4ed8;'
+        'text-decoration:none;">⚙️ 关注设置</a>'
+        '<a href="/awakening" style="font-size:12px;color:#1d4ed8;'
+        'text-decoration:none;">← 回觉醒页</a>'
+        "</div>"
         "</div>"
     )
 

@@ -16,7 +16,8 @@
 ⑦ **自选 CRUD**：增 / 改 / 删（写 ``naja_watchlist``）；跨进程读回证真落盘；
    全程只在**临时表**上做，真实自选表分毫不动
 ⑧ **反静默**：空持仓、图谱外的票、缺板块映射——全部要留痕，不许静默返回空
-⑨ **静态守卫**：容器确实接了自动采纳；``/focusadmin`` 路由确实注册；UI 有渲染出口
+⑨ **静态守卫**：容器确实接了自动采纳；``/focusadmin`` 路由确实注册；UI 有渲染出口；
+   入口在业务页（``/news`` 标题旁）而**不占顶部导航**（导航已 13 项吃紧）
 ⑩ **冷启动**：``news.focus_advisor`` 可独立导入，不拉起交易域重依赖
 
 跑法
@@ -437,8 +438,12 @@ def main() -> int:
     pages_src = (PROJECT_ROOT / "deva/naja/web_ui/pages.py").read_text("utf-8")
     check("pages 提供了 focusadmin 页面函数",
           "async def focusadmin" in pages_src, "")
+    news_page_src = (PROJECT_ROOT / "deva/naja/news/page.py").read_text("utf-8")
+    check("业务页有「关注设置」入口（/news 标题旁——关注主题的下游就在这）",
+          'href="/focusadmin"' in news_page_src, "")
     theme_src = (PROJECT_ROOT / "deva/naja/infra/ui/ui_theme.py").read_text("utf-8")
-    check("顶部导航有「关注管理」入口", "/focusadmin" in theme_src, "")
+    check("顶部导航不占位（导航已 13 项/约 1048px，低频页改放业务页内）",
+          "/focusadmin" not in theme_src, "")
 
     from deva.naja.news.ui import render_focus_admin  # noqa: F401
     from deva.naja.news import focus_admin as fa
