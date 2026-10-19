@@ -610,7 +610,15 @@ class AppContainer:
                 try:
                     log.info("[AppContainer] 后台初始化: SignalStream")
                     from ..signal.stream import get_signal_stream
-                    get_signal_stream()
+                    stream = get_signal_stream()
+                    # ❗注入 QueryState：SignalStream 的文档写着「注意力感知」，
+                    #   但 set_query_state() 全仓无人调用 → _query_state 恒为 None，
+                    #   StrategyResult.compute_priority 里的注意力加成(×1.5)、
+                    #   已持仓折价(×0.3)、趋势市加成(×1.2) 三条规则从未生效过。
+                    try:
+                        stream.set_query_state(self.query_state)
+                    except Exception as e:
+                        log.warning(f"[AppContainer] SignalStream 注入 QueryState 失败: {e}")
                     log.info("[AppContainer] SignalStream 初始化完成")
                 except Exception as e:
                     log.warning(f"[AppContainer] SignalStream 初始化失败: {e}")
