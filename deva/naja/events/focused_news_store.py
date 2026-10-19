@@ -1,7 +1,12 @@
 """
 TextFocusedEvent 轻量级持久化存储
 
-只存储最近 24 小时的评分新闻数据，用于系统重启后恢复。
+只存储最近 ``CACHE_HOURS`` 小时的评分新闻数据，用于系统重启后恢复。
+
+❗保留时长必须 **>= `/news` 页面的最大窗口（72h）**：池子只留 24h 时，
+页面上的「48h / 72h」按钮参数虽然真的透传到了取数层，但上游根本没有那么久的
+数据 —— 三个按钮返回同一批，用户点完只看到页头数字变了、内容没有任何变化，
+会以为按钮坏了。这类「接线正确但永远无效」比报错更难发现。
 """
 
 import json
@@ -18,8 +23,16 @@ log = logging.getLogger(__name__)
 # 存储配置
 CACHE_DIR = Path.home() / ".naja"
 NEWS_CACHE_FILE = CACHE_DIR / "focused_news_cache.json"
-MAX_CACHE_SIZE = 200  # 最多 200 条
-CACHE_HOURS = 24  # 保留最近 24 小时
+# ❗这两个数不是随便定的：
+#   CACHE_HOURS 必须 >= /news 的最大窗口（72h），否则 48h/72h 按钮永远等价于 24h；
+#   MAX_CACHE_SIZE 必须容得下 CACHE_HOURS 的流量（实测约 7.8 条/小时 →
+#   72h ≈ 560 条，留 ~40% 余量取 800），否则高峰期会被裁剪到"看起来只有最近几小时"。
+MAX_CACHE_SIZE = 800  # 最多 800 条（约 0.8 MB）
+CACHE_HOURS = 72  # 保留最近 72 小时（与 /news 窗口上限对齐）
+
+#: ``/news`` 页面提供的窗口（小时）。存储保留时长要覆盖它 —— 守卫
+#: ``verify_news_digest`` 会静态校验 ``CACHE_HOURS >= max(NEWS_WINDOWS)``。
+NEWS_WINDOWS = (24, 48, 72)
 
 
 class FocusedNewsStore:
@@ -203,6 +216,35 @@ class FocusedNewsStore:
             news = sorted(news, key=lambda x: x.get('timestamp', 0), reverse=True)
             return news[:limit]
     
+    def get_coverage(self) -> Dict[str, Any]:
+        """池子**实际覆盖**了多长的时间（不是配置里的保留时长）。
+
+        用途：``/news`` 的「48h / 72h」按钮只有在池子里真有那么久的数据时才有
+        意义。一旦窗口超过实际覆盖，结果与更小窗口逐字相同 —— 不报错、不提示，
+        用户只会以为按钮没用。所以把「实际覆盖」如实交出去，让 UI 能说明原因。
+
+        Returns:
+            total: 池内条数
+            oldest_age_hours: 最早一条距现在多少小时；**空池为 None**（不是 0，
+                0 会被理解成"刚采到"，与"没有数据"语义相反）
+            retention_hours / capacity: 配置的保留时长与容量上限
+            at_capacity: 是否已顶到容量上限（此时"覆盖时长"是被裁剪出来的）
+        """
+        with self._lock_inner:
+            total = len(self._news_list)
+            oldest_age_hours: Optional[float] = None
+            if total:
+                oldest = min(n.get('timestamp', 0) for n in self._news_list)
+                if oldest > 0:
+                    oldest_age_hours = max(0.0, (time.time() - oldest) / 3600.0)
+            return {
+                "total": total,
+                "oldest_age_hours": oldest_age_hours,
+                "retention_hours": CACHE_HOURS,
+                "capacity": MAX_CACHE_SIZE,
+                "at_capacity": total >= MAX_CACHE_SIZE,
+            }
+
     def get_stats(self) -> Dict[str, Any]:
         """获取存储统计"""
         with self._lock_inner:
@@ -218,6 +260,7 @@ class FocusedNewsStore:
                 'today': sum(1 for n in self._news_list if n.get('timestamp', 0) >= today_start),
                 'cache_file': str(self._cache_file),
                 'max_size': MAX_CACHE_SIZE,
+                'retention_hours': CACHE_HOURS,
             }
 
 

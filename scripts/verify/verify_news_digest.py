@@ -304,6 +304,26 @@ def main() -> int:
           ".nj-digest-embed{" in frag and 'nj-digest nj-digest-embed' in frag, "")
     check("归档文档不加纸底（那是给嵌入式用的）",
           '<div class="nj-digest">' in html, "")
+
+    # ── 合并条数必须**看得见** ────────────────────────────────────────
+    # 旧版去重是静默的：scanned == deduped 也不报错，用户根本不知道有没有生效。
+    # 所以「合并了多少条」要有独立统计卡，「这一条折叠了几条」要有 ×N 徽章。
+    dup_items = [
+        {"title": "【越南计划推出股指期权】越南计划在明年推出股指期权",
+         "importance_score": 0.60, "timestamp": 1_700_000_000.0},
+        {"title": "Vietnam to launch VN30 index options in Q1",
+         "importance_score": 0.62, "timestamp": 1_700_000_005.0},
+    ]
+    dup_digest = build_digest(items=dup_items, focus_state=focus)
+    dup_frag = render_digest_fragment(dup_digest)
+    check("中英双版确实被折叠（前提成立）",
+          dup_digest["stats"]["merged"] == 1
+          and dup_digest["stats"]["deduped"] == 1,
+          f"stats={dup_digest['stats']}")
+    check("合并条数进了独立统计卡（不是只藏在副标题）",
+          'class="stat stat-merged"' in dup_frag and "已合并重复" in dup_frag, "")
+    check("代表条带 ×N 徽章（只显示条数，不显示语种）",
+          'class="dup">×2<' in dup_frag, "")
     check("页面片段不输出 <h1>（页面自己给标题，避免双标题）",
           "<h1>" not in frag, "")
     # ❗别写成 `"*{box-sizing" not in frag`：作用域版是 `.nj-digest *{...}`，
@@ -373,6 +393,68 @@ def main() -> int:
         onclick("win:72")
     check("切换窗口真的重取数据（72h ≠ 24h 口径）",
           any(isinstance(c, str) and "窗口 72 小时" in c for c in calls), "")
+
+    # ❗更强的判据：窗口参数必须**到达取数层**。
+    # 上面那条只证明"页面上出现了 72 小时"，把 hours 写死、只改页头也能骗过去。
+    # 真实踩过的坑更狠：参数一路传对了，但池子只留 24h → 48h/72h 与 24h
+    # 返回同一批，按钮看起来完全没反应。所以这里探针记录真实调用参数。
+    import deva.naja.news.digest as digest_mod
+
+    seen_hours = []
+    _real_summary = digest_mod.get_news_digest_summary
+
+    def _probe_summary(*, hours=24, per_group_limit=8):
+        seen_hours.append(hours)
+        return _real_summary(hours=hours, per_group_limit=per_group_limit)
+
+    digest_mod.get_news_digest_summary = _probe_summary
+    try:
+        seen_hours.clear()
+        for value in ("win:48", "win:72", "win:24"):
+            onclick(value)
+    finally:
+        digest_mod.get_news_digest_summary = _real_summary
+
+    check("窗口参数真的到达取数层（48→72→24 各一次）",
+          seen_hours[-3:] == [48, 72, 24], f"实际 {seen_hours}")
+
+    # ── 池子容量 vs 页面窗口：接线正确但永远无效，比报错更难发现 ──
+    from deva.naja.events.focused_news_store import (
+        CACHE_HOURS, MAX_CACHE_SIZE, NEWS_WINDOWS,
+    )
+    from deva.naja.news.digest import DEFAULT_SCAN_LIMIT
+    from deva.naja.news.page import WINDOWS
+
+    check("两处窗口定义一致（别各写一份）",
+          tuple(WINDOWS) == tuple(NEWS_WINDOWS), f"page={WINDOWS} store={NEWS_WINDOWS}")
+    check("池子保留时长 >= 页面最大窗口（否则大窗口恒等于小窗口）",
+          CACHE_HOURS >= max(NEWS_WINDOWS), f"CACHE_HOURS={CACHE_HOURS}")
+    check("扫描上限 >= 池子容量（否则大窗口被静默截断）",
+          DEFAULT_SCAN_LIMIT >= MAX_CACHE_SIZE,
+          f"scan={DEFAULT_SCAN_LIMIT} max={MAX_CACHE_SIZE}")
+
+    # 覆盖不足时页面必须明说「与较小窗口结果相同」，而不是让人以为按钮坏了
+    from deva.naja.news import render_digest_fragment
+
+    short = {"available": True, "window_hours": 72, "generated_at_text": "",
+             "focus": {}, "groups": {}, "group_labels": {}, "tier_config": {},
+             "stats": {"scanned": 5, "deduped": 5, "shown": 0, "holding": 0,
+                       "theme": 0, "macro": 0, "pierced": 0, "merged": 0},
+             "pool": {"total": 152, "oldest_age_hours": 19.6,
+                      "retention_hours": 72, "capacity": 800, "at_capacity": False}}
+    short_frag = render_digest_fragment(short)
+    check("窗口超出池内覆盖时明确提示（否则像按钮坏了）",
+          'class="cover cover-warn"' in short_frag
+          and "只覆盖最近 19.6 小时" in short_frag
+          and "再往上调窗口也不会多出内容" in short_frag, "")
+
+    full = dict(short)
+    full["window_hours"] = 48
+    full["pool"] = dict(short["pool"], oldest_age_hours=80.0)
+    full_frag = render_digest_fragment(full)
+    check("覆盖足够时不再误报（天天报警=噪音）",
+          'class="cover cover-warn"' not in full_frag
+          and "池内覆盖最近 80.0 小时" in full_frag, "")
 
     # ── ⑦ 静态守卫 ────────────────────────────────────────────────────
     print()

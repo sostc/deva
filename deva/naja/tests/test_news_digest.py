@@ -574,6 +574,65 @@ def test_dashboard_no_longer_carries_news_digest():
     assert "news_digest" not in _get_empty_monitor_data()
 
 
+def test_injected_items_mark_pool_as_injected_and_render_no_coverage():
+    """注入数据没有真实池子：不得编造"覆盖多少小时"。"""
+    from deva.naja.news import render_digest_fragment
+
+    digest = build_digest(items=_items(), focus_state=_SAMPLE_FOCUS)
+    assert digest["pool"]["source"] == "injected"
+    assert digest["pool"]["oldest_age_hours"] is None
+    # ❗判据看「渲染出的元素」而不是裸子串：片段里永远带着 .cover 的 CSS 规则，
+    # 用 `"cover" not in frag` 会永远红（本仓已有同型教训）。
+    assert 'class="cover' not in render_digest_fragment(digest), \
+        "注入样本不该出现覆盖说明（那是真实池子的口径）"
+
+
+def test_coverage_warning_when_window_exceeds_pool():
+    """窗口大于池内实际覆盖时必须明说 —— 否则用户以为按钮坏了。
+
+    真实案例：池子只积累 19.6 小时时，48h / 72h 与 24h 返回同一批，
+    参数全传对了，只是数据不存在。页面若不写出来，"没反应"和"没用"不可区分。
+    """
+    from deva.naja.news import render_digest_fragment
+
+    digest = build_digest(items=_items(), focus_state=_SAMPLE_FOCUS)
+    digest["window_hours"] = 72
+    digest["pool"] = {"total": 152, "oldest_age_hours": 19.6,
+                      "retention_hours": 72, "capacity": 800,
+                      "at_capacity": False}
+
+    frag = render_digest_fragment(digest)
+    assert 'class="cover cover-warn"' in frag
+    assert "只覆盖最近 19.6 小时" in frag
+    assert "再往上调窗口也不会多出内容" in frag
+
+    # 反向：池子真的覆盖满了，就不能再报"窗口超了"（否则天天误报=噪音）
+    digest["window_hours"] = 48
+    digest["pool"]["oldest_age_hours"] = 80.0
+    frag = render_digest_fragment(digest)
+    assert 'class="cover cover-warn"' not in frag
+    assert "池内覆盖最近 80.0 小时" in frag
+
+
+def test_store_retention_and_scan_limit_cover_page_windows():
+    """静态不变量：池子留得比最大窗口久，扫描上限容得下整个池子。
+
+    ❗这条守的是本次实锤的 bug：池子只留 24h 时，页面上的 48h/72h 参数
+    一路传到底也没用 ——「接线正确但永远无效」，点完只看得到页头数字变。
+    """
+    from deva.naja.events.focused_news_store import (
+        CACHE_HOURS, MAX_CACHE_SIZE, NEWS_WINDOWS,
+    )
+    from deva.naja.news.digest import DEFAULT_SCAN_LIMIT
+    from deva.naja.news.page import WINDOWS
+
+    assert tuple(WINDOWS) == tuple(NEWS_WINDOWS), "两处窗口定义必须一致（别各写一份）"
+    assert CACHE_HOURS >= max(NEWS_WINDOWS), \
+        f"池子只留 {CACHE_HOURS}h，但页面最大窗口是 {max(NEWS_WINDOWS)}h → 大窗口恒等于小窗口"
+    assert DEFAULT_SCAN_LIMIT >= MAX_CACHE_SIZE, \
+        f"扫描上限 {DEFAULT_SCAN_LIMIT} < 池子容量 {MAX_CACHE_SIZE} → 大窗口被静默截断"
+
+
 # ── 关注管理：持仓 → 主题推导 ────────────────────────────────────────────
 #
 # 这一段守的是「主题要长在持仓上」这条口径，以及三件容易静默出错的事：
