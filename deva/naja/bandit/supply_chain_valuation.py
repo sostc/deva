@@ -122,6 +122,10 @@ class SupplyChainValuationEngine:
         self._valuation_cache: Dict[str, ValuationResult] = {}
         self._last_update: float = 0.0
         self._update_interval: float = 300.0
+        # ❗全量分析结果缓存：analyze_all_stocks 一遍要跑 39 只 × 四个维度，
+        # 不缓存的话 get_valuation_summary 会把它算 3 遍（实测 9.8s）。
+        self._analysis_cache: Dict[str, ValuationResult] = {}
+        self._analysis_ts: float = 0.0
 
     def _get_linker(self):
         """获取叙事-供应链联动器"""
@@ -427,8 +431,17 @@ class SupplyChainValuationEngine:
         else:
             return "估值偏高，注意风险"
 
-    def analyze_all_stocks(self) -> Dict[str, ValuationResult]:
-        """分析所有供应链中的股票"""
+    def analyze_all_stocks(self, force_refresh: bool = False) -> Dict[str, ValuationResult]:
+        """分析所有供应链中的股票（带结果缓存，默认 300 秒内不重算）。"""
+        import time as _time
+
+        if (
+            not force_refresh
+            and self._analysis_cache
+            and _time.time() - self._analysis_ts < self._update_interval
+        ):
+            return dict(self._analysis_cache)
+
         graph = self._get_graph()
         if not graph:
             return {}
@@ -441,11 +454,17 @@ class SupplyChainValuationEngine:
                     results[node.stock_code] = result
 
         self._last_update = datetime.now().timestamp()
+        self._analysis_cache = dict(results)
+        self._analysis_ts = _time.time()
         return results
 
-    def get_top_undervalued(self, limit: int = 5) -> List[ValuationResult]:
-        """获取最被低估的股票"""
-        all_results = self.analyze_all_stocks()
+    def get_top_undervalued(self, limit: int = 5,
+                            results: Optional[Dict[str, ValuationResult]] = None) -> List[ValuationResult]:
+        """获取最被低估的股票。
+
+        ❗results 传入时直接复用，不要自己再跑一遍 analyze_all_stocks。
+        """
+        all_results = results if results is not None else self.analyze_all_stocks()
         undervalued = [
             r for r in all_results.values()
             if r.valuation_level in [ValuationLevel.SEVERELY_UNDERVALUED, ValuationLevel.UNDERVALUED]
@@ -453,9 +472,10 @@ class SupplyChainValuationEngine:
         undervalued.sort(key=lambda x: x.valuation_score)
         return undervalued[:limit]
 
-    def get_top_overvalued(self, limit: int = 5) -> List[ValuationResult]:
-        """获取最被高估的股票"""
-        all_results = self.analyze_all_stocks()
+    def get_top_overvalued(self, limit: int = 5,
+                           results: Optional[Dict[str, ValuationResult]] = None) -> List[ValuationResult]:
+        """获取最被高估的股票（results 传入时复用，不重算）。"""
+        all_results = results if results is not None else self.analyze_all_stocks()
         overvalued = [
             r for r in all_results.values()
             if r.valuation_level in [ValuationLevel.SEVERELY_OVERVALUED, ValuationLevel.OVERVALUED]
@@ -464,11 +484,16 @@ class SupplyChainValuationEngine:
         return overvalued[:limit]
 
     def get_valuation_summary(self) -> Dict:
-        """获取估值摘要"""
+        """获取估值摘要。
+
+        ❗原来这里把 analyze_all_stocks() 调了 3 遍（自己 1 次 + 低估榜 1 次
+        + 高估榜 1 次），每遍都是 39 只股票全量算四个维度，实测 9.8s。
+        现在只算一遍并复用。
+        """
         all_results = self.analyze_all_stocks()
 
-        undervalued = self.get_top_undervalued(3)
-        overvalued = self.get_top_overvalued(3)
+        undervalued = self.get_top_undervalued(3, results=all_results)
+        overvalued = self.get_top_overvalued(3, results=all_results)
 
         return {
             "total_stocks": len(all_results),
