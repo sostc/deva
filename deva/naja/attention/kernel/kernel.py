@@ -223,8 +223,8 @@ class AttentionKernel:
         """获取叙事追踪器（NarrativeTracker / 地）（延迟加载 + 缓存）"""
         if self._narrative_tracker is None:
             try:
-                from deva.naja.cognition import NarrativeTracker
-                self._narrative_tracker = NarrativeTracker()
+                from deva.naja.cognition import get_narrative_tracker
+                self._narrative_tracker = get_narrative_tracker()
             except ImportError:
                 return None
         return self._narrative_tracker

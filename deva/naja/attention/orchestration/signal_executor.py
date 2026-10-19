@@ -162,11 +162,18 @@ class SignalExecutor:
     def _get_cognition_context(self) -> Dict[str, Any]:
         """获取认知上下文"""
         try:
-            from deva.naja.cognition.narrative import NarrativeTracker
-            tracker = NarrativeTracker()
+            # ❗必须走单例：这里是每次调用都会跑的路径，直接 NarrativeTracker()
+            # 等于每次都新建实例、每次都从持久化表 load 一遍，而且它自己
+            # save_state() 会整表覆写别人的状态。
+            from deva.naja.cognition.narrative import get_narrative_tracker
+            tracker = get_narrative_tracker()
+            if tracker is None:
+                log.warning("[SignalExecutor] 叙事追踪单例不可用，认知上下文为空")
+                return {"narratives": []}
             narrative_summary = tracker.get_summary(limit=10)
             return {"narratives": [s.get("narrative", "") for s in narrative_summary]}
-        except Exception:
+        except Exception as e:
+            log.warning(f"[SignalExecutor] 获取认知上下文失败: {e}")
             return {"narratives": []}
 
     def _feedback_to_alaya(self, symbol: str, signal_type: str, outcome: Dict[str, Any]):

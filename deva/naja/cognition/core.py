@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Any, Tuple
 import threading
 import os
 
-from .narrative import NarrativeTracker
+from .narrative import get_narrative_tracker
 from .semantic import (
     SemanticColdStart,
     NewsEvent,
@@ -151,7 +151,11 @@ class NewsMindStrategy:
         self._rate_buckets: Dict[str, deque] = {}
 
         # 叙事追踪器
-        self.narrative_tracker = NarrativeTracker(self.config)
+        # ❗必须走单例：直接 NarrativeTracker() 会造出第二个实例，它 __init__
+        # 里也会 _load_state()，看着"有数据"其实是从持久化表 load 的旧快照，
+        # 且自己 save_state() 整表覆写会把别人积累的状态冲掉。更糟的是消费方
+        # 分裂 —— 决策链路读单例、页面读引擎内实例，两边根本不是同一份数据。
+        self.narrative_tracker = get_narrative_tracker(self.config)
         self.narrative_events: deque = deque(maxlen=200)
 
         # 全球流动性传播引擎

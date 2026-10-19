@@ -13,11 +13,13 @@
 现在主视图换成叙事榜：名称 / 阶段 / 热度 / 趋势 / 关键词 / 最近更新；
 供需价值那套降级成本卡内的折叠块，不再单独占一行空态。
 
-❗两个 tracker 实例并存：``get_narrative_tracker()`` 是事件总线订阅的单例
-（event_registrar / llm_reflection 在消费），``engine._news_mind.narrative_tracker``
-是认知引擎内的实例（process_record 在喂）。两者都 ingest，却往同一张 NB 表
-落库互相覆盖。这里取**当前有数据的那个**，并在「数据来源诊断」折叠块里如实
-列出两边条数 —— 不合并、不假装只有一个。
+❗**实例唯一性（2026-10-19 已收敛）**：历史上 ``engine._news_mind.narrative_tracker``
+（process_record 在喂）与 ``get_narrative_tracker()``（事件总线订阅）是**两个
+实例**，各自 ingest、各自维护状态，却往同一张 NB 表整表覆写互相冲掉；更糟的是
+消费方分裂 —— 决策链路（trading_center / manas）读单例、页面读引擎内实例，
+**展示的和决策用的不是同一份数据**。现已全仓收敛到 ``get_narrative_tracker()``
+单例，「数据来源诊断」里会标明各入口是否指向同一对象；守卫
+``verify_narrative_single_instance`` 禁止除工厂外的直接构造。
 
 ❗趋势数字不能直接上屏：``trend = (recent - prev) / max(prev, 1)``，prev=0 时
 退化为 ``trend == recent_count``（实测 376 → 会显示 +37600%）。prev=0 一律
@@ -250,14 +252,35 @@ def _saturation_note(rows: list) -> str:
     """
 
 
-def _source_diagnostics(picked_from: str, rows: list, others: list) -> str:
+def _fingerprint(rows: list) -> str:
+    """实例指纹：条数 / 最近更新 / 最大命中。
+
+    ❗为什么需要它：每个 ``NarrativeTracker()`` 在 ``__init__`` 里都会
+    ``_load_state()`` 从同一张 NB 表恢复状态，所以**"有 10 条"证明不了这个
+    实例在干活** —— 它可能只是启动时的快照，之后再没 ingest 过。要区分
+    "活实例"和"僵尸快照"，必须看最近更新时间会不会走。
+    """
+    if not rows:
+        return "0 条"
+    latest = max(float(r.get("last_updated") or 0.0) for r in rows)
+    max_hits = max(int(r.get("recent_count") or 0) for r in rows)
+    clock = (
+        time.strftime("%H:%M:%S", time.localtime(latest)) if latest > 0 else "无"
+    )
+    return (
+        f"{len(rows)} 条 · 最近 {_ago(latest)}（{clock}） · 峰值命中 {max_hits}"
+    )
+
+
+def _source_diagnostics(picked_from: str, rows: list, others: list, dupes: list) -> str:
     lines = ""
-    for name, count, err in others:
-        status = (
-            f'<span style="color: #22c55e;">{count} 条活跃</span>'
-            if count
-            else f'<span style="color: #f59e0b;">0 条（{html.escape(err or "无数据")}）</span>'
-        )
+    for name, got, err in others:
+        if got:
+            status = f'<span style="color: #b6c2d2;">{_fingerprint(got)}</span>'
+        else:
+            status = (
+                f'<span style="color: #f59e0b;">0 条（{html.escape(err or "无数据")}）</span>'
+            )
         lines += f"""
         <div style="display: flex; gap: 8px; align-items: baseline; padding: 3px 0;
                     font-size: 11px; color: #94a3b8;">
@@ -265,11 +288,30 @@ def _source_diagnostics(picked_from: str, rows: list, others: list) -> str:
             <span>{status}</span>
         </div>
         """
+    self_fp = _fingerprint(rows)
+
+    if dupes:
+        # 收敛后：所有入口都指向同一个实例，页面上的数就是决策用的那份
+        alias = "、".join(html.escape(d) for d in dupes)
+        tail = (
+            f'<div style="font-size: 11px; color: #64748b; line-height: 1.7; margin-top: 6px;">'
+            f'✅ 已收敛为单一实例：{html.escape(picked_from)} 与 {alias} '
+            f'指向同一个 tracker —— 页面展示与决策链路读的是同一份数据。</div>'
+        )
+    elif others:
+        tail = (
+            f'<div style="font-size: 11px; color: #64748b; line-height: 1.7; margin-top: 6px;">'
+            f'⚠️ 存在多个 tracker 实例：各自 ingest、各自维护一份状态，却往同一张'
+            f'持久化表落库互相覆盖 —— 页面展示的这份<b>可能不是决策链路读的那份</b>。'
+            f'「最近更新」不走 = 僵尸快照（只在启动那一刻从表里 load 过）。</div>'
+        )
+    else:
+        tail = ""
+
     return (
         f'<div style="font-size: 11px; color: #64748b; line-height: 1.7; margin-bottom: 6px;">'
         f'当前展示来源：<b style="color: #b6c2d2;">{html.escape(picked_from)}</b>'
-        f'（{len(rows)} 条）。两个 tracker 实例并存是历史遗留：它们各自 ingest，'
-        f'却往同一张持久化表落库、互相覆盖。</div>{lines}'
+        f'（{self_fp}）。</div>{lines}{tail}'
     )
 
 
@@ -416,13 +458,22 @@ def render_narrative_track(ui):
     trackers, errors = _collect_trackers(ui)
 
     picked, picked_from, rows = None, "", []
-    others = []
+    others: list = []
+    dupes: list = []      # 与 picked 指向同一对象的其它入口名
+    seen: set = set()
     for name, tracker in trackers:
+        if tracker is not None:
+            # ❗按对象身份去重：收敛后「引擎内」与「事件总线」应是同一个对象，
+            # 不该在诊断里被当成两份数据重复列出来。
+            if id(tracker) in seen:
+                dupes.append(name)
+                continue
+            seen.add(id(tracker))
         got, err = _read_narratives(tracker)
         if got and picked is None:
             picked, picked_from, rows = tracker, name, got
         else:
-            others.append((name, len(got), err))
+            others.append((name, got, err))
 
     # ── 三态空态：❗「拿不到 tracker」≠「tracker 有但 0 条」 ──
     if picked is None:
@@ -430,7 +481,7 @@ def render_narrative_track(ui):
         if not have_instance:
             detail = "；".join(f"{n} {e}" for n, e in errors)
             report_empty(
-                "📖", "叙事追踪", "两个 tracker 实例都没拿到",
+                "📖", "叙事追踪", "两个入口都没拿到 tracker 实例",
                 detail or "引擎内实例与事件总线单例均未初始化",
             )
         else:
@@ -467,8 +518,8 @@ def render_narrative_track(ui):
 
     body += fold(
         "数据来源诊断",
-        _source_diagnostics(picked_from, rows, others),
-        meta="两个 tracker 实例",
+        _source_diagnostics(picked_from, rows, others, dupes),
+        meta="实例收敛状态",
     )
 
     # ── 供需价值发现（原「叙事价值发现」主体，降级为折叠） ──

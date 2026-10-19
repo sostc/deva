@@ -71,8 +71,8 @@ class CognitionOrchestrator:
         """获取 NarrativeTracker（延迟加载 + 缓存）"""
         if self._narrative_tracker is None:
             try:
-                from deva.naja.cognition.narrative import NarrativeTracker
-                self._narrative_tracker = NarrativeTracker()
+                from deva.naja.cognition.narrative import get_narrative_tracker
+                self._narrative_tracker = get_narrative_tracker()
             except Exception as e:
                 log.debug(f"[CognitionOrchestrator] 创建 NarrativeTracker 失败: {e}")
         return self._narrative_tracker

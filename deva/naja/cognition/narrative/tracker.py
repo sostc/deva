@@ -2417,18 +2417,43 @@ class NarrativeTracker:
 _narrative_tracker_instance: Optional["NarrativeTracker"] = None
 
 
-def get_narrative_tracker() -> Optional["NarrativeTracker"]:
-    """Compatibility function - get singleton NarrativeTracker instance.
+def get_narrative_tracker(config: Optional[Dict[str, Any]] = None) -> Optional["NarrativeTracker"]:
+    """获取全局唯一的 NarrativeTracker。
 
-    Returns the global NarrativeTracker instance (aliased as NarrativeTracker).
+    ❗**全仓唯一的合法构造入口**。直接 ``NarrativeTracker()`` 会造出第二个
+    实例：它 ``__init__`` 里同样会 ``_load_state()``，因此看起来"有数据"，
+    实际是一份从持久化表 load 出来的**旧快照**；它自己 ingest、自己
+    ``save_state()`` 整表覆写，会把别人积累的状态冲掉（实测同一进程内并存
+    两个实例，一个 16 条一个 10 条，写同一张表互相覆盖）。守卫
+    ``verify_narrative_single_instance`` 禁止除本函数外的直接构造。
+
+    ``config`` 仅在该单例**首次**创建时生效。若单例已存在而你传了带
+    ``narrative_*`` 键的 config，说明配置不会生效 —— 这里打 warning 而不是
+    静默忽略（❗"改了配置没效果"属于静默失效）。
     """
     global _narrative_tracker_instance
+
     if _narrative_tracker_instance is None:
         try:
-            _narrative_tracker_instance = NarrativeTracker()
-        except Exception:
+            _narrative_tracker_instance = NarrativeTracker(config)
+        except Exception as e:
+            # ❗不许静默：返回 None 会让所有消费者降级成"叙事恒空"，
+            # 而页面上看不出是构造失败还是真的没有叙事。
+            log.error(f"[NarrativeTracker] 单例构造失败，叙事链路将全部降级为空: {e}")
             return None
+        return _narrative_tracker_instance
+
+    if config:
+        stale = [k for k in config if k.startswith(("narrative_", "value_signal_"))]
+        if stale:
+            log.warning(
+                "[NarrativeTracker] 单例已创建，忽略后到的 %d 个配置键（%s）—— "
+                "要生效请在进程最早创建该单例处传入",
+                len(stale), ", ".join(sorted(stale)[:5]),
+            )
     return _narrative_tracker_instance
 
 
+# ❗保留同名导出以便 ``from ...narrative import NarrativeTracker`` 继续可用，
+# 但**构造实例请走 get_narrative_tracker()**。
 NarrativeTracker = NarrativeTracker

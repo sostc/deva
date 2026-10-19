@@ -220,9 +220,10 @@ def test_narrative_tracker():
     """测试 5: NarrativeTracker 叙事追踪"""
     print_section("测试 5: NarrativeTracker 叙事追踪 (简化版)")
 
-    from deva.naja.cognition.narrative import NarrativeTracker
+    # ❗走单例：直接构造会造出第二份状态并整表覆写生产实例的数据
+    from deva.naja.cognition.narrative import get_narrative_tracker
 
-    tracker = NarrativeTracker()
+    tracker = get_narrative_tracker()
 
     print_subsection("叙事生命周期阶段")
     print("  阶段: 萌芽 → 扩散 → 高潮 → 消退")
