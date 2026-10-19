@@ -377,7 +377,14 @@ def render_insight(ui):
                 f'<span class="cog-pill" style="background: rgba(249,115,22,.15); color: #fb923c;">{html.escape(lab)}</span>'
                 for lab in labels
             )
-            cols.append(f'<div><div style="font-size: 11px; color: #fb923c; font-weight: 600; margin-bottom: 6px;">💭 叙事</div><div style="line-height: 2;">{tags}</div></div>')
+            # ❗这一排只是叙事名，没有热度/阶段/时间。紧随其后的「叙事追踪」卡
+            # 才是带量纲的版本 —— 两个都叫"叙事"，不加指向会被当成重复信息。
+            cols.append(
+                '<div><div style="font-size: 11px; color: #fb923c; font-weight: 600; '
+                'margin-bottom: 6px;">💭 叙事'
+                '<span style="font-weight: 400; color: #64748b;">（热度见下方叙事追踪）</span>'
+                f'</div><div style="line-height: 2;">{tags}</div></div>'
+            )
 
         sections.append(f"""
         <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.06);">
