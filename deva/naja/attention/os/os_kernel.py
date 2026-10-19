@@ -75,6 +75,9 @@ class OSAttentionKernel:
         self._init_in_context_learner()
 
         self._last_output: Optional[AttentionKernelOutput] = None
+        # 最近一次恐慌探测结果（PanicSample）。只读展示 + 喂 Manas 的理由文本，
+        # 不参与任何判定。None = 本轮拿不到数据。
+        self._last_panic = None
         self._update_interval = 1.0
         self._last_update = 0.0
 
@@ -222,6 +225,11 @@ class OSAttentionKernel:
         if attention_weights:
             sorted_weights = sorted(attention_weights.items(), key=lambda x: x[1], reverse=True)
             focus_symbols = [s for s, _ in sorted_weights[:10]]
+
+        # 恐慌分：只进门理由的文本，**不参与判定**。
+        # ❗此前 PanicAnalyzer 只被死代码 kernel.py 调用，生产内核完全不认识它，
+        #   所以「恐慌」这一维在面板与理由里从来没出现过。
+        self._refresh_panic(market_state)
 
         manas_output = self.manas_engine.compute(
             macro_signal=self._macro_signal_from(market_state),
@@ -378,6 +386,10 @@ class OSAttentionKernel:
         if current_time - self._last_update < self._update_interval and self._last_output is not None:
             return self._last_output
 
+        # 恐慌分：只进门理由的文本，不参与判定（compute 路径同样有这一句，
+        # 两条路径都必须刷 —— 只接一条的话，走另一条时理由里就永远没有恐慌）
+        self._refresh_panic(market_state)
+
         manas_output = self.manas_engine.compute(
             macro_signal=self._macro_signal_from(market_state),
             narratives=market_state.get("narratives", []) if market_state else [],
@@ -480,6 +492,26 @@ class OSAttentionKernel:
             warn_missing("OSKernel", why)
             return NEUTRAL_MACRO_SIGNAL
         return value
+
+    def _refresh_panic(self, market_state: Optional[Dict[str, Any]] = None) -> None:
+        """探测一轮恐慌分并推给 Manas（**只用于理由文本，不参与判定**）。
+
+        PanicAnalyzer 原本只被死代码 kernel.py 调用，生产内核不认识它；
+        这里把它接回真实链路。拿不到数据时推 None —— 让 Manas 知道
+        「这一维没有」，而不是拿 0 分冒充「不恐慌」。
+        """
+        try:
+            from .panic_probe import probe_panic
+
+            sample = probe_panic(self._get_scanner(), market_state)
+            self._last_panic = sample
+            if sample is None:
+                self.manas_engine.set_panic_score(None)
+            else:
+                self.manas_engine.set_panic_score(sample.panic_score, sample.level)
+        except Exception as exc:
+            # 恐慌分只是上下文，任何失败都不许影响决策
+            log.debug("panic_probe 失败（不影响决策）: %s", exc)
 
     def get_manas_inputs(self) -> Dict[str, Any]:
         """返回喂给 ManasEngine.compute() 的四路输入。

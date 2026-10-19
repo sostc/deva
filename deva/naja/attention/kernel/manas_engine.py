@@ -1342,6 +1342,13 @@ class ManasEngine:
         self._current_narratives: List[str] = []
         self._recent_pnl = RollingWindow(self.config.pnl_window)
 
+        # 🚀 恐慌分（0~100，由 os_kernel 用 PanicAnalyzer 算好后注入）
+        #    ❗**只进归因理由，不参与任何判定**。它是给人看的上下文，
+        #    不是新的门槛杠杆；一旦让它参与打分，就等于又开了一处
+        #    「为了让它下单而放松闸门」的口子。
+        self._panic_score: Optional[float] = None
+        self._panic_level: str = ""
+
         # 🚀 和谐状态
         self._harmony_state = HarmonyState.NEUTRAL
         self._harmony_strength = 0.5
@@ -1861,6 +1868,16 @@ class ManasEngine:
         """
         self._awakening_level_provider = provider
 
+    def set_panic_score(self, panic_score, level: str = "") -> None:
+        """注入恐慌分（0~100）。**只用于归因理由，不参与任何判定。**
+
+        历史上 PanicAnalyzer 只被死代码 kernel.py 调用，生产内核（os_kernel）
+        完全不认识它 → 面板上「恐慌」这一维从来没有存在过。
+        `None` 表示本轮拿不到（不是 0，更不是安全）。
+        """
+        self._panic_score = None if panic_score is None else float(panic_score)
+        self._panic_level = str(level or "")
+
     def set_narratives(self, narratives: List[str]):
         """
         设置当前关注的叙事主题
@@ -2023,6 +2040,22 @@ class ManasEngine:
 
         if narratives is not None:
             self._current_narratives = narratives
+
+        # 恐慌分在这里自己刷新，**不依赖调用方**。
+        # 有三条路径都会走到 compute()（内核 process / make_decision / ManasManager
+        # 的展示路径），只在调用方刷就会漏掉没有加的那条 —— 面板上有值、
+        # 理由里没有，是最难查的那种不一致。
+        # 只用于归因理由，不参与任何判定（见 set_panic_score）。
+        try:
+            from .panic_probe import probe_panic
+
+            _sample = probe_panic(scanner)
+            if _sample is None:
+                self._panic_score, self._panic_level = None, ""
+            else:
+                self._panic_score, self._panic_level = _sample.panic_score, _sample.level
+        except Exception as exc:
+            log.debug("manas: 刷新恐慌分失败（不影响判定）: %s", exc)
 
         # 每轮只取一次持仓汇总，供风险引擎与后续仓位损失计算复用
         portfolio_summary = None
@@ -2425,6 +2458,15 @@ class ManasEngine:
             reasons.append("⚠️检测到贪")
         elif bias == BiasState.FEAR:
             reasons.append("⚠️检测到惧")
+
+        # 恐慌分只做上下文，不参与任何判定（见 set_panic_score 的说明）。
+        # 放在「行动」之前：守望台那一列会截断，太靠后被吃掉等于没写。
+        panic = getattr(self, "_panic_score", None)
+        if panic is not None:
+            lvl = getattr(self, "_panic_level", "") or ""
+            # 只在「极恐」时补一个词：high 档本身就叫「恐慌」，再写一遍是重复。
+            tag = {"extreme": "·极恐", "moderate": "·偏恐"}.get(lvl, "")
+            reasons.append(f"恐慌{panic:.0f}{tag}")
 
         reasons.append(f"行动:{action_type.value}")
 

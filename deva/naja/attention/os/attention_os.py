@@ -70,6 +70,11 @@ class AttentionOS:
     统一入口，管理内核和应用层
     """
 
+    #: 决策洞察的节流时间戳（**类级**，不是实例级）。
+    #: ❗写成实例属性时，每个 AttentionOS 实例各有一份 → 节流形同虚设，
+    #: 洞察池会被同一句「决策·hold」灌满。
+    _last_insight_ts: float = 0.0
+
     _instance = None
     _lock = threading.Lock()
 
@@ -312,7 +317,54 @@ class AttentionOS:
         portfolio: Optional[Any] = None
     ) -> AttentionKernelOutput:
         """做决策"""
-        return self.kernel.make_decision(market_state, portfolio)
+        output = self.kernel.make_decision(market_state, portfolio)
+        self._publish_decision_insight(output)
+        return output
+
+    def _publish_decision_insight(self, output) -> None:
+        """把本轮决策沉淀成一条洞察（旁路，失败绝不影响决策）。
+
+        ❗补的是「认知洞察恒 0」的第二层断链：洞察池有入口、有 UI、有存储表，
+        但**没有任何生产者在喂数据** —— `naja_radar_events` 至今 0 条，
+        `ingest_radar_events` 的上游从未产出过事件。
+        用决策本身当洞察是最小的真实来源：它确实是系统此刻对市场的判断。
+        节流 300s，避免每个 tick 都往 NB 里写。
+        """
+        try:
+            now = time.time()
+            if now - AttentionOS._last_insight_ts < 300:
+                return
+            from ...application.container import get_app_container
+            container = get_app_container()
+            pool = getattr(container, "insight_pool", None) if container is not None else None
+            if pool is None:
+                return
+
+            data = output.to_dict() if hasattr(output, "to_dict") else {}
+            action = str(data.get("action_type", "hold") or "hold")
+            harmony = float(data.get("harmony_strength") or data.get("manas_score") or 0.0)
+            reason = str(data.get("action_gate_reason") or data.get("reason") or "")
+            regime = data.get("market_regime") or data.get("harmony_state") or "neutral"
+
+            pool.ingest_hotspot_event({
+                "theme": f"决策·{action}",
+                "signal_type": "decision",
+                "score": harmony,
+                "content": reason or f"{action} harmony={harmony:.3f}",
+                "payload": {
+                    "summary": reason or f"{action} harmony={harmony:.3f}",
+                    "action_type": action,
+                    "harmony_strength": harmony,
+                    "regime": regime,
+                    "timing_score": data.get("timing_score"),
+                    "confidence_score": data.get("confidence_score"),
+                },
+                "raw_data": {"market_regime": regime},
+                "source": "attention_os.make_decision",
+            })
+            AttentionOS._last_insight_ts = now
+        except Exception:
+            pass
 
     def schedule_market(self, market_data: Dict[str, Any]) -> Dict[str, Any]:
         """市场调度"""

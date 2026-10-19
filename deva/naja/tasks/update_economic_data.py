@@ -19,6 +19,25 @@ from typing import Any, Dict, Optional
 log = logging.getLogger(__name__)
 
 
+def _run_coro(coro):
+    """在**本线程新建**的 loop 上跑协程（与 container 里的美林任务同一修法）。
+
+    ❗别用 asyncio.run：nest_asyncio.apply() 会把它换成 nest_asyncio.run，
+    后者取本线程默认 loop，而那个 loop 在调度线程里早已关闭 →
+    RuntimeError: Event loop is closed。详见 container._start_merrill_clock_task。
+    """
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+
+
 def execute() -> Dict[str, Any]:
     """
     定时任务执行函数
@@ -39,16 +58,12 @@ def execute() -> Dict[str, Any]:
         fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=not bool(fred_api_key))
         
         # 2. 获取经济数据
-        import asyncio
-        import nest_asyncio
-        nest_asyncio.apply()
-        
         async def _fetch():
             data = await fetcher.fetch_latest_data()
             await fetcher.close()
             return data
         
-        data = asyncio.run(_fetch())
+        data = _run_coro(_fetch())
         
         log.info(f"[EconomicDataTask] 获取经济数据成功：{data.timestamp}")
         
