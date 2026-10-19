@@ -849,7 +849,7 @@ import asyncio
 log = logging.getLogger(__name__)
 
 def execute() -> dict:
-    """OpenRouter AI 算力 TOKEN 消耗趋势监控（每周执行）"""
+    """OpenRouter AI 算力 TOKEN 消耗趋势监控（每日执行，数据源为日频）"""
     try:
         from deva.naja.cognition.openrouter_monitor import (
             refresh_openrouter_data,
@@ -870,7 +870,9 @@ def execute() -> dict:
                 "trend_direction": trend.get("trend_direction") if trend else "unknown",
                 "alert_level": result.get("alert_level", "normal"),
                 "message": result.get("message", ""),
+                "data_days": result.get("data_days", 0),
                 "data_weeks": result.get("data_weeks", 0),
+                "is_stale": result.get("is_stale", True),
             }
         else:
             return {"success": False, "message": "数据获取失败"}
@@ -880,12 +882,12 @@ def execute() -> dict:
 '''
                 result = task_mgr.create(
                     name="openrouter_monitor",
-                    description="OpenRouter AI 算力 TOKEN 消耗趋势监控（每周分析全球 AI 算力需求变化）",
+                    description="OpenRouter AI 算力 TOKEN 消耗趋势监控（每日采集全球 AI 算力用量）",
                     func_code=func_code,
                     task_type="scheduler",
                     scheduler_trigger="cron",
-                    cron_expr="0 9 * * 1",  # 每周一 09:00
-                    tags=["openrouter", "ai_compute", "weekly"],
+                    cron_expr="0 9 * * *",  # 每日 09:00（数据源是日频，周频采集会漏 6/7）
+                    tags=["openrouter", "ai_compute", "daily"],
                 )
                 if result.get("success"):
                     task_mgr.start(result.get("id"))

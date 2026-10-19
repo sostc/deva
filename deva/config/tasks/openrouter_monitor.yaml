@@ -1,5 +1,5 @@
 config:
-  cron_expr: 0 9 * * 1
+  cron_expr: 0 9 * * *
   event_condition: ''
   event_condition_type: contains
   event_source: log
@@ -8,23 +8,34 @@ config:
   run_at: ''
   scheduler_trigger: cron
   task_type: scheduler
-func_code: "\nimport logging\nimport asyncio\nlog = logging.getLogger(__name__)\n\ndef execute() -> dict:\n    \"\"\"OpenRouter\
-  \ AI 算力 TOKEN 消耗趋势监控（每周执行）\"\"\"\n    try:\n        from deva.naja.cognition.openrouter_monitor import (\n            refresh_openrouter_data,\n\
-  \            get_ai_compute_trend,\n        )\n        \n        loop = asyncio.new_event_loop()\n        asyncio.set_event_loop(loop)\n\
-  \        try:\n            result = loop.run_until_complete(refresh_openrouter_data())\n        finally:\n            loop.close()\n\
-  \        \n        if result:\n            trend = get_ai_compute_trend()\n            return {\n                \"success\"\
-  : True,\n                \"trend_direction\": trend.get(\"trend_direction\") if trend else \"unknown\",\n              \
-  \  \"alert_level\": result.get(\"alert_level\", \"normal\"),\n                \"message\": result.get(\"message\", \"\"\
-  ),\n                \"data_weeks\": result.get(\"data_weeks\", 0),\n            }\n        else:\n            return {\"\
-  success\": False, \"message\": \"数据获取失败\"}\n    except Exception as e:\n        log.error(f\"[OpenRouter] 执行失败: {e}\")\n\
-  \        return {\"success\": False, \"error\": str(e)}\n"
+func_code: "\"\"\"\nOpenRouter AI 算力 TOKEN 消耗趋势监控\n\n数据源：openrouter.ai/api/frontend/v1/rankings/model-rankings-chart\n\
+  粒度由数据自身推断（周桶=7天/日桶=1天），不要在这里假设周期。\n\"\"\"\n\nimport logging\nimport asyncio\nlog\
+  \ = logging.getLogger(__name__)\n\n\ndef execute() -> dict:\n    \"\"\"OpenRouter\
+  \ AI 算力 TOKEN 消耗趋势监控（每日采集，跟踪当周进度）\"\"\"\n    try:\n        from deva.naja.cognition.openrouter_monitor\
+  \ import refresh_openrouter_data\n\n        loop = asyncio.new_event_loop()\n  \
+  \      asyncio.set_event_loop(loop)\n        try:\n            result = loop.run_until_complete(refresh_openrouter_data())\n\
+  \        finally:\n            loop.close()\n\n        if not result:\n        \
+  \    return {\"success\": False, \"message\": \"取数失败或解析 0 条（详见 NB health）\"}\n\n\
+  \        return {\n            \"success\": True,\n            \"granularity\":\
+  \ result.get(\"granularity\", \"unknown\"),\n            \"period_days\": result.get(\"\
+  period_days\", 1),\n            \"latest_date\": result.get(\"latest_date\"),\n\
+  \            \"direction\": result.get(\"direction\", \"unknown\"),\n          \
+  \  \"momentum_conflict\": result.get(\"momentum_conflict\", \"\"),\n           \
+  \ \"latest_change\": result.get(\"latest_change\"),\n            \"is_incomplete_period\"\
+  : result.get(\"is_incomplete_period\", False),\n            \"is_stale\": result.get(\"\
+  is_stale\", True),\n            \"data_age_days\": result.get(\"data_age_days\"\
+  ),\n            \"data_points\": result.get(\"data_points\", 0),\n            \"\
+  data_days\": result.get(\"data_days\", 0),\n            \"data_weeks\": result.get(\"\
+  data_weeks\", 0),\n            \"message\": result.get(\"message\", \"\"),\n   \
+  \     }\n    except Exception as e:\n        log.error(f\"[OpenRouter] 执行失败: {e}\"\
+  )\n        return {\"success\": False, \"error\": str(e)}\n"
 metadata:
   created_at: 1776808843.819905
-  description: OpenRouter AI 算力 TOKEN 消耗趋势监控（每周分析全球 AI 算力需求变化）
+  description: OpenRouter AI 算力 TOKEN 消耗趋势监控（源为周频，每日采集一次以跟踪当周进度）
   id: b3a9d15487fb
   name: openrouter_monitor
   tags:
   - openrouter
   - ai_compute
-  - weekly
-  updated_at: 1776808843.819906
+  - daily
+  updated_at: 1792389767.5673048
