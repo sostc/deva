@@ -331,6 +331,7 @@ def render_engine_status_panel(engine):
             direction_emoji = {
                 "strong_up": "🚀",
                 "up": "📈",
+                "flat": "➡️",
                 "down": "📉",
                 "strong_down": "⚠️",
                 "unknown": "❓",
@@ -344,14 +345,38 @@ def render_engine_status_panel(engine):
                 "critical": "#dc2626",
             }.get(alert_level, "#64748b")
 
+            # 口径由数据自身决定：周频源的 latest_change 是周环比，日频源是同星期对齐。
+            # 这里不能写死"同星期"，否则周频数据会被贴上日频的标签。
+            latest_change = trend_data.get('latest_change')
+            is_stale = bool(trend_data.get('is_stale'))
+            period_label = trend_data.get('period_label') or "期"
+            basis = trend_data.get('trend_basis')
+            basis_txt = {
+                "week_over_week": "周环比",
+                "same_weekday": "同星期",
+            }.get(basis, "环比")
+            if basis is None:
+                # 旧口径缓存：不冒充任何结论
+                phase = "口径待刷新"
+            elif latest_change is not None:
+                phase = f"{basis_txt} {latest_change:+.1f}%"
+            else:
+                phase = f"{basis_txt} N/A"
+            stale_note = f" · 陈旧 {trend_data.get('data_age_days')} 天" if is_stale else ""
+            conflict = trend_data.get('momentum_conflict')
+            if conflict == "trend_up_latest_down":
+                direction_emoji = "⚠️"
+            elif conflict == "trend_down_latest_up":
+                direction_emoji = "🔄"
+
             engines.append({
                 "name": "💰 OpenRouter TOKEN",
-                "status": f"{direction_emoji} {alert_level.upper()}",
-                "status_color": alert_color,
-                "interval": "每周更新",
+                "status": f"{direction_emoji} {alert_level.upper()}{stale_note}",
+                "status_color": "#64748b" if is_stale else alert_color,
+                "interval": "每日采集" if period_label != "周" else "周更新",
                 "count": trend_data.get('latest_total_formatted', 'N/A'),
-                "phase": f"周环比 {trend_data.get('latest_change', 0):+.1f}%",
-                "phase_color": alert_color,
+                "phase": phase,
+                "phase_color": "#64748b" if is_stale else alert_color,
                 "icon": "🤖",
             })
     except ImportError:

@@ -1,6 +1,6 @@
 metadata:
   name: OpenRouter TOKEN 消耗监控
-  description: 监控 OpenRouter 全球 TOKEN 消耗，追踪 AI 算力需求趋势
+  description: 监控 OpenRouter 全球 TOKEN 消耗（源为周频周桶，含 Others 残差桶）。注意：分析逻辑已统一到 cognition/openrouter_monitor.py，本条目只做转发，禁止在此重复实现 analyze
   id: openrouter_token_monitor
   category: AI算力
   tags:
@@ -15,8 +15,8 @@ metadata:
 config:
   execution_mode: scheduler
   scheduler_trigger: cron
-  cron_expr: "0 9 * * 1"
-  description: "每周一 09:00 执行（数据每周日 23:59 UTC 更新）"
+  cron_expr: "0 9 * * *"
+  description: "每日 09:00 执行（数据源为周频，每日采集一次以跟踪当周进度；分析逻辑唯一实现在 cognition/openrouter_monitor.py）"
 
   data_schema:
     type: ai_metrics
@@ -73,162 +73,44 @@ parameters:
 
 func_code: |
   """
-  OpenRouter TOKEN 趋势监控
-  每周一 09:00 执行，获取最新数据并分析趋势
+  OpenRouter TOKEN 消耗监控（数据源条目）
+
+  历史遗留：本条目曾自带一份 analyze 实现，与 cognition/openrouter_monitor.py 口径不一致
+  （曾在同一份数据上各写一套周期假设），两套实现会互相覆盖 NB 的 openrouter_trend 表。
+  现在只做转发，唯一实现是 cognition/openrouter_monitor.refresh_openrouter_data()。
   """
 
-  import asyncio
-  import sys
-  sys.path.insert(0, '/Users/spark/WorkBuddy/20260328160421')
-  from openrouter_weekly_tokens import OpenRouterRankings
+  def fetch_data() -> dict:
+      """OpenRouter TOKEN 消耗监控（每日采集，源为周频）
 
-  TREND_TABLE = "openrouter_trend"
+      数据源条目的契约函数名是 fetch_data（tasks 才是 execute），改名会导致
+      DataSourceEntry 注册时报「函数 'fetch_data' 未在代码中定义」。
+      """
+      import asyncio
+      import logging
+      log = logging.getLogger(__name__)
+      try:
+          from deva.naja.cognition.openrouter_monitor import refresh_openrouter_data
 
-  def format_tokens(tokens: int) -> str:
-      if tokens >= 1_000_000_000_000:
-          return f"{tokens / 1_000_000_000_000:.2f}T"
-      elif tokens >= 1_000_000_000:
-          return f"{tokens / 1_000_000_000:.2f}B"
-      elif tokens >= 1_000_000:
-          return f"{tokens / 1_000_000:.2f}M"
-      else:
-          return f"{tokens:,}"
+          loop = asyncio.new_event_loop()
+          asyncio.set_event_loop(loop)
+          try:
+              result = loop.run_until_complete(refresh_openrouter_data())
+          finally:
+              loop.close()
 
-  async def get_data():
-      client = OpenRouterRankings()
-      return await client.get_weekly_token_usage()
+          if not result:
+              return {"success": False, "message": "取数失败或解析 0 条（详见 NB health）"}
 
-  def analyze(weekly_data):
-      from datetime import datetime
-
-      if len(weekly_data) < 2:
-          return {"direction": "unknown", "strength": 0, "message": "数据不足"}
-
-      today = datetime.now()
-      current_weekday = today.weekday()
-
-      latest_date = weekly_data[-1]["date"]
-      latest_dt = datetime.strptime(latest_date, "%Y-%m-%d")
-
-      days_since_latest = (today - latest_dt).days
-      is_incomplete = days_since_latest <= 6 and current_weekday != 6
-
-      if is_incomplete and len(weekly_data) >= 2:
-          analysis_data = weekly_data[:-1]
-      else:
-          analysis_data = weekly_data
-
-      rates = []
-      for i in range(1, len(analysis_data)):
-          prev = sum(analysis_data[i-1]["models"].values())
-          curr = sum(analysis_data[i]["models"].values())
-          if prev > 0:
-              rate = (curr - prev) / prev * 100
-              rates.append({"date": analysis_data[i]["date"], "rate": rate})
-
-      if len(rates) < 4:
-          return {"direction": "unknown", "strength": 0, "message": "数据不足"}
-
-      recent_avg = sum(r["rate"] for r in rates[-8:]) / 8
-      older_avg = sum(r["rate"] for r in rates[-16:-8]) / 8 if len(rates) >= 16 else 0
-      acceleration = recent_avg - older_avg
-
-      if recent_avg > 5:
-          direction = "strong_up"
-          strength = min(1.0, recent_avg / 20)
-      elif recent_avg > 0:
-          direction = "up"
-          strength = min(1.0, recent_avg / 10)
-      elif recent_avg > -5:
-          direction = "down"
-          strength = min(1.0, abs(recent_avg) / 10)
-      else:
-          direction = "strong_down"
-          strength = min(1.0, abs(recent_avg) / 20)
-
-      is_anomaly = False
-      anomaly_type = ""
-
-      if len(rates) >= 3:
-          last_rate = rates[-1]["rate"]
-          if last_rate < -20 and sum(r["rate"] for r in rates[-3:]) / 3 < -10:
-              is_anomaly = True
-              anomaly_type = "sudden_drop"
-          elif direction in ["up", "strong_up"] and last_rate < -5:
-              is_anomaly = True
-              anomaly_type = "uptrend_reversal"
-
-      latest_total = sum(analysis_data[-1]["models"].values())
-      latest_rate = rates[-1]["rate"]
-
-      emojis = {"strong_up": "🚀", "up": "📈", "down": "📉", "strong_down": "⚠️", "unknown": "❓"}
-      emoji = emojis.get(direction, "➡️")
-      message = f"{emoji} {latest_date} | {format_tokens(latest_total)} | 周环比: {latest_rate:+.1f}%"
-
-      if is_anomaly:
-          message += f" | ⚠️ {anomaly_type}"
-
-      if is_anomaly and anomaly_type in ["sudden_drop", "uptrend_reversal"]:
-          alert_level = "critical"
-      elif is_anomaly:
-          alert_level = "warning"
-      elif acceleration < -15 or acceleration > 15:
-          alert_level = "warning"
-      elif direction == "strong_up":
-          alert_level = "attention"
-      else:
-          alert_level = "normal"
-
-      if is_anomaly:
-          if anomaly_type == "sudden_drop":
-              recommendation = "⚠️ 算力需求骤降！建议：密切关汪是否短暂调整还是持续下跌"
-          elif anomaly_type == "uptrend_reversal":
-              recommendation = "🔄 上涨趋势反转！建议：减仓算力投资，等待趋势确认"
-          else:
-              recommendation = "📊 波动异常！建议：谨慎操作，等待市场稳定"
-      elif direction == "strong_up":
-          recommendation = "🚀 算力需求强劲上涨！建议：适度增加算力投资配置"
-      elif direction == "up":
-          recommendation = "➡️ 温和上涨！建议：维持当前配置"
-      else:
-          recommendation = "➡️ 趋势不明！建议：保持观察"
-
-      return {
-          "direction": direction,
-          "strength": strength,
-          "acceleration": acceleration,
-          "is_anomaly": is_anomaly,
-          "anomaly_type": anomaly_type,
-          "message": message,
-          "recommendation": recommendation,
-          "alert_level": alert_level,
-          "latest_total": latest_total,
-          "latest_total_formatted": format_tokens(latest_total),
-          "latest_date": latest_date,
-          "recent_avg_change": recent_avg,
-          "data_weeks": len(analysis_data),
-          "weekly_history": [
-              {"date": w["date"], "total": sum(w["models"].values()), "total_formatted": format_tokens(sum(w["models"].values()))}
-              for w in weekly_data[-8:]
-          ]
-      }
-
-  def save(data, trend):
-      from deva import NB
-      db = NB(TREND_TABLE)
-      db["latest"] = data
-      db["trend"] = trend
-
-  def fetch_data():
-      loop = asyncio.new_event_loop()
-      asyncio.set_event_loop(loop)
-      weekly_data = loop.run_until_complete(get_data())
-      loop.close()
-
-      if not weekly_data:
-          return None
-
-      trend = analyze(weekly_data)
-      save({"timestamp": str(datetime.now()), "weekly_history": trend.get("weekly_history", [])}, trend)
-
-      return trend
+          return {
+              "success": True,
+              "direction": result.get("direction", "unknown"),
+              "rolling_7d": result.get("rolling_7d"),
+              "latest_change": result.get("latest_change"),
+              "is_stale": result.get("is_stale", True),
+              "data_days": result.get("data_days", 0),
+              "message": result.get("message", ""),
+          }
+      except Exception as e:
+          log.error(f"[OpenRouter] 执行失败: {e}")
+          return {"success": False, "error": str(e)}
