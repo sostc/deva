@@ -546,24 +546,32 @@ def test_get_news_digest_summary_never_raises():
 
 # ── UI ──────────────────────────────────────────────────────────────────
 
-def test_ui_panel_renders_and_shows_honest_empty_state():
-    from deva.naja.attention.ui import render_news_digest_panel
+def test_news_page_fragment_renders_and_shows_honest_empty_state():
+    """``/news`` 页面用的片段：自带样式、不带 <h1>、空态诚实。"""
+    from deva.naja.news import render_digest_fragment
 
     digest = build_digest(items=_items(), focus_state=_SAMPLE_FOCUS)
-    panel = render_news_digest_panel(digest)
-    assert "今日新闻消化" in panel
-    assert "持仓相关" in panel
+    frag = render_digest_fragment(digest)
+    assert frag.startswith("<style>"), "样式必须和正文一起输出（一次 put_html）"
+    assert "持仓相关" in frag
+    assert 'class="nj-digest' in frag
+    assert "nj-digest-embed" in frag, "内嵌模式要铺纸底，否则卡片和白背景糊成一片"
+    assert "<h1>" not in frag, "页面自己有标题，片段再来一个就成双标题"
 
-    empty = render_news_digest_panel({"available": False, "reason": "没有数据"})
+    empty = render_digest_fragment({"available": False, "reason": "没有数据"})
     assert "没有数据" in empty
 
 
-def test_dashboard_monitor_data_has_news_digest_key():
+def test_dashboard_no_longer_carries_news_digest():
+    """新闻消化已搬到独立页 ``/news``，觉醒页的数据出口不再背它。
+
+    这条守的是「**不留两份 UI 各自漂移**」：面板删了但 dashboard 还在取数，
+    或者反回来又塞一份紧凑面板，都会让两边口径慢慢分家。
+    接线（页面函数 / 路由 / 导航）由 ``verify_news_digest`` ⑦ 静态守卫覆盖。
+    """
     from deva.naja.attention.ui.dashboard import _get_empty_monitor_data
 
-    data = _get_empty_monitor_data()
-    assert "news_digest" in data
-    assert set(data["news_digest"]["groups"]) == {GROUP_HOLDING, GROUP_THEME, GROUP_MACRO}
+    assert "news_digest" not in _get_empty_monitor_data()
 
 
 # ── 关注管理：持仓 → 主题推导 ────────────────────────────────────────────

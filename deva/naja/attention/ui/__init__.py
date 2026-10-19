@@ -5,7 +5,6 @@
 
 from .components import (
     render_decision_plan_panel,
-    render_news_digest_panel,
 )
 
 from .auto_tuning_monitor import (
@@ -32,7 +31,6 @@ from .dashboard import (
 __all__ = [
     # Kernel components
     "render_decision_plan_panel",
-    "render_news_digest_panel",
     # Auto tuning
     "render_tuning_monitor_panel",
     "render_frequency_monitor_panel",

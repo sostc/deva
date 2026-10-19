@@ -1,7 +1,11 @@
 """Attention Kernel UI - 注意力系统仍在用的展示组件
 
-❗这里**只放有调用方的面板**：决策计划（``render_decision_plan_panel``）与
-新闻摘要（``render_news_digest_panel``），两者由 ``/awakening`` 页面消费。
+❗这里**只放有调用方的面板**：决策计划（``render_decision_plan_panel``），
+由 ``/awakening`` 页面消费。
+
+新闻摘要（原 ``render_news_digest_panel``）已于 2026-10-19 **搬到独立页面**
+``/news``（``deva/naja/news/page.py``），改用报告级呈现 —— 原来是 64 字截断的
+紧凑列表，条目一多就读不了。这里不再保留旧面板，避免两份 UI 各自漂移。
 
 早期那批「Kernel 可视化」面板（QueryState / MultiHead / Memory / Feedback /
 注意力流转图 / 末那识状态）已全部退役 —— 详见下方注释。
@@ -15,7 +19,7 @@
 #
 # 它们**全仓零调用方**（唯一在跑的注意力页面是 ``/awakening`` →
 # ``dashboard.render_attention_monitor_page``，它只用 ``render_awakening_status`` /
-# ``render_news_digest_panel`` / ``render_decision_plan_panel``）。
+# ``render_decision_plan_panel``）。
 #
 # ❗最该删的是 ``render_kernel_live_view`` —— 它**硬编码**了一份假的
 # ``query_state``（``market_regime: {"type": "trend"}`` / ``risk_bias: 0.6`` /
@@ -225,209 +229,6 @@ def render_decision_plan_panel(summary: dict = None) -> str:
     """
 
 
-_GROUP_ACCENTS = {
-    "holding": ("#1d4ed8", "#dbeafe"),
-    "theme": ("#7c3aed", "#ede9fe"),
-    "macro": ("#64748b", "#f1f5f9"),
-}
-
-
-def render_news_digest_panel(digest: dict = None) -> str:
-    """渲染「今日新闻消化」面板——复用 manas 注意力原则筛出来的该看清单。
-
-    消费 ``deva.naja.news.get_news_digest_summary()`` 的纯 dict，
-    不深入 ``NewsTriage`` / ``NewsFocusState``（与决策面板同一约定）。
-
-    Args:
-        digest: ``get_news_digest_summary()`` 的返回；为 ``None`` 时自行取一次。
-    """
-    if digest is None:
-        try:
-            from deva.naja.news import get_news_digest_summary
-
-            digest = get_news_digest_summary()
-        except Exception as e:
-            return (
-                '<div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; '
-                'padding: 14px; margin: 10px 0; font-size: 12px; color: #b91c1c;">'
-                f"📰 新闻消化面板不可用: {_esc(e)}</div>"
-            )
-
-    if not digest.get("available"):
-        reason = digest.get("reason") or "最近没有已评分的新闻"
-        return f"""
-    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px;
-                padding: 14px; margin: 10px 0;">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-            <span style="font-size: 18px;">📰</span>
-            <span style="font-size: 14px; font-weight: 600; color: #0f172a;">今日新闻消化</span>
-            <span style="font-size: 10px; color: #64748b; background: #e2e8f0; padding: 2px 6px;
-                         border-radius: 4px;">manas 注意力</span>
-        </div>
-        <div style="font-size: 12px; color: #64748b;">{_esc(reason)}</div>
-    </div>
-    """
-
-    stats = digest.get("stats") or {}
-    focus = digest.get("focus") or {}
-    groups = digest.get("groups") or {}
-    labels = digest.get("group_labels") or {}
-
-    from deva.naja.news.focus import collapse_identifiers
-
-    own = list(collapse_identifiers(
-        focus.get("holdings_labels") or focus.get("holdings") or []
-    ))
-    watch = list(collapse_identifiers(
-        focus.get("watchlist_labels") or focus.get("watchlist") or []
-    ))
-    narratives = [str(x) for x in (focus.get("narratives") or [])]
-
-    def _chips(values, color):
-        return "".join(
-            f'<span style="font-size: 10px; color: {color}; background: {color}14; '
-            f'border: 1px solid {color}55; border-radius: 8px; padding: 1px 7px;">{_esc(v)}</span>'
-            for v in values[:8]
-        )
-
-    def _focus_row(label, values, color):
-        if not values:
-            return ""
-        return (
-            '<div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center; '
-            'margin-bottom: 5px;">'
-            f'<span style="font-size: 10px; color: #64748b; min-width: 62px;">{label}</span>'
-            f"{_chips(values, color)}</div>"
-        )
-
-    # 持仓与自选**分两行**显示：它们是两件事（自己的钱 vs 在看的票），
-    # 合并成一行会让"我持有什么"被"我在看什么"稀释。
-    focus_html = (
-        _focus_row("持仓", own, "#1d4ed8")
-        + _focus_row("自选", watch, "#0891b2")
-    )
-    if narratives:
-        focus_html += (
-            '<div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">'
-            '<span style="font-size: 10px; color: #64748b; min-width: 62px;">关注叙事</span>'
-            f"{_chips(narratives, '#7c3aed')}</div>"
-        )
-
-    degraded = focus.get("degraded") or []
-    degraded_html = ""
-    if degraded:
-        items_html = "".join(
-            f'<div style="font-size: 11px; color: #92400e; line-height: 1.5;">· {_esc(d)}</div>'
-            for d in degraded
-        )
-        degraded_html = (
-            '<div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; '
-            'padding: 8px 10px; margin-bottom: 10px;">'
-            '<div style="font-size: 11px; font-weight: 600; color: #92400e; margin-bottom: 4px;">'
-            "⚠️ 焦点信息有降级（如实记录）</div>"
-            f"{items_html}</div>"
-        )
-
-    sections = ""
-    for group in ("holding", "theme", "macro"):
-        rows = groups.get(group) or []
-        if not rows:
-            continue
-        accent, soft = _GROUP_ACCENTS.get(group, ("#64748b", "#f1f5f9"))
-        rows_html = ""
-        for row in rows:
-            hits = list(row.get("holding_hits") or []) + list(row.get("watchlist_hits") or [])
-            hit_tags = "".join(
-                f'<span style="font-size: 9px; color: {accent}; background: {soft}; '
-                f'border-radius: 7px; padding: 0 6px; margin-left: 4px;">{_esc(h)}</span>'
-                for h in hits
-            )
-            rel = float(row.get("relevance") or 0.0)
-            rows_html += (
-                '<div style="display: flex; justify-content: space-between; gap: 10px; '
-                'padding: 5px 0; border-bottom: 1px solid #f1f5f9;">'
-                '<div style="font-size: 11px; color: #334155; line-height: 1.5;">'
-                f"{_esc(str(row.get('title') or '')[:64])}{hit_tags}</div>"
-                f'<div style="font-size: 11px; color: {accent}; font-weight: 600; flex: none;">'
-                f"{rel:.2f}</div></div>"
-            )
-        sections += (
-            '<div style="margin-bottom: 10px;">'
-            '<div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">'
-            f'<span style="width: 3px; height: 11px; background: {accent}; border-radius: 2px;"></span>'
-            f'<span style="font-size: 11px; font-weight: 600; color: #0f172a;">'
-            f"{_esc(labels.get(group, group))}</span>"
-            f'<span style="font-size: 10px; color: #94a3b8;">{len(rows)} 条</span>'
-            "</div>"
-            f"{rows_html}</div>"
-        )
-
-    if not sections:
-        sections = '<div style="font-size: 11px; color: #94a3b8;">（没有命中任何关注项）</div>'
-
-    # 口径透明：把当前生效的档位区间直接摊开（用户关心"凭什么这么排"）。
-    # 这段是刻意可见的——排序口径改了却看不出来，是上一版的教训。
-    tiers = (digest.get("tier_config") or {}).get("bands") or {}
-    tier_bits = [
-        f'{label} {tiers[key]["floor"]:.2f}–{tiers[key]["ceiling"]:.2f}'
-        for key, label in (("holding", "持仓"), ("theme", "叙事"),
-                           ("watchlist", "自选"), ("macro", "外部"))
-        if key in tiers
-    ]
-    tier_html = (
-        '<div style="font-size: 10px; color: #64748b; margin-bottom: 10px;">'
-        "排序口径（区间严格不重叠）：" + " &gt; ".join(_esc(b) for b in tier_bits)
-        + "</div>"
-    ) if tier_bits else ""
-
-    pierced = int(stats.get("pierced", 0))
-    pierce_chip = (
-        '<div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; '
-        'padding: 4px 10px; text-align: center;">'
-        f'<div style="font-size: 13px; font-weight: 600; color: #b91c1c;">{pierced}</div>'
-        '<div style="font-size: 9px; color: #64748b;">风险穿透</div>'
-        "</div>"
-    ) if pierced else ""
-
-    return f"""
-    <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px;
-                padding: 14px; margin: 10px 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 18px;">📰</span>
-                <div>
-                    <div style="font-size: 14px; font-weight: 600; color: #0f172a;">今日新闻消化</div>
-                    <div style="font-size: 11px; color: #64748b;">
-                        扫描 {int(stats.get('scanned', 0))} 条 → 精选 {int(stats.get('shown', 0))} 条 ·
-                        窗口 {int(digest.get('window_hours', 24))}h · {_esc(digest.get('generated_at_text', ''))}
-                    </div>
-                </div>
-            </div>
-            <div style="display: flex; gap: 8px;">
-                <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px;
-                            padding: 4px 10px; text-align: center;">
-                    <div style="font-size: 13px; font-weight: 600; color: #1d4ed8;">
-                        {int(stats.get('holding', 0))}</div>
-                    <div style="font-size: 9px; color: #64748b;">持仓</div>
-                </div>
-                <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px;
-                            padding: 4px 10px; text-align: center;">
-                    <div style="font-size: 13px; font-weight: 600; color: #7c3aed;">
-                        {int(stats.get('theme', 0))}</div>
-                    <div style="font-size: 9px; color: #64748b;">主题</div>
-                </div>
-                {pierce_chip}
-            </div>
-        </div>
-        {tier_html}
-        {'<div style="margin-bottom: 10px;">' + focus_html + '</div>' if focus_html else ''}
-        {degraded_html}
-        {sections}
-    </div>
-    """
-
-
 __all__ = [
     "render_decision_plan_panel",
-    "render_news_digest_panel",
 ]

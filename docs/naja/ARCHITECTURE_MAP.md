@@ -397,7 +397,7 @@ _assemble_core_components() 内部顺序：
 | **新单例** | `register.py` | 优先 `SIMPLE_SINGLETONS`；需特殊初始化走 `_register_custom_singletons()` | `singleton_registry_consistency` |
 | **新补作业（唤醒同步）** | `state/system/wake_sync_handlers.py` | 实现 `WakeSyncable` → 在 `_create_wake_sync_manager()` 注册 | — |
 | **新守望** | `watch/`（`Objective` / `Opportunity` / `Watch`） | `WatchRegistry` 登记；机会 ≠ 放行 | `intent_watch` / `allocation_watch` / `rotation_watch` |
-| **新 UI 页面** | `web_ui/pages.py` | 加页面函数 → 在 `web_ui/routes.py` 注册路由 | `health_ui_tabs` / `ui_integration` |
+| **新 UI 页面** | `web_ui/pages.py` | 加页面函数 → 在 `web_ui/routes.py` 注册路由 → **导航入口在 `infra/ui/ui_theme.py::get_nav_menu_items()`**（❗不在这里就不在 `web_ui/` 下，最容易漏第三步） | `health_ui_tabs` / `ui_integration` / `news_digest` |
 | **新 API 端点** | `web_ui/api_extensions.py` | 继承 `RequestHandler` → 在 `routes.py` 挂路径 | `http_error_contract` |
 | **新感知** | `radar/senses/` | 五识层，产出流向认知 | `radar_circular_import` |
 | **新警示 / 托盘项** | `infra/notification/` `scripts/` | 托盘改菜单**必须重启** | `tray_*` |

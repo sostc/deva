@@ -19,6 +19,11 @@ import logging
 
 log = logging.getLogger(__name__)
 
+#: 参与「同一事件折叠」的事件类型。
+#: 板块异动（cn_event/us_event）**不参与**——同一板块刷新的去重由
+#: ``_event_dedup_key`` 负责，把它们卷进来会把"同板块两次异动"误合成一条。
+NEWS_EVENT_TYPES = ("high_score_news", "jin10_news")
+
 # ---------------------------------------------------------------------------
 # A股题材事件「实质变化」门槛（百分比，可按环境变量覆盖）
 #
@@ -1174,6 +1179,38 @@ def _event_dedup_key(event) -> str:
     return str(event.get("block_name") or event.get("title") or "").strip()
 
 
+def _collapse_news_events(events, news_types=NEWS_EVENT_TYPES):
+    """把**同一事件**的多条新闻折成一条（带 ``dup_count``），其余类型原样保留。
+
+    为什么需要：金十每条快讯有中文原版 + 英文翻译版（相隔 4~16 秒、id 不同），
+    两条都会进新闻池。实测托盘 12 个名额里近一半被这种成对重复吃掉。
+    判据见 ``deva/naja/news/dedup.py``（按发布时间结构配对，不靠标题相似度）。
+
+    只在托盘分支（``per_type_limits`` 非空）调用，``/market`` 页面走旧路径不变。
+    """
+    if len(events) < 2:
+        return list(events)
+    try:
+        from deva.naja.news.dedup import collapse
+    except Exception as e:  # pragma: no cover - 防御：去重挂了不许让菜单变空
+        log.warning("[Timeline] 新闻折叠不可用，按原样展示: %s", e)
+        return list(events)
+
+    news = [e for e in events if e.get("type") in news_types]
+    others = [e for e in events if e.get("type") not in news_types]
+    if len(news) < 2:
+        return list(events)
+
+    # 新闻事件把标题放在 block_name 里（历史字段名，不是 title）
+    collapsed, stats = collapse(news, title_key="block_name", time_key="timestamp")
+    if stats.get("merged"):
+        log.debug("[Timeline] 新闻折叠：%s 条 → %s 条（%s）",
+                  stats.get("input"), stats.get("output"), stats.get("by_rule"))
+    merged = others + collapsed
+    merged.sort(key=lambda e: e.get("timestamp", 0), reverse=True)
+    return merged
+
+
 def select_timeline_events(all_events, per_type_limits=None):
     """按「类型配额」挑选时间线事件——**全仓唯一的截断口径**，托盘与页面共用。
 
@@ -1199,6 +1236,10 @@ def select_timeline_events(all_events, per_type_limits=None):
         return list(all_events[:15])
 
     ordered = sorted(all_events, key=lambda e: e.get("timestamp", 0), reverse=True)
+
+    # 先折叠「同一事件的多条新闻」，再分配类型配额——
+    # 顺序反过来的话，被折叠掉的重复仍然占着名额，等于没省。
+    ordered = _collapse_news_events(ordered)
 
     picked = []
     for etype, limit in per_type_limits.items():
@@ -1265,6 +1306,8 @@ def get_timeline_data_for_api(hours: int = 24, per_type_limits=None) -> dict:
             'time': dt.strftime('%H:%M'),
             'date': dt.strftime('%m-%d'),
             'title': block_name,
+            # 同一事件折叠了几条（1 = 无重复）。呈现层只在 >1 时显示 ×N。
+            'dup_count': int(event.get('dup_count') or 1),
         }
         
         if event_type == 'high_score_news':

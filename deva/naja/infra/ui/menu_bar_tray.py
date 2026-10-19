@@ -409,6 +409,10 @@ class MenuBarTray:
                     'time': dt.strftime('%H:%M'),
                     'date': dt.strftime('%m-%d'),
                     'title': block_name,
+                    # 同一事件折叠了几条（1 = 无重复）。这条本地取数路径**不走**
+                    # get_timeline_data_for_api，所以必须在这里单独搬一次——
+                    # 漏了它菜单就不显示 ×N，而"没显示"和"没合并"看起来一样。
+                    'dup_count': int(event.get('dup_count') or 1),
                 }
                 
                 if event_type == 'high_score_news':
@@ -1863,18 +1867,24 @@ class MenuBarTray:
                             change = event.get('change', '')
                             # 24h 内跨天时用 MM-DD 代替 HH:MM——省掉原来的「日期分隔」两行
                             stamp = event_time if event_date == today else event_date
+                            # 同一事件折叠了几条就标 ×N（只显示条数，不显示语言/来源）
+                            try:
+                                _dup = int(event.get('dup_count') or 1)
+                            except (TypeError, ValueError):
+                                _dup = 1
+                            dup_suffix = f" ×{_dup}" if _dup > 1 else ""
 
                             if event_type == 'cn_event':
-                                menu_text = f"{stamp} 🇨🇳 {change} {title}"
+                                menu_text = f"{stamp} 🇨🇳 {change} {title}{dup_suffix}"
                                 callback = self._on_open_page("/market")
                             elif event_type == 'us_event':
-                                menu_text = f"{stamp} 🇺🇸 {change} {title}"
+                                menu_text = f"{stamp} 🇺🇸 {change} {title}{dup_suffix}"
                                 callback = self._on_open_page("/market")
                             elif event_type == 'high_score_news':
-                                menu_text = f"{stamp} 📰 {title}"
+                                menu_text = f"{stamp} 📰 {title}{dup_suffix}"
                                 callback = self._on_open_page("/cognition")
                             elif event_type == 'jin10_news':
-                                menu_text = f"{stamp} 📌 {title}"
+                                menu_text = f"{stamp} 📌 {title}{dup_suffix}"
 
                                 def make_callback(news_url):
                                     def callback(sender):
