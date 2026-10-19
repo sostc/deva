@@ -23,6 +23,22 @@ import aiohttp
 
 log = logging.getLogger(__name__)
 
+# 进程关停期特征：事件循环已停 / 解释器正在退出时，in-flight 的 aiohttp 请求
+# 会在 getaddrinfo 阶段抛 RuntimeError。这属于正常退出时序，不是业务故障，
+# 不打 ERROR（否则每次重启都会污染巡检统计），只在 debug 里留痕。
+_SHUTDOWN_MARKERS = (
+    "cannot schedule new futures",
+    "Event loop is closed",
+    "interpreter shutdown",
+)
+
+
+def _is_shutdown_artifact(exc: BaseException) -> bool:
+    """判断异常是否只是进程关停造成的（网络请求被中断）。"""
+    text = f"{type(exc).__name__}: {exc}"
+    return any(m in text for m in _SHUTDOWN_MARKERS)
+
+
 # ---------------------------------------------------------------------------
 # 重试装饰器
 # ---------------------------------------------------------------------------
@@ -210,6 +226,10 @@ async def _fetch_sina_batch_with_session(codes: List[str], session) -> Dict:
         log.warning(f"[_fetch_sina_batch_async] 可重试错误: {e}")
         raise  # 重新抛出，让重试装饰器处理
     except Exception as e:
+        # 关停期中断：loop 已停、线程池不再收任务。静默返回，不上报。
+        if _is_shutdown_artifact(e):
+            log.debug(f"[_fetch_sina_batch_async] 关停期请求中断，已忽略: {e}")
+            return {}
         import traceback
         log.error(f"[_fetch_sina_batch_async] 不可重试错误: {e}")
         log.error(f"[_fetch_sina_batch_async] 堆栈: {traceback.format_exc()}")
