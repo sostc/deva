@@ -1,15 +1,45 @@
-"""
-Narrative Value 组件 - 叙事价值发现板块
+"""Narrative Value 组件 —— 叙事价值发现
 
-展示 OPPORTUNITY_TYPES 供需映射表（token供给不足→扩产机会等）、
+展示 OPPORTUNITY_TYPES 供需映射表（token 供给不足→扩产机会等）、
 当前检测到的供需问题和投资机会、受益标的列表、RESOLVERS 解决者进展。
+
+2026-10-19 重排：空态从 230px 的大卡片压成一行；映射表与解决者追踪属于
+"全景解释"，默认折叠；删掉「供需问题 → 投资机会 → 受益标的 → 解决者追踪」
+这类模块说明行。
 """
+
+import html
+
+from pywebio.output import put_html
+
+from .layout import card, fold, report_empty
+
+
+_REC_CONFIG = {
+    "BUY": ("#22c55e", "🟢"),
+    "WATCH": ("#f59e0b", "🟡"),
+    "HOLD": ("#3b82f6", "🔵"),
+    "SELL": ("#ef4444", "🔴"),
+    "AVOID": ("#ef4444", "🔴"),
+}
+
+
+def _score_bar(label: str, pct: int, color: str, note: str) -> str:
+    return f"""
+    <div style="background: {color}0f; border: 1px solid {color}26; padding: 9px 12px; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;">
+            <span style="font-size: 11px; color: #94a3b8;">{label}</span>
+            <span style="font-size: 14px; color: {color}; font-weight: 700;">{pct}%</span>
+        </div>
+        <div style="height: 5px; background: rgba(255,255,255,.06); border-radius: 3px; overflow: hidden;">
+            <div style="width: {pct}%; height: 100%; background: {color}; border-radius: 3px;"></div>
+        </div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 3px;">{note}</div>
+    </div>
+    """
 
 
 def render_narrative_value(ui):
-    from pywebio.output import put_html
-
-    # --- 获取数据 ---
     has_data = False
     tracker = None
     po_summary = None
@@ -35,76 +65,27 @@ def render_narrative_value(ui):
         except Exception:
             pass
 
-    # --- 头部始终显示 ---
-    rec_color, rec_icon = "#94a3b8", "⚪"
     vm_recommendation = "WATCH"
+    rec_color, rec_icon = "#94a3b8", "⚪"
     if vm_summary:
         vm_recommendation = vm_summary.get("recommendation", "WATCH")
-        rec_config = {
-            "BUY": ("#22c55e", "🟢"),
-            "WATCH": ("#f59e0b", "🟡"),
-            "HOLD": ("#3b82f6", "🔵"),
-            "SELL": ("#ef4444", "🔴"),
-            "AVOID": ("#ef4444", "🔴"),
-        }
-        rec_color, rec_icon = rec_config.get(vm_recommendation, ("#94a3b8", "⚪"))
+        rec_color, rec_icon = _REC_CONFIG.get(vm_recommendation, ("#94a3b8", "⚪"))
 
-    put_html(f"""
-    <div style="
-        margin-bottom: 12px;
-        background: rgba(255,255,255,0.03);
-        border-radius: 12px;
-        padding: 14px 18px;
-        border: 1px solid rgba(255,255,255,0.08);
-    ">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-            <div style="font-size: 13px; font-weight: 600; color: #22c55e;">
-                💎 叙事价值发现
-            </div>
-            <div style="font-size: 10px; color: #475569;">
-                推荐: <span style="color: {rec_color}; font-weight: 600;">{rec_icon} {vm_recommendation}</span>
-            </div>
-        </div>
-        <div style="font-size: 11px; color: #475569; margin-bottom: 14px;">
-            供需问题 → 投资机会 → 受益标的 → 解决者追踪
-        </div>
-    """)
+    meta = f'推荐 <b style="color: {rec_color};">{rec_icon} {vm_recommendation}</b>'
 
-    # --- 无数据状态 ---
+    # ── 空态 ──
     if not tracker:
-        put_html("""
-        <div style="text-align: center; padding: 24px 16px;">
-            <div style="font-size: 32px; margin-bottom: 12px;">💎</div>
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">叙事追踪器未就绪</div>
-            <div style="font-size: 10px; color: #475569;">等待系统初始化，将在此展示供需映射、价值发现和机会追踪</div>
-        </div>
-        """)
-        put_html('</div>')
+        report_empty("💎", "叙事价值发现", "叙事追踪器未就绪", "等待系统初始化")
         return
 
     if not po_summary or not vm_summary:
-        put_html("""
-        <div style="text-align: center; padding: 24px 16px;">
-            <div style="font-size: 32px; margin-bottom: 12px;">⏳</div>
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">等待数据流入</div>
-            <div style="font-size: 10px; color: #475569;">系统正在监听市场叙事，积累足够数据后将展示价值发现</div>
-        </div>
-        """)
-        put_html('</div>')
+        report_empty("💎", "叙事价值发现", "等待数据流入", "尚未积累到可评估样本")
         return
 
     if not has_data:
-        put_html("""
-        <div style="text-align: center; padding: 24px 16px;">
-            <div style="font-size: 32px; margin-bottom: 12px;">🔍</div>
-            <div style="font-size: 12px; color: #64748b; margin-bottom: 8px;">暂无活跃供需机会</div>
-            <div style="font-size: 10px; color: #475569;">系统正在扫描市场，发现供需失衡将立即展示投资机会</div>
-        </div>
-        """)
-        put_html('</div>')
+        report_empty("💎", "叙事价值发现", "暂无活跃供需机会", "扫描中")
         return
 
-    # --- 有数据时渲染内容 ---
     problems = po_summary.get("problems", [])
     opportunities = po_summary.get("opportunities", [])
     resolvers = po_summary.get("resolvers", [])
@@ -112,160 +93,101 @@ def render_narrative_value(ui):
     value_score = vm_summary.get("value_score", 0)
     market_score = vm_summary.get("market_narrative_score", 0)
     vm_reason = vm_summary.get("reason", "")
-    signals = vm_summary.get("signals", [])
 
-    # 价值/市场双评分
     value_pct = min(int(value_score * 100), 100) if value_score else 0
     market_pct = min(int(market_score * 100), 100) if market_score else 0
     value_color = "#22c55e" if value_score >= 0.6 else ("#f59e0b" if value_score >= 0.3 else "#94a3b8")
     market_color = "#3b82f6" if market_score >= 0.6 else ("#f59e0b" if market_score >= 0.3 else "#94a3b8")
 
-    put_html(f"""
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px;">
-            <div style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.15); padding: 8px 12px; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="font-size: 10px; color: #94a3b8;">💎 供需价值</span>
-                    <span style="font-size: 14px; color: {value_color}; font-weight: 700;">{value_pct}%</span>
-                </div>
-                <div style="height: 5px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;">
-                    <div style="width: {value_pct}%; height: 100%; background: {value_color}; border-radius: 3px;"></div>
-                </div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 3px;">Dynamics - 主动价值发现</div>
-            </div>
-            <div style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.15); padding: 8px 12px; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="font-size: 10px; color: #94a3b8;">📊 市场叙事</span>
-                    <span style="font-size: 14px; color: {market_color}; font-weight: 700;">{market_pct}%</span>
-                </div>
-                <div style="height: 5px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden;">
-                    <div style="width: {market_pct}%; height: 100%; background: {market_color}; border-radius: 3px;"></div>
-                </div>
-                <div style="font-size: 9px; color: #64748b; margin-top: 3px;">Sentiment - 市场情绪参考</div>
-            </div>
-        </div>
-    """)
+    body = f"""
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        {_score_bar("💎 供需价值", value_pct, value_color, "Dynamics · 主动价值发现")}
+        {_score_bar("📊 市场叙事", market_pct, market_color, "Sentiment · 市场情绪参考")}
+    </div>
+    """
 
-    # 原因说明
     if vm_reason:
-        put_html(f"""
-        <div style="
-            background: rgba(34,197,94,0.04);
-            border-left: 3px solid rgba(34,197,94,0.3);
-            padding: 6px 10px;
-            margin-bottom: 14px;
-            border-radius: 0 6px 6px 0;
-        ">
-            <div style="font-size: 10px; color: #86efac;">{vm_reason}</div>
+        body += f"""
+        <div style="margin-top: 10px; background: rgba(34,197,94,.05);
+                    border-left: 3px solid rgba(34,197,94,.35); padding: 7px 10px;
+                    border-radius: 0 6px 6px 0; font-size: 11px; color: #86efac; line-height: 1.6;">
+            {html.escape(str(vm_reason))}
         </div>
-        """)
+        """
 
-    # 当前检测到的供需问题 & 机会
-    if problems or opportunities:
-        items_html = ""
+    # ── 活跃供需机会 ──
+    if opportunities:
+        items = ""
         for opp in opportunities:
-            cat = opp.get("category", "?")
-            opp_name = opp.get("opportunity", "?")
-            beneficiaries = opp.get("beneficiaries", [])
-            desc = opp.get("description", "")
-            ben_badges = " ".join(
-                f'<span style="display: inline-block; background: rgba(34,197,94,0.15); color: #22c55e; '
-                f'padding: 2px 6px; border-radius: 4px; font-size: 9px; margin-right: 2px;">{b}</span>'
+            cat = html.escape(str(opp.get("category", "?")))
+            opp_name = html.escape(str(opp.get("opportunity", "?")))
+            beneficiaries = opp.get("beneficiaries", []) or []
+            desc = html.escape(str(opp.get("description", "")))
+            badges = " ".join(
+                f'<span class="cog-pill" style="background: rgba(34,197,94,.15); color: #22c55e;">{html.escape(str(b))}</span>'
                 for b in beneficiaries[:6]
             )
-            items_html += f"""
-            <div style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <span style="font-size: 10px; color: #f59e0b; font-weight: 600;">⚡ {cat}</span>
-                    <span style="font-size: 10px; color: #22c55e;">→ {opp_name}</span>
+            items += f"""
+            <div style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.04);">
+                <div style="display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+                    <span style="font-size: 11px; color: #f59e0b; font-weight: 600;">⚡ {cat}</span>
+                    <span style="font-size: 11px; color: #22c55e;">→ {opp_name}</span>
                 </div>
-                <div style="font-size: 9px; color: #64748b; margin-bottom: 4px;">{desc}</div>
-                <div>{ben_badges}</div>
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 5px; line-height: 1.5;">{desc}</div>
+                <div style="line-height: 2;">{badges}</div>
             </div>
             """
-
-        if items_html:
-            put_html(f"""
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 500;">
-                🎯 活跃供需机会 <span style="font-size: 10px; color: #475569;">({len(opportunities)} 个)</span>
+        body += f"""
+        <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.06);">
+            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">
+                🎯 活跃供需机会 <span style="color: #475569;">({len(opportunities)} 个)</span>
             </div>
-            <div style="
-                background: rgba(34,197,94,0.04);
-                border: 1px solid rgba(34,197,94,0.1);
-                border-radius: 8px;
-                overflow: hidden;
-                margin-bottom: 12px;
-            ">
-                {items_html}
-            </div>
-            """)
+            <div style="background: rgba(34,197,94,.04); border: 1px solid rgba(34,197,94,.1);
+                        border-radius: 8px; overflow: hidden;">{items}</div>
+        </div>
+        """
 
-    # OPPORTUNITY_TYPES 全景映射表（折叠式）
+    # ── 映射表 / 解决者：默认折叠 ──
     if OPPORTUNITY_TYPES:
-        mapping_rows = ""
+        rows = ""
         for problem_type, info in OPPORTUNITY_TYPES.items():
             is_active = any(p.get("category") == problem_type for p in problems)
-            active_dot = '<span style="color: #22c55e;">●</span>' if is_active else '<span style="color: #334155;">○</span>'
+            dot = '<span style="color: #22c55e;">●</span>' if is_active else '<span style="color: #475569;">○</span>'
             bens = ", ".join(info.get("beneficiaries", [])[:3])
-            mapping_rows += f"""
-            <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); align-items: center;">
-                <div style="font-size: 10px; text-align: center;">{active_dot}</div>
-                <div style="font-size: 9px; color: #f1f5f9;">{problem_type}</div>
-                <div style="font-size: 9px; color: #22c55e;">{info.get('opportunity', '')}</div>
-                <div style="font-size: 9px; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{bens}</div>
+            rows += f"""
+            <div style="display: grid; grid-template-columns: 18px 1.6fr 1.3fr 1.8fr; gap: 6px;
+                        padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.03); align-items: center;">
+                <div style="font-size: 11px; text-align: center;">{dot}</div>
+                <div style="font-size: 11px; color: #e2e8f0;">{html.escape(str(problem_type))}</div>
+                <div style="font-size: 11px; color: #22c55e;">{html.escape(str(info.get('opportunity', '')))}</div>
+                <div style="font-size: 11px; color: #64748b; overflow: hidden;
+                            text-overflow: ellipsis; white-space: nowrap;">{html.escape(bens)}</div>
             </div>
             """
+        body += fold("供需 → 机会 映射表", f'<div>{rows}</div>',
+                     meta=f"{len(OPPORTUNITY_TYPES)} 类·● 为当前命中")
 
-        put_html(f"""
-            <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 500;">📋 供需→机会 映射表</div>
-            <div style="
-                background: rgba(255,255,255,0.02);
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 8px;
-                padding: 6px 10px;
-                margin-bottom: 12px;
-            ">
-                <div style="display: grid; grid-template-columns: 20px 2fr 1.5fr 2fr; gap: 4px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,0.08);">
-                    <div style="font-size: 8px; color: #475569;"></div>
-                    <div style="font-size: 8px; color: #475569;">供需问题</div>
-                    <div style="font-size: 8px; color: #475569;">投资机会</div>
-                    <div style="font-size: 8px; color: #475569;">受益标的</div>
-                </div>
-                {mapping_rows}
-            </div>
-        """)
-
-    # RESOLVERS 解决者追踪
-    if resolvers or RESOLVERS:
-        resolver_html = ""
+    if RESOLVERS:
+        cards = ""
         for name, info in RESOLVERS.items():
-            problem = info.get("problem", "")
-            r_list = info.get("resolvers", [])
-            progress = info.get("progress", {})
-            opportunity = info.get("opportunity", "")
-
-            # 是否有活跃解决者
             is_active = any(r.get("name") == name for r in resolvers)
-            border_color = "rgba(34,197,94,0.2)" if is_active else "rgba(255,255,255,0.06)"
-
-            progress_badges = " ".join(
-                f'<span style="font-size: 8px; color: #94a3b8;">{k}: <span style="color: #f59e0b;">{v}</span></span>'
+            border = "rgba(34,197,94,.25)" if is_active else "rgba(255,255,255,.06)"
+            progress = info.get("progress", {}) or {}
+            badges = " ".join(
+                f'<span style="font-size: 11px; color: #94a3b8;">{html.escape(str(k))}: '
+                f'<span style="color: #f59e0b;">{html.escape(str(v))}</span></span>'
                 for k, v in progress.items()
             )
-
-            resolver_html += f"""
-            <div style="background: rgba(255,255,255,0.02); border: 1px solid {border_color}; padding: 6px 8px; border-radius: 6px;">
-                <div style="font-size: 10px; color: #f1f5f9; font-weight: 600; margin-bottom: 2px;">{name}</div>
-                <div style="font-size: 9px; color: #64748b; margin-bottom: 3px;">🔧 {problem} → {opportunity}</div>
-                <div style="display: flex; flex-wrap: wrap; gap: 6px;">{progress_badges}</div>
+            cards += f"""
+            <div style="background: rgba(255,255,255,.02); border: 1px solid {border};
+                        padding: 7px 9px; border-radius: 6px;">
+                <div style="font-size: 11px; color: #e2e8f0; font-weight: 600; margin-bottom: 3px;">
+                    {html.escape(str(name))}</div>
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 4px;">
+                    🔧 {html.escape(str(info.get('problem', '')))} → {html.escape(str(info.get('opportunity', '')))}</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">{badges}</div>
             </div>
             """
+        body += fold("解决者追踪", f'<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">{cards}</div>')
 
-        put_html(f"""
-        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px; font-weight: 500;">🔧 解决者追踪</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
-            {resolver_html}
-        </div>
-        """)
-
-    # 关闭容器
-    put_html('</div>')
+    put_html(card(title="叙事价值发现", icon="💎", meta=meta, body=body))

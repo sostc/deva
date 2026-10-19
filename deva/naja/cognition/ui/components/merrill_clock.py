@@ -1,6 +1,10 @@
+"""Merrill Clock 组件 —— 美林时钟入口卡
+
+2026-10-19：原卡片用了 `linear-gradient(135deg, #faf5ff 0%, ...)` 的浅色底，
+在深色主题里是一块突兀的白条；改为与全页一致的深色卡片，只保留周期状态与跳转。
 """
-Merrill Clock 组件
-"""
+
+from pywebio.output import put_html
 
 
 def render_merrill_clock(ui):
@@ -22,42 +26,27 @@ def render_merrill_clock(ui):
 
     if has_data:
         phase = summary.get("phase", "")
-        confidence = summary.get("confidence", 0)
+        confidence = float(summary.get("confidence", 0) or 0)
         emoji = phase_emoji.get(phase, "❓")
-        summary_text = f"{emoji} {phase} | 置信度 {confidence:.0%}"
+        phase_text = f"{emoji} {phase}"
+        sub_text = f"置信度 {confidence:.0%}"
+        color = "#f59e0b" if phase in ("OVERHEAT", "STAGFLATION") else "#22c55e"
     else:
-        summary_text = "🌙 暂无经济数据"
+        phase_text = "🌙 暂无经济数据"
+        sub_text = "经济数据未采集"
+        color = "#64748b"
 
-    from pywebio.output import put_html
     put_html(f"""
-    <div style="
-        margin-bottom: 12px;
-        background: linear-gradient(135deg, #faf5ff 0%, rgba(255,255,255,0.05) 100%);
-        border-radius: 12px;
-        padding: 14px 18px;
-        border: 1px solid rgba(168,85,247,0.2);
-    ">
-        <a href="/merrill_clock" style="text-decoration: none;">
-            <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                    <div style="font-size: 13px; font-weight: 600; color: #a855f7; margin-bottom: 2px;">
-                        🕐 美林时钟 · 经济周期
-                    </div>
-                    <div style="font-size: 11px; color: #6b7280;">
-                        {summary_text}
-                    </div>
-                </div>
-                <div style="
-                    background: rgba(168,85,247,0.15);
-                    padding: 6px 12px;
-                    border-radius: 8px;
-                    font-size: 12px;
-                    color: #a855f7;
-                    font-weight: 500;
-                ">
-                    查看 →
-                </div>
+    <a href="/merrill_clock" style="text-decoration: none;">
+        <div class="cog-card" style="display: flex; align-items: center;
+                    justify-content: space-between; gap: 12px;">
+            <div>
+                <div class="cog-title" style="color: #a855f7;">🕐 美林时钟 · 经济周期</div>
+                <div style="font-size: 13px; color: {color}; margin-top: 5px; font-weight: 600;">{phase_text}</div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">{sub_text}</div>
             </div>
-        </a>
-    </div>
+            <div style="background: rgba(168,85,247,.15); padding: 6px 12px; border-radius: 8px;
+                        font-size: 11px; color: #a855f7; white-space: nowrap;">查看 →</div>
+        </div>
+    </a>
     """)
