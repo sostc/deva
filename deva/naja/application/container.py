@@ -421,6 +421,12 @@ class AppContainer:
                 ingestion.set_insight_pool(self.insight_pool)
             except Exception as e:
                 log.warning(f"[AppContainer] CognitionIngestion 依赖注入失败: {e}")
+
+            # 13. 洞察池 → 认知洞察事件（否则 QueryState.cognitive_insights 永远空）
+            try:
+                self._wire_insight_pool_events()
+            except Exception as e:
+                log.warning(f"[AppContainer] 洞察事件接线失败: {e}")
             
             # 10. 启动调度器（延迟加载，只启动核心调度器）
             # self._start_schedulers()
@@ -895,18 +901,59 @@ def execute() -> dict:
         """启动美林时钟定时任务"""
         try:
             task_mgr = self.task_manager
-            
-            existing = task_mgr.get_by_name("merrill_clock_update")
+
+            # ❗任务名带版本号，不是洁癖：func_code 是**存在 NB 里**的，改源码
+            # 对已存在的任务毫无影响（下面 `if not existing` 直接跳过）。
+            # v1 那段用了 nest_asyncio，每次执行都抛 Event loop is closed，
+            # 而且这个失败只在 console 日志的 traceback 里看得见。
+            # 换名是唯一可靠的上线方式；旧任务只停不删，留作痕迹。
+            TASK_NAME = "merrill_clock_update_v2"
+            legacy = task_mgr.get_by_name("merrill_clock_update")
+            if legacy is not None and getattr(legacy, "is_running", False):
+                try:
+                    task_mgr.stop(legacy.id)
+                    log.info("[AppContainer] 已停用旧版美林任务 merrill_clock_update（func_code 含 nest_asyncio，必然失败）")
+                except Exception as e:
+                    log.warning(f"[AppContainer] 停用旧版美林任务失败: {e}")
+
+            existing = task_mgr.get_by_name(TASK_NAME)
             if not existing:
                 import hashlib
-                task_id = hashlib.md5("merrill_clock_update_2026".encode()).hexdigest()[:12]
+                task_id = hashlib.md5("merrill_clock_update_2026_v2".encode()).hexdigest()[:12]
                 
                 func_code = '''
 import logging
 import asyncio
 import os
-import nest_asyncio
 log = logging.getLogger(__name__)
+
+
+def _run_coro(coro):
+    """在**本线程新建**的 loop 上跑协程。
+
+    ❗不要用 asyncio.run()：nest_asyncio.apply() 会把 asyncio.run 换成
+    nest_asyncio.run，后者取的是**本线程的默认 loop**。调度线程里那个 loop
+    早已被 close（服务启动阶段用过 asyncio.run），于是 create_task 直接抛
+    RuntimeError: Event loop is closed —— 这就是经济周期停在 4 天前的根因。
+
+    也不要再 apply() nest_asyncio：它只会把这个问题重新引进来。
+    new_event_loop() 不动默认 loop，跑完就关，互不干扰。
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("_run_coro 不能在已有 running loop 的线程里调用")
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+
 
 def execute() -> dict:
     """获取经济数据并更新美林时钟"""
@@ -917,19 +964,18 @@ def execute() -> dict:
         from deva.naja.cognition.merrill_clock import get_merrill_clock_engine
         
         fred_api_key = os.environ.get("FRED_API_KEY", "")
-        if not fred_api_key:
+        use_mock = not bool(fred_api_key)
+        if use_mock:
             log.warning("[MerrillClockTask] FRED_API_KEY 环境变量未设置，使用 mock 模式")
-        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=not bool(fred_api_key))
-        
-        nest_asyncio.apply()
+        fetcher = EconomicDataFetcher(fred_api_key=fred_api_key, use_mock=use_mock)
         
         async def _fetch():
             data = await fetcher.fetch_latest_data()
             await fetcher.close()
             return data
         
-        data = asyncio.run(_fetch())
-        log.info(f"[MerrillClockTask] 获取经济数据成功")
+        data = _run_coro(_fetch())
+        log.info("[MerrillClockTask] 获取经济数据成功")
         
         clock_engine = get_merrill_clock_engine()
         signal = clock_engine.on_economic_data(data)
@@ -942,19 +988,20 @@ def execute() -> dict:
                 "confidence": round(signal.confidence, 3),
                 "growth_score": round(signal.growth_score, 3),
                 "inflation_score": round(signal.inflation_score, 3),
+                # ❗mock 数据算出来的周期也是「看起来像真信号」。
+                # 不标出来，页面上那句「过热」就无从判断可信度。
+                "mock": use_mock,
             }
         else:
             return {"success": False, "message": "数据不足"}
             
     except Exception as e:
-        log.error(f"[MerrillClockTask] 执行失败：{e}")
-        import traceback
-        traceback.print_exc()
+        log.error(f"[MerrillClockTask] 执行失败：{e}", exc_info=True)
         return {"success": False, "message": str(e)}
 '''
                 
                 result = task_mgr.create(
-                    name="merrill_clock_update",
+                    name=TASK_NAME,
                     description="美林时钟经济数据定时更新（每日凌晨执行）",
                     func_code=func_code,
                     task_type="scheduler",
@@ -1301,6 +1348,42 @@ def execute() -> dict:
         )
         
         return insight_engine
+
+    def _wire_insight_pool_events(self):
+        """把「洞察池有新洞察」接到 CognitiveInsightEvent 上。
+
+        ❗此前全仓**没有任何地方**发布 CognitiveInsightEvent，而
+        QueryStateUpdater 只认事件 → 页面上「认知洞察」恒 0，且无从判断
+        是「真没有洞察」还是「洞察有了但送不出去」。叙事事件是通的
+        （narrative/tracker.py 里 publish_event(NarrativeStateEvent(...))），
+        照同一模板补上即可。
+        """
+        from ..events import publish_event
+        from ..events.cognitive_events import CognitiveInsightEvent
+
+        pool = self.insight_pool
+        if pool is None:
+            log.warning("[AppContainer] insight_pool 未就绪，跳过洞察事件接线")
+            return
+
+        def _on_new_insight(insight):
+            payload = insight.to_dict() if hasattr(insight, "to_dict") else dict(insight)
+            # 只把最近若干条送出去：QueryState 是给页面读的，不需要全量历史。
+            recent = [
+                i.to_dict() if hasattr(i, "to_dict") else i
+                for i in list(getattr(pool, "_insights", []) or [])[-20:]
+            ]
+            publish_event(
+                CognitiveInsightEvent(
+                    insights=recent or [payload],
+                    confidence=float(payload.get("confidence", 0.5) or 0.5),
+                    timestamp=float(payload.get("ts", time.time()) or time.time()),
+                    source="insight_pool",
+                )
+            )
+
+        pool.on_insight = _on_new_insight
+        log.info("[AppContainer] 洞察池 → CognitiveInsightEvent 接线完成")
 
     def _create_llm_reflection_engine(self):
         """创建 LLMReflectionEngine（显式依赖注入）"""

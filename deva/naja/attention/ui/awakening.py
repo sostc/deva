@@ -762,6 +762,70 @@ def _read_economic_cycle(query_state: Dict[str, Any]) -> tuple:
     return "未采集", TONE_GREY, "美林时钟未产出"
 
 
+def _probe_dip_state(manas_state: Dict[str, Any]) -> Dict[str, Any]:
+    """探测恐慌分与「超跌机会」（**只读，不下单**）。
+
+    ❗这里自己算，不读内核缓存：内核只在 make_decision 时刷一次，而页面
+    可能落在两次决策之间。纯计算、无 IO，重算没有副作用。
+
+    `opportunity=True` 只是标记，不等于放行 —— 真执行仍要过守望层。
+    """
+    scanner = None
+    try:
+        from ...radar import get_global_market_scanner
+        scanner = get_global_market_scanner()
+    except Exception as exc:
+        return {"available": False, "reason": f"取 scanner 失败: {type(exc).__name__}: {exc}"}
+
+    if scanner is None:
+        return {"available": False, "reason": "scanner 单例不可用（get_global_market_scanner 返回 None）"}
+
+    # 先把「拿不到」的原因分清楚：scanner 不存在 / 有实例但没数据 / 有数据但取不到字段。
+    # ❗只写一句「拿不到行情与广度」等于把三种完全不同的故障混成一种。
+    try:
+        raw = scanner.get_last_data() or {}
+    except Exception as exc:
+        return {"available": False, "reason": f"scanner.get_last_data() 抛异常: {exc}"}
+    try:
+        breadth = scanner.get_latest_breadth() or {}
+    except Exception:
+        breadth = {}
+
+    try:
+        from ..kernel.panic_probe import evaluate_dip, probe_panic
+    except Exception:
+        return {"available": False, "reason": "panic_probe 不可导入"}
+
+    try:
+        sample = probe_panic(scanner)
+    except Exception as exc:
+        return {"available": False, "reason": f"探测失败: {exc}"}
+
+    if sample is None:
+        sample_md = next(iter(raw.values()), None) if raw else None
+        field_ok = hasattr(sample_md, "change_pct") if sample_md is not None else False
+        return {
+            "available": False,
+            "reason": (
+                f"行情 {len(raw)} 条 / 广度 {len(breadth)} 键 / "
+                f"样本字段 change_pct={field_ok}"
+            ),
+        }
+
+    regime = manas_state.get("regime_score")
+    try:
+        regime = float(regime) if regime is not None else None
+    except (TypeError, ValueError):
+        regime = None
+
+    dip = evaluate_dip(sample, regime=regime)
+    return {
+        "available": True,
+        "panic": sample.to_dict(),
+        "dip": dip.to_dict(),
+    }
+
+
 def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, Any]) -> str:
     """渲染系统工作原理概览"""
     market_regime = query_state.get("market_regime", "unknown")
@@ -797,6 +861,60 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
     insights_count = len(cognitive_insights.get("insights", []))
     insights_note = "本运行内已更新" if insights_count else "本运行内未产出"
     insights_color = TONE_GREEN if insights_count else TONE_GREY
+
+    # 恐慌 + 超跌机会（只读标记，不下单）
+    dip_state = _probe_dip_state(manas_state)
+    if dip_state.get("available"):
+        panic_d = dip_state.get("panic") or {}
+        dip_d = dip_state.get("dip") or {}
+        try:
+            panic_value = float(panic_d.get("panic_score") or 0.0)
+        except (TypeError, ValueError):
+            panic_value = 0.0
+        # 恐慌是**风险语义**：越高越危险，但它同时是「便宜」的来源，文案要说清。
+        if panic_value >= 70:
+            panic_color = TONE_RED
+        elif panic_value >= 50:
+            panic_color = TONE_AMBER
+        else:
+            panic_color = TONE_BLUE
+        panic_text = f"{panic_value:.0f}"
+        panic_level = {
+            "extreme": "极恐",
+            "high": "恐慌",
+            "moderate": "偏恐",
+            "neutral": "中性",
+        }.get(str(panic_d.get("level") or ""), str(panic_d.get("level") or "—"))
+        used = "/".join(panic_d.get("dimensions_used") or []) or "无"
+        missing = "/".join(panic_d.get("dimensions_missing") or []) or "无"
+        panic_note = f"{panic_level} · 仅{used}维"
+        panic_title = (
+            f"恐慌 {panic_value:.0f}/100（{panic_level}）。"
+            f"用了 {used} 维，缺 {missing} 维（无盘口价差/事件严重度），已按可用维度重归一。"
+            f"数据可信度 {panic_d.get('quality')}。样本 {panic_d.get('sample_size')} 个标的。"
+        )
+
+        dip_flag = bool(dip_d.get("opportunity"))
+        dip_text = "有" if dip_flag else "无"
+        dip_color = TONE_GREEN if dip_flag else TONE_GREY
+        if dip_flag:
+            dip_note = f"首笔≤{int((dip_d.get('size_hint') or 0) * 100)}%仓 · 标记≠放行"
+        else:
+            blockers = dip_d.get("blockers") or ["条件不满足"]
+            dip_note = blockers[0]
+        dip_title = "；".join(
+            [f"成立: {r}" for r in (dip_d.get("reasons") or [])]
+            + [f"差: {b}" for b in (dip_d.get("blockers") or [])]
+        ) or "无数据"
+        dip_available = True
+    else:
+        panic_text, panic_color = "未采集", TONE_GREY
+        panic_note = "拿不到行情与广度"
+        panic_title = dip_state.get("reason", "")
+        dip_text, dip_color = "未判定", TONE_GREY
+        dip_note = "缺少恐慌数据"
+        dip_title = dip_state.get("reason", "")
+        dip_available = False
     
     regime_text = (
         "⚠️ 数据不可用"
@@ -883,7 +1001,7 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
 
             <div style="background: #0f172a; border-radius: 8px; padding: 12px;">
                 <div style="font-size: 12px; font-weight: 600; color: #f1f5f9; margin-bottom: 8px;">🧠 认知系统</div>
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
                     <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">叙事状态</div>
                         <div style="font-size: 10px; color: #f1f5f9;">{narrative_text}</div>
@@ -903,6 +1021,16 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
                         <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">认知洞察</div>
                         <div style="font-size: 14px; font-weight: 600; color: {insights_color};">{insights_count}</div>
                         <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{insights_note}</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">恐慌指数</div>
+                        <div style="font-size: 14px; font-weight: 600; color: {panic_color};" title="{escape(panic_title)}">{panic_text}</div>
+                        <div style="font-size: 9px; color: {panic_color}; margin-top: 2px;">{escape(panic_note)}</div>
+                    </div>
+                    <div style="background: #1e293b; border-radius: 6px; padding: 10px; text-align: center;">
+                        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">超跌机会</div>
+                        <div style="font-size: 14px; font-weight: 600; color: {dip_color};" title="{escape(dip_title)}">{dip_text}</div>
+                        <div style="font-size: 9px; color: #64748b; margin-top: 2px;">{escape(dip_note)}</div>
                     </div>
                 </div>
             </div>

@@ -165,24 +165,47 @@ class PanicAnalyzer:
         return False
 
     def _calculate_panic_score(self, features: Dict) -> float:
-        """计算恐慌指数 (0-100)"""
+        """计算恐慌指数 (0-100)
+
+        ❗**按可用维度重归一**，这是本方法的关键修正。
+
+        五个权重之和是 1.0（price 0.25 / volume 0.25 / spread 0.20 /
+        fear 0.20 / event 0.10），但生产环境拿不到 spread（无盘口）和
+        event_impact（无事件严重度），若仍按原公式求和，最高只能到 **70**，
+        而 `panic_threshold` 恰好就是 70 —— 结果「永远差一点」，
+        看起来在算、其实永远不触发。
+
+        特征值为 `None` 表示**没有数据**（不是 0，也不是「正常」）。
+        缺失维度从分母里剔除，而不是拿一个默认值去顶替。
+        """
         cfg = self.config
+        dims = []
 
-        price_destabilization = min(1.0, abs(features.get("price_destabilization_speed", 0)) / 5.0)
-        volume_shrink = 1.0 - min(1.0, features.get("volume_shrink_ratio", 1.0))
-        spread_expansion = min(1.0, (features.get("spread_ratio", 1.0) - 1) / 3.0)
-        fear_sentiment = features.get("fear_score", 0) / 100.0
-        event_severity = features.get("event_impact", 0)
+        value = features.get("price_destabilization_speed")
+        if value is not None:
+            dims.append((min(1.0, abs(float(value)) / 5.0), cfg.weight_price_destabilization))
 
-        panic_score = (
-            price_destabilization * cfg.weight_price_destabilization +
-            volume_shrink * cfg.weight_volume_shrink +
-            spread_expansion * cfg.weight_spread_expansion +
-            fear_sentiment * cfg.weight_fear_sentiment +
-            event_severity * cfg.weight_event_severity
-        ) * 100
+        value = features.get("volume_shrink_ratio")
+        if value is not None:
+            dims.append((1.0 - min(1.0, float(value)), cfg.weight_volume_shrink))
 
-        return min(100.0, max(0.0, panic_score))
+        value = features.get("spread_ratio")
+        if value is not None:
+            dims.append((min(1.0, max(0.0, (float(value) - 1) / 3.0)), cfg.weight_spread_expansion))
+
+        value = features.get("fear_score")
+        if value is not None:
+            dims.append((min(1.0, max(0.0, float(value) / 100.0)), cfg.weight_fear_sentiment))
+
+        value = features.get("event_impact")
+        if value is not None:
+            dims.append((min(1.0, max(0.0, float(value))), cfg.weight_event_severity))
+
+        total_weight = sum(w for _, w in dims)
+        if total_weight <= 0:
+            return 0.0
+
+        return max(0.0, min(100.0, sum(s * w for s, w in dims) / total_weight * 100))
 
     def _calculate_liquidity_score(self, features: Dict) -> float:
         """

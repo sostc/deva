@@ -968,8 +968,33 @@ _scanner_lock = threading.Lock()
 
 
 def get_global_market_scanner() -> GlobalMarketScanner:
-    """获取全局扫描器实例（线程安全单例）"""
+    """获取全局扫描器实例（线程安全单例）。
+
+    ❗**优先返回 RadarEngine 真正在跑的那一个**。
+
+    历史上这里会懒创建一个**新的空实例**，而 `RadarEngine._do_start_global_scanner`
+    又自己 `GlobalMarketScanner(config=...)` 建了另一个在跑 tick。结果是两个对象、
+    一套数据只写进其中一个：
+        - 所有 `get_global_market_scanner()` 的调用方（Manas 的 regime、
+          恐慌探测、UI）读到的都是**空壳** → trend/diffusion 恒 0、
+          regime 恒 ≈0.02（只有流动性一项有值）。
+        - 而 `get_last_data()` 明明在日志里显示「成功获取 71 个市场数据」。
+
+    这与「两个语义指向同一对象」的禁令是同一族问题。这里让单例收敛到
+    RadarEngine 的实例；RadarEngine 尚未启动时再退回懒创建。
+    """
     global _scanner_instance
+
+    try:
+        from .engine import get_radar_engine
+
+        live = getattr(get_radar_engine(), "_global_scanner", None)
+        if live is not None:
+            _scanner_instance = live
+            return live
+    except Exception:
+        pass
+
     if _scanner_instance is None:
         with _scanner_lock:
             if _scanner_instance is None:

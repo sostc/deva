@@ -456,7 +456,22 @@ class InsightPool:
         self._last_seen: Dict[str, float] = {}
         self._latest_by_theme: Dict[str, str] = {}
         self._db = NB(INSIGHT_POOL_TABLE)
+        #: 新洞察落地后的回调（由 container 注入 → 发布 CognitiveInsightEvent）。
+        #: ❗没有这条回调时，池里就算有洞察，QueryState.cognitive_insights 也
+        #: 永远是空的 —— 全仓没有任何地方发布 CognitiveInsightEvent，
+        #: 而 state_updater 只认事件。这就是「认知洞察恒 0」的第一层断链。
+        self.on_insight = None
         self._load_from_db()
+
+    def _notify(self, insight: "Insight") -> None:
+        """通知外部有新洞察。回调失败绝不能影响写池。"""
+        cb = getattr(self, "on_insight", None)
+        if cb is None:
+            return
+        try:
+            cb(insight)
+        except Exception:
+            pass
 
     def ingest_result(self, result: Any) -> Optional[Insight]:
         candidate = self._builder.build_from_result(result)
@@ -528,6 +543,8 @@ class InsightPool:
             novelty=insight.novelty,
         )
 
+        # ❗回调必须放在锁**外面**：它会发布事件、可能被订阅方回调回来，
+        # 持锁调用等于把 RLock 变成死锁的温床。
         with self._lock:
             if signal_type == "attention_shift":
                 self._insights.append(insight)
@@ -536,21 +553,24 @@ class InsightPool:
                 self._last_seen[theme] = now_ts
                 self._latest_by_theme[theme] = insight.id
                 self.persist()
-                return insight
+                published = insight
+            else:
+                merged = self._merge_if_possible(insight)
+                if merged:
+                    self._last_seen[theme] = now_ts
+                    self.persist()
+                    published = merged
+                else:
+                    self._insights.append(insight)
+                    if len(self._insights) > self.max_size:
+                        self._insights = self._insights[-self.max_size:]
+                    self._last_seen[theme] = now_ts
+                    self._latest_by_theme[theme] = insight.id
+                    self.persist()
+                    published = insight
 
-            merged = self._merge_if_possible(insight)
-            if merged:
-                self._last_seen[theme] = now_ts
-                self.persist()
-                return merged
-
-            self._insights.append(insight)
-            if len(self._insights) > self.max_size:
-                self._insights = self._insights[-self.max_size :]
-            self._last_seen[theme] = now_ts
-            self._latest_by_theme[theme] = insight.id
-            self.persist()
-            return insight
+        self._notify(published)
+        return published
 
     def _merge_if_possible(self, new_insight: Insight) -> Optional[Insight]:
         theme = new_insight.theme
