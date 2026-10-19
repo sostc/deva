@@ -116,6 +116,7 @@ def render_awakening_status() -> str:
         </div>
 
         {_render_system_overview(manas_state, query_state)}
+        {_render_value_reversal(manas_state)}
         {_render_manas_core(manas_state)}
         {_render_qkv_module(qkv_state)}
         {_render_market_copilot()}
@@ -1037,6 +1038,238 @@ def _render_system_overview(manas_state: Dict[str, Any], query_state: Dict[str, 
         </div>
     </div>
     """
+
+
+def _render_value_reversal(manas_state: Dict[str, Any]) -> str:
+    """价值与反转：现价在不在企业价值里、日线跌到哪、新闻语气、一致预期是否极端。
+
+    ❗这一块**只读**：不写 NB、不下单、不参与 Manas 判定。
+      「方向=反转观察」只是"值得盯"，不是"可以买"（机会≠放行）。
+    """
+    panic_dict = None
+    try:
+        from ...radar import get_global_market_scanner
+        from ..kernel.panic_probe import probe_panic
+
+        scanner = get_global_market_scanner()
+        sample = probe_panic(scanner) if scanner is not None else None
+        panic_dict = sample.to_dict() if sample is not None else None
+    except Exception:
+        panic_dict = None
+
+    try:
+        from ..kernel.value_reversal_probe import probe_watchlist
+
+        payload = probe_watchlist(panic=panic_dict)
+    except Exception as exc:
+        payload = {"ok": False, "rows": [], "reason": f"探测模块不可用: {type(exc).__name__}: {exc}"}
+
+    rows = payload.get("rows") or []
+    as_of = payload.get("as_of") or time.time()
+    as_of_text = time.strftime("%H:%M", time.localtime(as_of))
+    news_updated = payload.get("news_updated")
+    news_text = time.strftime("%m-%d %H:%M", time.localtime(news_updated)) if news_updated else "未知"
+
+    header = f"""<div style="
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #334155;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">⚖️</span>
+                <span style="font-size: 13px; font-weight: 600; color: #f1f5f9;">价值与反转</span>
+                <span style="font-size: 10px; color: #64748b; background: #1e293b; padding: 2px 6px; border-radius: 4px;">只读</span>
+                <span style="font-size: 10px; color: #64748b;">便宜吗 · 跌到哪 · 新闻语气 · 一致预期</span>
+            </div>
+            <div style="font-size: 10px; color: #64748b;">快照 {escape(as_of_text)} · 新闻池 {escape(news_text)}</div>
+        </div>"""
+
+    legend = (
+        '<div style="font-size: 9px; color: #64748b; margin-bottom: 6px;">'
+        '图例：<span style="color:#ef4444;">红=不利/危险</span> · '
+        '<span style="color:#f59e0b;">橙=偏弱</span> · '
+        '<span style="color:#38bdf8;">蓝=中性</span> · '
+        '<span style="color:#22c55e;">绿=有利/健康</span> · '
+        '<span style="color:#64748b;">灰=不可用</span></div>'
+    )
+
+    if not payload.get("ok"):
+        reason = payload.get("reason") or "取不到数据"
+        errs = payload.get("errors") or []
+        detail = f"（{'；'.join(str(e) for e in errs[:3])}）" if errs else ""
+        return f"""<div style="margin-top: 16px;">{header}
+            <div style="background: #0f172a; border-radius: 8px; padding: 12px;
+                        font-size: 11px; color: {TONE_GREY};">
+                未采集：{escape(str(reason))}{escape(detail)}
+            </div>
+            {legend}
+        </div>"""
+
+    def _pct(value, digits: int = 1, sign: bool = True) -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value) * 100:+.{digits}f}%" if sign else f"{float(value) * 100:.{digits}f}%"
+        except (TypeError, ValueError):
+            return "—"
+
+    def _num(value, digits: int = 2, suffix: str = "") -> str:
+        if value is None:
+            return "—"
+        try:
+            return f"{float(value):.{digits}f}{suffix}"
+        except (TypeError, ValueError):
+            return "—"
+
+    body_rows = []
+    for row in rows:
+        val = row.get("valuation") or {}
+        pos = row.get("position") or {}
+        news = row.get("news") or {}
+        cons = row.get("consensus") or {}
+
+        # ---- 便宜吗 ----
+        level = str(val.get("level") or "unknown")
+        kind = str(val.get("kind") or "unknown")
+        if kind == "etf":
+            premium = val.get("nav_premium_pct")
+            if premium is None:
+                val_text, val_color, val_note = "未采集", TONE_GREY, "无净值"
+            else:
+                val_color = TONE_GREEN if premium < -0.02 else (TONE_RED if premium > 0.02 else TONE_BLUE)
+                # ❗折价本身就是负数，别再套一层负号 —— "折价 -1.5%" 是双重否定
+                if premium < -0.02:
+                    val_text = f"折价 {_pct(abs(premium), sign=False)}"
+                elif premium > 0.02:
+                    val_text = f"溢价 {_pct(premium, sign=False)}"
+                else:
+                    val_text = "平价"
+                val_note = "对净值NAV" + ("·净值或滞后" if abs(premium) > 0.03 else "")
+        elif level == "cheap":
+            val_text, val_color = "低于防守价", TONE_GREEN
+            val_note = f"格 {_num(val.get('graham_ratio'), 2)}×"
+        elif level == "rich":
+            val_text, val_color = "高于价值带", TONE_RED
+            val_note = f"格 {_num(val.get('graham_ratio'), 2)}× · PB {_num(val.get('pb_ratio_vs_fair'), 2)}×"
+        elif level == "fair":
+            val_text, val_color = "价值带附近", TONE_BLUE
+            val_note = f"格 {_num(val.get('graham_ratio'), 2)}× · PB {_num(val.get('pb_ratio_vs_fair'), 2)}×"
+        else:
+            val_text, val_color = "未采集", TONE_GREY
+            missing = "/".join(val.get("missing") or []) or "PE或净资产"
+            val_note = f"缺 {missing}"
+        val_title = "；".join(val.get("notes") or []) or "无补充说明"
+
+        # ---- 跌到哪 ----
+        pos_level = str(pos.get("level") or "unknown")
+        pos_map = {
+            "deep": (f"深跌 {_pct(pos.get('drawdown60'))}", TONE_RED),
+            "mid": (f"中度回撤 {_pct(pos.get('drawdown60'))}", TONE_AMBER),
+            "mild": (f"小幅回撤 {_pct(pos.get('drawdown60'))}", TONE_BLUE),
+            "near_high": (f"接近高点 {_pct(pos.get('drawdown60'))}", TONE_GREEN),
+            "unknown": ("未采集", TONE_GREY),
+        }
+        pos_text, pos_color = pos_map.get(pos_level, ("未采集", TONE_GREY))
+        pos_note = (
+            f"RSI {_num(pos.get('rsi14'), 0)} · MA20 {_pct(pos.get('dev20'))} · 量 {_num(pos.get('vol_ratio'), 2)}"
+            if pos.get("rsi14") is not None
+            else (row.get("kline_error") or "无日线")
+        )
+
+        # ---- 新闻语气 ----
+        tone = str(news.get("tone") or "no_signal")
+        n_news = int(news.get("n") or 0)
+        scored = int(news.get("scored") or 0)
+        tone_map = {
+            "negative": ("偏空", TONE_RED),
+            "positive": ("偏多", TONE_GREEN),
+            "split": ("多空交织", TONE_BLUE),
+            "no_signal": ("无信号", TONE_GREY),
+        }
+        news_text, news_color = tone_map.get(tone, ("无信号", TONE_GREY))
+        if not news.get("sample_ok"):
+            news_note = f"样本不足（{n_news} 条 / {scored} 条有极性）"
+        else:
+            trend = news.get("neg_trend")
+            trend_text = "·利空在钝化" if (trend is not None and trend < 0) else (
+                "·利空在发酵" if (trend is not None and trend > 0) else "")
+            news_note = f"{n_news} 条 / {scored} 条有极性{trend_text}"
+        # ❗ETF 匹配的是「芯片/纳指」这类题材词，不是公司新闻 —— 不标注就等于
+        #   把行业情绪冒充成标的情绪
+        if kind == "etf" and news_note:
+            news_note += "（题材级）"
+        news_title = " ｜ ".join(news.get("headlines") or []) or "无相关新闻"
+
+        # ---- 一致预期 ----
+        label = str(cons.get("label") or "未采集")
+        direction = int(cons.get("direction") or 0)
+        watch = bool(cons.get("watch"))
+        if direction > 0:
+            cons_color = TONE_GREEN if watch else TONE_AMBER
+        elif direction < 0:
+            cons_color = TONE_RED
+        elif cons.get("pessimism") is None:
+            cons_color = TONE_GREY
+        else:
+            cons_color = TONE_BLUE
+        cons_note = (
+            f"悲观度 {_num(cons.get('pessimism'), 0)} · 拥挤度 {_num(cons.get('crowding'), 0)} · "
+            f"改善 {cons.get('triggers_hit', 0)}/{cons.get('triggers_total', 0)}"
+            if cons.get("pessimism") is not None
+            else f"缺 {'/'.join(cons.get('dimensions_missing') or []) or '各维数据'}"
+        )
+        trig = "｜".join(
+            f"{'✓' if t.get('hit') else '✗'}{t.get('name')}" for t in (cons.get("triggers") or [])
+        ) or "无可用触发器"
+        cons_title = f"{label}。{trig}。极端只代表赔率，不代表已反转"
+
+        price_text = _num(row.get("price"), 3 if (row.get("price") or 0) < 10 else 2)
+
+        body_rows.append(f"""<tr style="border-bottom:1px solid #1e293b;">
+            <td style="padding:8px 6px;font-size:11px;color:#f1f5f9;">{escape(str(row.get('name') or row.get('code') or ''))}
+                <div style="font-size:9px;color:#64748b;">{escape(str(row.get('code') or ''))} · {escape(price_text)}</div></td>
+            <td style="padding:8px 6px;text-align:center;" title="{escape(val_title)}">
+                <div style="font-size:11px;font-weight:600;color:{val_color};">{escape(val_text)}</div>
+                <div style="font-size:9px;color:#64748b;">{escape(val_note)}</div></td>
+            <td style="padding:8px 6px;text-align:center;">
+                <div style="font-size:11px;font-weight:600;color:{pos_color};">{escape(pos_text)}</div>
+                <div style="font-size:9px;color:#64748b;">{escape(pos_note)}</div></td>
+            <td style="padding:8px 6px;text-align:center;" title="{escape(news_title)}">
+                <div style="font-size:11px;font-weight:600;color:{news_color};">{escape(news_text)}</div>
+                <div style="font-size:9px;color:#64748b;">{escape(news_note)}</div></td>
+            <td style="padding:8px 6px;text-align:center;" title="{escape(cons_title)}">
+                <div style="font-size:11px;font-weight:600;color:{cons_color};">{escape(label)}</div>
+                <div style="font-size:9px;color:#64748b;">{escape(cons_note)}</div></td>
+        </tr>""")
+
+    table = f"""<table style="width:100%;border-collapse:collapse;background:#0f172a;border-radius:8px;overflow:hidden;">
+        <thead><tr style="background:#1e293b;">
+            <th style="padding:6px;text-align:left;font-size:10px;color:#94a3b8;font-weight:500;">标的</th>
+            <th style="padding:6px;text-align:center;font-size:10px;color:#94a3b8;font-weight:500;">便宜吗（价值）</th>
+            <th style="padding:6px;text-align:center;font-size:10px;color:#94a3b8;font-weight:500;">跌到哪（日线）</th>
+            <th style="padding:6px;text-align:center;font-size:10px;color:#94a3b8;font-weight:500;">新闻语气</th>
+            <th style="padding:6px;text-align:center;font-size:10px;color:#94a3b8;font-weight:500;">一致预期</th>
+        </tr></thead>
+        <tbody>{''.join(body_rows)}</tbody>
+    </table>"""
+
+    footnotes = [
+        "价值：股票用两把尺子 —— 格雷厄姆 现价÷√(22.5·EPS·BVPS)，ROE 尺 实际PB÷(ROE×15)；<b>全部都说便宜才算便宜，任一说贵就算贵</b>（宁可不说便宜）。ETF 没有企业价值，只看对净值的溢折价。不含增长调整，高增长股会被判偏贵。",
+        "日线：60 日回撤、MA20 偏离、RSI14（简单平均口径）、5÷20 日均量（<0.85 为缩量）。",
+        "新闻：按标的别名筛池，<b>词表法</b>打极性（不是语义模型）；有极性样本 <3 条不给结论，只报「样本不足」。",
+        "一致预期：悲观度 = 52周位置 0.30 + 60日回撤 0.25 + 新闻负面密度 0.25 + 恐慌 0.20（按可用维度重归一）；拥挤度 = |悲观度−50|×2。",
+        "「无极生太极」的用法：<b>极端一致只说明赔率变好，不等于已经反转</b>；至少 2 条边际改善（RSI 回升／缩量／利空钝化／广度回升／站上 MA20）才标「观察」。这是只读判断，不参与 Manas 判定，也不下单。",
+    ]
+    notes_html = "".join(
+        f'<div style="font-size:9px;color:#64748b;line-height:1.6;">· {n}</div>' for n in footnotes
+    )
+
+    return f"""<div style="margin-top: 16px;">
+        {header}
+        {legend}
+        {table}
+        <div style="background:#0f172a;border-radius:6px;padding:8px 10px;margin-top:6px;">
+            {notes_html}
+        </div>
+    </div>"""
 
 
 def _render_current_state_narrative(manas_state: Dict[str, Any], query_state: Dict[str, Any]) -> str:
