@@ -65,7 +65,7 @@ def send_imessage(phone: str, text: str) -> bool:
         return False
 
 
-from deva.naja.cognition.narrative import NarrativeTracker
+from deva.naja.cognition.narrative import get_narrative_tracker
 from deva.naja.cognition.semantic.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
 from deva.naja.bandit.stock_block_map import (
@@ -639,7 +639,8 @@ class DailyReviewAnalyzer:
     """
 
     def __init__(self):
-        self.nt = NarrativeTracker()
+        # ❗走单例：直接构造会造出第二份状态并整表覆写别人的持久化数据
+        self.nt = get_narrative_tracker()
         self.analyzer = MarketComboAnalyzer()
 
         self.market_overview: Optional[MarketOverview] = None
