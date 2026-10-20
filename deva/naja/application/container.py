@@ -728,6 +728,26 @@ class AppContainer:
                 name="naja-init-supplychain-warm", daemon=True,
             ).start()
 
+            def init_repricing_warm():
+                """预热「结构性增长」页的 PE 重定价卡片。
+
+                ❗不预热的话，**重启后第一次打开这页要等全池走一遍网络**：实测
+                串行 36 只 SEC companyfacts（每只 1–5MB JSON）花了 **1337 秒**。
+                两道缓解都已落地（2026-10-20）：
+                1. 财报**落盘**缓存（``~/.naja/cache/structural_growth/financials``，
+                   OK 一天 / 确无 6 小时 / 失败 15 分钟负缓存）—— 重启不再是冷启动；
+                2. ``RepricingService.warm()`` 8 条并发预热（SEC 限流 10 req/s）。
+                两道加起来首屏 **1337s → 5.3s**。仍然要提前付，因为第一枪命中
+                磁盘也需要几十毫秒 × 36，且 TTL 过期时会真去网络走一趟。
+                """
+                from ..structural_growth.repricing_service import get_repricing_service
+                get_repricing_service().evaluate_all()
+
+            threading.Thread(
+                target=_timed, args=("重定价预热", init_repricing_warm),
+                name="naja-init-repricing-warm", daemon=True,
+            ).start()
+
         thread = threading.Thread(target=background_init, daemon=True)
         thread.start()
         log.info("[AppContainer] 后台初始化线程已启动（并行模式）")

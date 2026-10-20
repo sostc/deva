@@ -86,7 +86,7 @@ DEFAULT_INDUSTRY_STOCKS: Dict[str, List[str]] = {
     ],
     # ---- 网络安全 ----
     "cybersecurity": [
-        "PAN",    # Palo Alto - 网络安全龙头
+        "PANW",   # Palo Alto - 网络安全龙头
         "CRWD",   # CrowdStrike - 端点安全
         "FTNT",   # Fortinet - 防火墙
         "ZS",     # Zscaler - 云安全
@@ -148,7 +148,8 @@ STOCK_PROFILES: Dict[str, Dict[str, str]] = {
     "TSLA": {"name": "特斯拉 Tesla", "description": "Megapack 储能 + 电动车，储能业务受益于 AI 数据中心与电网调峰需求。"},
     "ENPH": {"name": "Enphase", "description": "微型逆变器龙头，户用储能与智能能源管理，光伏 + 储能周期复苏受益。"},
     # ---- 网络安全 ----
-    "PAN":  {"name": "Palo Alto Networks", "description": "网络安全龙头，平台化安全运营中心（SOC）+ AI 安全检测，受益于 AI 时代安全威胁升级。"},
+    # ❗是 PANW 不是 PAN：写错代码不会报错，只会「行情源无此标的」静默空一格
+    "PANW": {"name": "Palo Alto Networks", "description": "网络安全龙头，平台化安全运营中心（SOC）+ AI 安全检测，受益于 AI 时代安全威胁升级。"},
     "CRWD": {"name": "CrowdStrike", "description": "端点安全龙头，Falcon 平台 + AI 威胁检测，云原生安全需求高增长。"},
     "FTNT": {"name": "Fortinet", "description": "防火墙与网络安全龙头，Secure Access 架构，AI 驱动的安全运营受益。"},
     "ZS":   {"name": "Zscaler", "description": "云安全（SASE/零信任）龙头，AI 与混合办公驱动云安全需求增长。"},
