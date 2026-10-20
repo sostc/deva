@@ -9,7 +9,7 @@ func_code: "async def summarize_xinhua_news():\n    \"\"\"\n    总结“新华�
   \    from deva.admin import watch_topic\n\n    # 定期关注“新华社重要新闻”话题\n    content =\
   \ await watch_topic('新华社重要新闻')\n\n    # 打印日志，记录获取到的新闻内容\n    content >> log\n\n\
   \    # 将新闻内容写入文件，以便后续分析或存档\n    content >> write_to_file('xinhua_news_summary.txt')\n\
-  \n    # 发送到钉钉通知，标记为焦点分析\n    '@md@焦点分析|' + content >> Dtalk()\n\n    # 返回新闻内容，以便函数调用者可以进一步处理\n\
+  \n    # 发送到钉钉通知，标记为焦点分析\n    # GPT_EMPTY/上游超时的诊断串不是新闻，推出去只会污染焦点分析\n    if content and 'GPT_EMPTY' not in str(content):\n        '@md@焦点分析|' + content >> Dtalk()\n\n    # 返回新闻内容，以便函数调用者可以进一步处理\n\
   \    return content\n\nasync def execute(context=None):\n    \"\"\"\n    执行品茶任务\n\
   \    \"\"\"\n    from deva import log\n    \n    '开始执行品茶任务' >> log\n    \n    try:\n\
   \        result = await summarize_xinhua_news()\n        '品茶任务执行成功' >> log\n   \
@@ -27,14 +27,14 @@ metadata:
   execution_mode: timer
   func_code_file: ''
   id: a293df855098
-  interval_seconds: 15.0
+  interval_seconds: 1800.0
   name: 新华社重要新闻
   run_at: ''
   scheduler_trigger: interval
   source: file
   tags: []
   task_type: interval
-  updated_at: 1774624385.770004
+  updated_at: 1792511250
 parameters:
   enabled: true
   retry_count: 3

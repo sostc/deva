@@ -11,9 +11,9 @@ metadata:
   category: 技术雷达
   compute_mode: record
   created_at: 1773675576.9554071
-  description: 综合趋势和波动率多维度预警，提前提示市场风险和机会
+  description: 【空壳占位·已禁用】综合趋势和波动率多维度预警，提前提示市场风险和机会
   dictionary_profile_ids: []
-  enabled: true
+  enabled: false
   func_code_file: ''
   handler_type: radar
   id: 40b54f75141b
@@ -26,14 +26,14 @@ metadata:
   - warning
   - risk
   - radar
-  updated_at: 1774627248.358755
+  updated_at: 1792482000.0
   version: 129
   window_interval: 5s
   window_return_partial: false
   window_size: 5
   window_type: sliding
 parameters:
-  enabled: true
+  enabled: false
   max_history_count: 200
   window_interval: 5s
   window_size: 5

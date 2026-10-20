@@ -414,6 +414,34 @@ class HotspotStrategyBase(ABC):
                 log.warning("[base] 交易总线不可用，跳过事件发布")
             except Exception as be:
                 log.warning(f"[TradeBus] StrategySignalEvent 发布失败: {be}")
+
+        # --- 5. 感知层：喂雷达（放在最后 —— 构造雷达引擎会拉起新闻/全球扫描线程，
+        #     绝不能排在交易信号发布之前，否则第一个信号会被 IO 拖住）---
+        # ❗这条路径以前只写 SignalStream（纯展示），**从未经过 SignalDispatcher**，
+        # 所以策略配置里那句「雷达 ✅」是假的：`naja_radar_events` 长期 0 行，
+        # 认知层 `ingest_radar_events` 的上游因此永远没有输入（洞察恒 0 的第一层）。
+        # 这里只补雷达这一路 —— 通往交易的那条链已由 NajaEventBus 的
+        # StrategySignalEvent 负责，绝不能在这里再发一次，否则会重复下单。
+        try:
+            from deva.naja.strategy.output_controller import should_send_to_radar
+
+            if should_send_to_radar(self.strategy_id):
+                from deva.naja.radar.engine import get_radar_engine
+
+                radar = get_radar_engine()
+                if radar is not None:
+                    radar.ingest_result({
+                        "signal_type": signal.signal_type,
+                        "score": signal.score,
+                        "confidence": signal.confidence,
+                        "symbol": signal.symbol,
+                        "scope": self.scope,
+                        "source": "hotspot",
+                        "strategy_id": self.strategy_id,
+                        "strategy_name": self.name,
+                    })
+        except Exception as radar_err:
+            log.debug(f"[base] 雷达投递失败（不影响主流程）: {radar_err}")
     
     def _track_hotspot_signal(self, signal: Signal):
         """

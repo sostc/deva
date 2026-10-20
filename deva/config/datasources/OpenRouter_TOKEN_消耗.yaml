@@ -1,7 +1,7 @@
 metadata:
   name: OpenRouter TOKEN 消耗监控
   description: 监控 OpenRouter 全球 TOKEN 消耗（源为周频周桶，含 Others 残差桶）。注意：分析逻辑已统一到 cognition/openrouter_monitor.py，本条目只做转发，禁止在此重复实现 analyze
-  id: openrouter_token_monitor
+  id: 3c8ea009eeb2
   category: AI算力
   tags:
     - openrouter
@@ -10,7 +10,7 @@ metadata:
     - 算力
     - 趋势监控
   created_at: 2026-03-28
-  updated_at: 2026-03-28
+  updated_at: 1792482000.0
 
 config:
   execution_mode: scheduler

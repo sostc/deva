@@ -1,0 +1,117 @@
+config:
+  cron_expr: ''
+  event_condition: ''
+  event_condition_type: contains
+  event_source: log
+  execution_mode: timer
+  interval_seconds: 600.0
+  run_at: ''
+  scheduler_trigger: interval
+  task_type: timer
+func_code: |
+  """
+  富途持仓定期同步（含 OpenD 守护）
+
+  为什么要有这个任务
+  ------------------
+  ``FutuPortfolioSyncer`` 原本只能由 UI 按钮手动触发，于是 FutuHK / MoomooUS /
+  FutuSim* 这些券商镜像账户会长期停在最后一次手点的那个时刻（实测 6 天前），
+  而页面上数字看着完全正常 —— 静默失效。
+
+  ❗为什么是 timer 而不是 cron
+  ---------------------------
+  实测 2026-10-20：本项目 ``execution_mode=scheduler`` 的任务**全部不按点触发**
+  —— ``news_digest``(0 19)、``ai_daily_report``(0 21)、``openrouter_monitor``(0 9)
+  等 cron 任务的 ``last_run_time`` 全都停在「某次重启」的时刻（14:02），从来没有
+  在 cron 点上跑过；而 ``execution_mode=timer`` 的任务（金十、新华社、imessage）
+  全部在实时运行。写成本任务时先用 cron，实测注册成功（APScheduler 日志
+  「Added job」）、``next_run_time`` 也算得对，但 18:00 / 18:10 两次都没触发。
+
+  ``timer`` 走 :class:`IntervalTimer`（独立线程 + 异常保护），语义是
+  「先执行一次，再等待间隔」—— 正好：服务一起来就先同步一次。
+
+  为什么要顺带拉起 OpenD
+  ----------------------
+  OpenD 是桌面 app，机器重启、用户退出、崩溃都会让它消失。定时任务只报
+  「连不上」没有意义，必须先把依赖拉起来；起不来要如实说原因（多数是要人工
+  登录），而不是每 10 分钟空转一次。
+
+  执行顺序：先确保端口可达 → REAL 与 SIMULATE 各同步一次。
+  模拟账户与实盘账户是两套独立枚举（模拟账户全局共享、不分品牌），
+  不能混在同一个 syncer 实例里。
+  """
+
+
+  def execute() -> dict:
+      from deva.naja.bandit.futu_opend import ensure_opend
+
+      guard = ensure_opend()
+      if not guard.get("reachable"):
+          reason = (
+              guard.get("error")
+              or guard.get("skipped_reason")
+              or "OpenD 不可达"
+          )
+          return {
+              "success": False,
+              "stage": "opend",
+              "message": f"OpenD 不可达，本轮未同步：{reason}",
+              "opend": guard,
+          }
+
+      from deva.naja.bandit.futu_portfolio_syncer import FutuPortfolioSyncer
+
+      envs = {}
+      all_ok = True
+      for env in ("REAL", "SIMULATE"):
+          try:
+              result = FutuPortfolioSyncer(trd_env=env).sync()
+          except Exception as e:
+              all_ok = False
+              envs[env] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+              continue
+
+          if not result.ok:
+              all_ok = False
+          envs[env] = {
+              "ok": bool(result.ok),
+              "wrote": bool(result.wrote),
+              "stale_removed": list(result.stale_removed),
+              "probe_errors": list(result.probe_errors),
+              "accounts": [
+                  {
+                      "name": a.name,
+                      "ok": a.ok,
+                      "positions": a.positions,
+                      "error": a.error,
+                  }
+                  for a in result.accounts
+              ],
+              "summary": result.summary(),
+          }
+
+      parts = [f"{env}: {data.get('summary') or data.get('error', '')}" for env, data in envs.items()]
+      return {
+          "success": all_ok,
+          "stage": "sync",
+          "opend": guard,
+          "envs": envs,
+          "message": " | ".join(parts),
+      }
+metadata:
+  created_at: 1792489780.0
+  description: 每 10 分钟同步富途各品牌实盘与模拟账户持仓；OpenD 未运行则自动拉起（失败进入 10 分钟冷却，避免反复弹窗）
+  id: futu_portfolio_sync
+  name: futu_portfolio_sync
+  source: file
+  tags:
+  - futu
+  - portfolio
+  - sync
+  - opend
+  updated_at: 1792491130.0
+parameters:
+  enabled: true
+  retry_count: 1
+  retry_delay: 5
+  timeout: 120

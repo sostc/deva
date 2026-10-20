@@ -115,7 +115,36 @@ class scheduler(Stream):
         from apscheduler.executors.pool import ThreadPoolExecutor
         import pytz
 
+        # ❗顺序不能反：先建流（拿到一条真在跑的 IOLoop），再把这条 loop
+        # 显式交给 TornadoScheduler。
+        #
+        # ``ensure_io_loop=True`` 会在后台守护线程里 ``IOLoop().start()``，
+        # 那条 loop 与进程同寿命。而 ``TornadoScheduler`` 默认取
+        # ``IOLoop.current()`` —— 也就是「构造它的那个线程」当时的当前 loop，
+        # 两者完全可能不是同一条：
+        #
+        #   container.boot() 里首次构造调度器（loop A，没人 start）
+        #     → run_web_application 又调 _ensure_clean_event_loop()
+        #     → AsyncIOMainLoop().install() 换掉全局 loop（loop B）
+        #     → Deva.run() 启动的是 B
+        #     → APScheduler 的定时器全挂在 A 上，永不触发
+        #
+        # 症状极具欺骗性：``add_job`` 成功、``next_run_time`` 算得完全正确、
+        # 日志里 ``Added job`` 一条不少，就是一个都不执行。2026-10-20 实测
+        # 8 个 cron 任务全部停在「重启补跑」那一刻（14:02），最久的一个
+        # 从未执行过。
+        #
+        # 显式传 io_loop 之后，调度与主线程的 loop 换血彻底解耦：谁去
+        # install() 新的 AsyncIOMainLoop 都不影响定时器。
+        super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
+
+        io_loop = self.loop
+        if io_loop is None:  # 理论上不会发生；退化成旧行为，而不是抛异常
+            from tornado.ioloop import IOLoop
+            io_loop = IOLoop.current()
+
         self._scheduler = TornadoScheduler(
+            io_loop=io_loop,
             timezone=pytz.timezone('Asia/Shanghai'),
             executors={'default': ThreadPoolExecutor(20)},
             job_defaults={
@@ -124,15 +153,41 @@ class scheduler(Stream):
                 'misfire_grace_time': 60
             }
         )
-        super(scheduler, self).__init__(ensure_io_loop=True, **kwargs)
 
         if start:
             self.start()
+
+    @property
+    def ioloop_running(self):
+        """**APScheduler 自己那条** loop 是否真的在跑。
+
+        ❗判活绝不能看 ``self.loop``：那是流用的 loop（守护线程里常驻运行），
+        而定时器完全可能被挂到另一条从不 ``start()`` 的 loop 上。用
+        ``self.loop`` 判活会得到一个恒绿的假健康检查 —— 2026-10-20 的
+        cron 全线静默失效就是这么被瞒过去的。
+        """
+        sched_loop = getattr(self._scheduler, "_ioloop", None)
+        asyncio_loop = getattr(sched_loop, "asyncio_loop", None)
+        is_running = getattr(asyncio_loop, "is_running", None)
+        return bool(is_running and is_running())
 
     def start(self):
         """启动调度器"""
         if not self._scheduler.state:
             self._scheduler.start()
+
+        # 守护线程刚起时 is_running 可能还差几毫秒；等一小会儿再判，
+        # 避免把「正在启动」误报成「永远不跑」。
+        for _ in range(50):
+            if self.ioloop_running:
+                return
+            time.sleep(0.01)
+
+        log.warning(
+            "[scheduler] 定时器的 IOLoop 没有在运行，所有定时任务都不会触发"
+            "（流 loop=%r，调度器 loop=%r）",
+            self.loop, getattr(self._scheduler, "_ioloop", None),
+        )
 
     def stop(self):
         """停止调度器"""

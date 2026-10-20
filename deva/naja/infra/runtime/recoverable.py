@@ -18,6 +18,30 @@ from typing import Any, Callable, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def as_epoch_seconds(value) -> float:
+    """把 date / datetime / 数字 / 字符串 统一成 epoch 秒，无法解析时返回 0.0。
+
+    ❗yaml 里写 ``updated_at: 2026-03-28`` 会被 PyYAML 解析成 ``datetime.date``，
+    直接和 NB 里的 float 比较会抛 ``TypeError: '<' not supported``；而这个比较
+    发生在「文件配置 vs NB 记录选哪个」的分支里，异常会被外层 ``except Exception``
+    吞成「加载一条失败」，看起来像配置文件坏了。时间戳一律归一后再比。
+    """
+    import datetime as _dt
+
+    if value is None or isinstance(value, bool):
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, _dt.datetime):
+        return value.timestamp()
+    if isinstance(value, _dt.date):
+        return _dt.datetime(value.year, value.month, value.day).timestamp()
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class UnitStatus(str, Enum):
     """单元状态枚举"""
     STOPPED = "stopped"
@@ -340,19 +364,34 @@ class RecoverableUnit(ABC):
         
         return False, ""
     
+    def requires_compiled_code(self) -> bool:
+        """恢复前是否必须先编译 ``func_code``。
+
+        默认 True。``replay`` 这类按表回放的数据源根本不执行 ``func_code``
+        （``DataSourceEntry.start`` 里已单独放行），若恢复路径仍强制编译，
+        就会永久返回 ``compile_failed`` —— **手动能启动、重启必失败**。
+        """
+        return True
+
     def prepare_for_recovery(self) -> dict:
         should, reason = self.should_restore()
         if not should:
             return {"can_recover": False, "reason": reason}
-        
-        result = self.ensure_compiled()
-        if not result["success"]:
-            return {
-                "can_recover": False,
-                "reason": "compile_failed",
-                "error": result.get("error"),
-            }
-        
+
+        if self.requires_compiled_code():
+            result = self.ensure_compiled()
+            if not result["success"]:
+                # ❗``compile_failed`` 是**真的坏了**，不是「本来就不该恢复」。
+                # 带上 ``fatal`` 让调用方计入 failed_count：否则
+                # 「恢复 4 个 / 跳过 1 个 / 失败 0 个」会把一个编译不过的
+                # 数据源藏进「跳过」里，摘要静默撒谎。
+                return {
+                    "can_recover": False,
+                    "reason": "compile_failed",
+                    "error": result.get("error"),
+                    "fatal": True,
+                }
+
         return {
             "can_recover": True,
             "func": self._compiled_func,
@@ -394,7 +433,24 @@ class RecoverableUnit(ABC):
                 self._log("ERROR", "Start failed", id=self.id, error=str(e))
                 return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
     
-    def stop(self) -> dict:
+    def stop(self, *, for_shutdown: bool = False) -> dict:
+        """停止单元。
+
+        Args:
+            for_shutdown: 由**进程退出**流程调用时为 True。
+
+        ❗``was_running`` 的语义是「进程消失前它还在跑吗」，它决定下次启动
+        要不要恢复。所以两种停必须分开：
+
+        - 用户/UI 主动停（``for_shutdown=False``，默认）→ 清掉标记，
+          下次启动**不要**自己爬起来；
+        - 进程退出（``for_shutdown=True``）→ **保留**标记，
+          否则每次优雅重启都会把所有单元标成「用户主动停止的」，
+          下次启动一个都不恢复。2026-10-20 实测：数据源的 was_running
+          在一次 14:46 的优雅重启后从 5/5 掉到 1/5，首页「数据源 0/5」
+          就是这么来的 —— 修好 RecoveryManager 登记之后仍然复现，
+          因为第二个坑在这里。
+        """
         with self._execution_lock:
             if not self.is_running:
                 return {"success": True, "message": "Not running"}
@@ -408,7 +464,8 @@ class RecoverableUnit(ABC):
                     self._thread.join(timeout=1.0)
                 
                 self._state.status = UnitStatus.STOPPED.value
-                self._was_running = False
+                if not for_shutdown:
+                    self._was_running = False
                 self.save()
                 
                 self._log("INFO", "Unit stopped", id=self.id, name=self.name)
@@ -511,7 +568,17 @@ class RecoveryManager:
                 continue
             
             try:
-                if hasattr(manager, 'load_from_db'):
+                # ❗别在这里无条件 ``load_from_db()``：那一步是「只用 NB、
+                #   ``_items.clear()`` 重建」。策略/数据源/任务的**真身是文件**
+                #   （``load_prefer_files()``），NB 只是运行时状态。于是恢复
+                #   那一刻会把「文件里 14 条策略」换成「NB 里 3 条历史残留」，
+                #   另外 11 条静默消失，UI 上只剩 3 个（2026-10-20 实测）。
+                #   有 ``reload_for_recovery()`` 就用它（文件基线＋NB 状态合并），
+                #   没有才退回老路径。
+                reload_fn = getattr(manager, 'reload_for_recovery', None)
+                if callable(reload_fn):
+                    reload_fn()
+                elif hasattr(manager, 'load_from_db'):
                     manager.load_from_db()
                 
                 if hasattr(manager, 'restore_running_states'):

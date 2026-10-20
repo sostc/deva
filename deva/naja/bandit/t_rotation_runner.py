@@ -38,6 +38,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -1146,7 +1147,22 @@ class TRotationRunner:
         hint = float(getattr(verdict, "size_hint", 0.0) or 0.0)
         if 0.0 < hint < 1.0:
             wanted = (int(missing * hint / lot)) * lot
-            qty = min(qty, max(lot, wanted))
+            # ❗「1 手」这个地板在便宜的标的上会把建仓撕成碎单：
+            # 588200 一手 200 股 ≈ 184 元，而底仓目标是 40 万 ——
+            # 按 hint=0.01 算，每 30 秒买 184 元，一天下来能攒 20+ 笔独立
+            # OPEN 记录（实测 38 笔 / 42.9 万股），账本被碎单撑爆，
+            # 「持仓 40」其实是 3 只票。
+            # 地板改成**金额地板**：单笔预算的一定比例（默认 10%），
+            # 仍然受 missing / 额度上限约束，不会买超。
+            min_batch_pct = float(
+                os.environ.get("NAJA_T_ESTABLISH_MIN_BATCH_PCT", "0.1") or 0.1
+            )
+            if single_budget > 0 and price > 0 and 0 < min_batch_pct <= 1:
+                min_batch_qty = (int(single_budget * min_batch_pct / price / lot)) * lot
+                floor_qty = max(lot, min(int(missing // lot) * lot, min_batch_qty))
+            else:
+                floor_qty = lot
+            qty = min(qty, max(floor_qty, wanted))
 
         # 本轮买不满目标 → 分批。这一步**不是故障**，而是设计意图。
         #

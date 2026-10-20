@@ -15,11 +15,39 @@ from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
 from deva.naja.register import SR
+from deva.naja.bandit.positions_store import POSITIONS_WRITE_LOCK
 
 log = logging.getLogger(__name__)
 
 VIRTUAL_PORTFOLIO_TABLE = "naja_bandit_virtual_portfolio"
 UNIFIED_POSITIONS_TABLE = "naja_bandit_positions"
+
+_MARKET_TOKENS = {"US", "HK", "SH", "SZ", "CN"}
+
+
+def normalize_code(code: str) -> str:
+    """持仓/信号代码归一：剥市场前缀与后缀，统一小写。
+
+    ❗``update_price`` 原来是 ``pos.stock_code == stock_code`` **严格等值**比较。
+    而持仓里存的是 ``NVDA``（大写，历史写入），行情总线推的是 ``nvda``，
+    于是一只票都匹配不上 —— 表现就是「NVDA 的成本价和现价永远是 450.0」，
+    450 是当初按金额折算时用的占位价。价格不动 → 浮盈亏、止盈止损、
+    「持仓价格陈旧」全部跟着失真，但界面上看不出任何异常。
+    """
+    text = str(code or "").strip()
+    if not text:
+        return ""
+    if "." in text:
+        head, _sep, tail = text.partition(".")
+        t = tail if tail else head
+        if t.upper() in _MARKET_TOKENS:
+            t = head
+        text = t
+    low = text.lower()
+    for prefix in ("sh", "sz", "us", "hk"):
+        if low.startswith(prefix) and len(low) > len(prefix):
+            return low[len(prefix):]
+    return low
 
 
 @dataclass
@@ -171,19 +199,36 @@ class VirtualPortfolio:
             log.error(f"加载持仓失败: {e}\n{traceback.format_exc()}")
 
     def _save_positions(self):
-        """保存持仓到统一数据库"""
-        try:
-            accounts_data = self._db.get("accounts", {})
-            if self.account_name not in accounts_data:
-                accounts_data[self.account_name] = {"account_type": "virtual"}
+        """保存持仓到统一数据库
 
-            positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
-            accounts_data[self.account_name]["positions"] = positions_data
-            accounts_data[self.account_name]["total_capital"] = self._total_capital
-            accounts_data[self.account_name]["used_capital"] = self._used_capital
-            self._db["accounts"] = accounts_data
+        ❗整个「读 accounts → 改 → 写回」必须在 ``POSITIONS_WRITE_LOCK`` 内：
+        ``PortfolioManager`` 的每个账户也在改同一个 ``accounts`` 键，不加锁会
+        出现「我先读、它后读、我先写、它后写」—— 我的更新被它的旧快照覆盖，
+        而且没有任何报错。
+        """
+        try:
+            with POSITIONS_WRITE_LOCK:
+                accounts_data = self._db.get("accounts", {})
+                if self.account_name not in accounts_data:
+                    accounts_data[self.account_name] = {"account_type": "virtual"}
+
+                positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
+                accounts_data[self.account_name]["positions"] = positions_data
+                accounts_data[self.account_name]["total_capital"] = self._total_capital
+                accounts_data[self.account_name]["used_capital"] = self._used_capital
+                self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"保存持仓失败: {e}")
+
+    def flush(self) -> None:
+        """把内存里的持仓状态落库。
+
+        ``update_price()`` 只改内存（价格 tick 太频繁，每 tick 落库扛不住），
+        所以需要一个显式出口。由 ``PortfolioPriceFeed`` 按秒级节流调用 ——
+        否则重启之后现价又回到上一次落库的旧快照。
+        """
+        with self._lock:
+            self._save_positions()
     
     def register_position_callback(self, callback: Callable[[str, VirtualPosition], None]):
         """注册持仓更新回调"""
@@ -336,15 +381,35 @@ class VirtualPortfolio:
 
         with self._lock:
             closed = []
-            matching_positions = [(pos_id, pos) for pos_id, pos in self._positions.items()
-                                  if pos.stock_code == stock_code and pos.status == "OPEN"]
+            want = normalize_code(stock_code)
+            # ❗时间戳必须在动价格**之前**取好。
+            #
+            # 原实现把 ``self._mts.get_market_time()`` 写在循环体内、紧跟
+            # ``position.current_price = current_price`` 之后。一旦时间服务没装配
+            # （``SR('market_time_service')`` 抛 KeyError），异常就落在「价格已经
+            # 改了、止损还没判」的中间态 —— 价格变新，止损失效，而且调用方只看到
+            # 一个异常，完全不知道账本已经被改了一半。
+            try:
+                now_ts = self._mts.get_market_time()
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "[VirtualPortfolio] 取市场时间失败（%s: %s），本次回退到本地时间；"
+                    "价格与止损判定不受影响",
+                    type(e).__name__, e,
+                )
+                now_ts = time.time()
+
+            matching_positions = [
+                (pos_id, pos) for pos_id, pos in self._positions.items()
+                if normalize_code(pos.stock_code) == want and pos.status == "OPEN"
+            ]
 
             log.debug(f"[VirtualPortfolio] 🔍 找到 {len(matching_positions)} 个匹配的持仓")
 
             for pos_id, position in matching_positions:
                 old_price = position.current_price
                 position.current_price = current_price
-                position.last_update_time = self._mts.get_market_time()
+                position.last_update_time = now_ts
 
                 log.debug(f"[VirtualPortfolio] 💰 更新持仓 {pos_id}: {stock_code} {old_price} -> {current_price}")
                 
@@ -389,11 +454,29 @@ class VirtualPortfolio:
             if not position or position.status != "OPEN":
                 return None
 
+            # ❗时间戳必须在**改状态之前**取。
+            #
+            # 原实现先写 ``status = "CLOSED"`` / ``exit_price``，然后才
+            # ``exit_time = self._mts.get_market_time()``。只要时间服务不可用
+            # （单例没注册、装配顺序错），异常就落在中间：
+            #   内存里已经 CLOSED，但 exit_time / close_reason 是空、
+            #   `_used_capital` 没减、`_save_positions()` 没跑、平仓回调没触发。
+            # 结果是「关了但没结账」—— 幽灵持仓，账本与内存永久不一致，
+            # 而且日志里只看得到一个异常，看不出账已经改了一半。
+            try:
+                exit_time = self._mts.get_market_time()
+            except Exception as e:  # noqa: BLE001
+                log.warning(
+                    "[VirtualPortfolio] 平仓取市场时间失败（%s: %s），回退本地时间；"
+                    "平仓本身照常完成",
+                    type(e).__name__, e,
+                )
+                exit_time = time.time()
+
             position.exit_price = exit_price
             position.current_price = exit_price
             position.status = "CLOSED"
 
-            exit_time = self._mts.get_market_time()
             if exit_time < position.entry_time:
                 log.warning(f"[VirtualPortfolio] 平仓时间倒置检测: exit_time({exit_time:.0f}) < entry_time({position.entry_time:.0f})，使用 entry_time + 1")
                 exit_time = position.entry_time + 1
@@ -497,9 +580,10 @@ class VirtualPortfolio:
         return self._positions.get(position_id)
     
     def get_positions_by_stock(self, stock_code: str) -> List[VirtualPosition]:
-        """获取股票的持仓"""
-        return [p for p in self._positions.values() 
-                if p.stock_code == stock_code and p.status == "OPEN"]
+        """获取股票的持仓（代码已归一，``NVDA``/``nvda``/``US.NVDA`` 视为同一只）"""
+        want = normalize_code(stock_code)
+        return [p for p in self._positions.values()
+                if normalize_code(p.stock_code) == want and p.status == "OPEN"]
     
     def get_positions_by_strategy(self, strategy_id: str) -> List[VirtualPosition]:
         """获取策略的持仓"""

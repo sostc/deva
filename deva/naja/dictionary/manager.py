@@ -684,6 +684,8 @@ class DictionaryManager:
     def restore_running_states(self) -> dict:
         restored_count = 0
         failed_count = 0
+        # 「不该恢复」≠「恢复失败」，与 datasource/task/strategy 口径一致
+        skipped_count = 0
         results = []
 
         with self._items_lock:
@@ -694,14 +696,28 @@ class DictionaryManager:
                 prep = entry.prepare_for_recovery()
 
                 if not prep.get("can_recover"):
-                    results.append(
-                        {
-                            "entry_id": entry.id,
-                            "entry_name": entry.name,
-                            "success": False,
-                            "reason": prep.get("reason"),
-                        }
-                    )
+                    # ``fatal``（如 compile_failed）是真故障，不能算「跳过」
+                    if prep.get("fatal"):
+                        failed_count += 1
+                        results.append(
+                            {
+                                "entry_id": entry.id,
+                                "entry_name": entry.name,
+                                "success": False,
+                                "reason": prep.get("reason"),
+                                "error": prep.get("error"),
+                            }
+                        )
+                    else:
+                        skipped_count += 1
+                        results.append(
+                            {
+                                "entry_id": entry.id,
+                                "entry_name": entry.name,
+                                "success": False,
+                                "reason": prep.get("reason"),
+                            }
+                        )
                     continue
 
                 result = entry.start()
@@ -741,6 +757,7 @@ class DictionaryManager:
             "success": True,
             "restored_count": restored_count,
             "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "results": results,
         }
 

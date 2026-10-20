@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import threading
 import time
@@ -47,6 +48,7 @@ class StrategyEntry(RecoverableUnit):
         self._runtime = None
         self._runtime_type = ""
         self._runtime_config_hash = ""
+        self._runtime_build_error = ""
 
         self._ensure_runtime_stub_code()
 
@@ -61,6 +63,40 @@ class StrategyEntry(RecoverableUnit):
 
     def _get_strategy_type(self) -> str:
         return str(getattr(self._metadata, "strategy_type", "legacy") or "legacy").strip().lower()
+
+    def _is_placeholder_code(self) -> bool:
+        """判断 ``func_code`` 是不是**空壳**（只有 ``def process(...): return None``）。
+
+        ❗这件事必须单独判断，否则错误信息会撒谎：文件里有 9 个策略的
+        ``func_code`` 就是 ``return None`` 的占位符，``strategy_type`` 却标着
+        ``plugin``。启动失败时统一报「请检查 class_path 是否存在」，
+        让人以为「补个 class_path 就能跑」——实际上它连逻辑都没有，
+        补完 class_path 也只会变成「运行中空转」。两种病要给两种诊断。
+        """
+        code = (self._func_code or "").strip()
+        if not code:
+            return True
+        try:
+            tree = ast.parse(code)
+        except SyntaxError:
+            # 语法都过不了 → 不是空壳，是坏代码，交给编译报错
+            return False
+        funcs = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
+        if classes or not funcs:
+            return False
+        for fn in funcs:
+            body = [s for s in fn.body if not isinstance(s, ast.Expr) or not isinstance(getattr(s, "value", None), ast.Constant)]
+            if not body:
+                continue
+            if len(body) == 1 and isinstance(body[0], (ast.Return, ast.Pass)):
+                node = body[0]
+                if isinstance(node, ast.Pass):
+                    continue
+                if isinstance(node.value, ast.Constant) and node.value.value is None:
+                    continue
+            return False
+        return True
 
     def _get_strategy_config(self) -> Dict[str, Any]:
         config = dict(getattr(self._metadata, "strategy_config", {}) or {})
@@ -125,6 +161,7 @@ class StrategyEntry(RecoverableUnit):
             from .runtime import StrategyRegistry
             runtime = StrategyRegistry.create(strategy_type, config=config, entry=self)
         except Exception as e:
+            self._runtime_build_error = str(e)
             self._log("ERROR", "Build runtime failed", error=str(e), strategy_type=strategy_type)
             return None
 
@@ -147,7 +184,32 @@ class StrategyEntry(RecoverableUnit):
         return func
     
     def _do_start(self, func: Callable) -> dict:
-        try:
+        try:            # ❗先建运行时：``plugin``/``river``/``declarative`` 三种类型的
+            # 实际处理逻辑全在运行时适配器里。构建失败时 ``_get_runtime()``
+            # 只记一条 ERROR 并返回 None，``_process_data`` 随后因为
+            # ``_compiled_func is None and runtime is None`` 直接 return ——
+            # 状态却是「运行中」，页面上看不出任何异常，只有 processed=0。
+            # 这里必须让启动失败，别把「建不出来」伪装成「在跑」。
+            runtime = self._get_runtime()
+            strategy_type = self._get_strategy_type()
+            if runtime is None and strategy_type not in ("", "legacy"):
+                if self._is_placeholder_code():
+                    return {
+                        "success": False,
+                        "error": (
+                            f"策略未配置实现（strategy_type={strategy_type}）："
+                            "func_code 只有空壳（return None），也没有可导入的 class_path。"
+                            "补 class_path 前先确认它有真实逻辑，否则只会变成「运行中空转」。"
+                        ),
+                    }
+                return {
+                    "success": False,
+                    "error": (
+                        f"运行时构建失败（strategy_type={strategy_type}）："
+                        f"{self._runtime_build_error or '请检查 strategy_config.class_path 是否存在且可导入'}"
+                    ),
+                }
+
             # 获取多数据源ID列表
             datasource_ids = getattr(self._metadata, "bound_datasource_ids", [])
             if not datasource_ids:
@@ -156,7 +218,17 @@ class StrategyEntry(RecoverableUnit):
                     datasource_ids = [datasource_id]
 
             if not datasource_ids:
-                return {"success": True, "message": "No datasource bound"}
+                # ❗以前这里返回 success=True：状态变 RUNNING，但永远收不到一条
+                # 数据，页面上就是「运行中 · 已处理 0 条」。这是最典型的
+                # 「空转伪装成运行」。策略的唯一输入就是绑定的数据源，
+                # 没绑定就等于没接线，必须按失败报出来。
+                return {
+                    "success": False,
+                    "error": (
+                        "未绑定数据源：策略不会收到任何数据，"
+                        "请在策略配置里绑定至少一个数据源（bound_datasource_id）"
+                    ),
+                }
 
             from ..datasource import get_datasource_manager
             ds_mgr = get_datasource_manager()
@@ -188,7 +260,7 @@ class StrategyEntry(RecoverableUnit):
             if bound_count == 0:
                 return {"success": True, "message": f"No datasources could be bound. Failed: {failed_datasources}"}
 
-            runtime = self._get_runtime()
+            # runtime 已在方法开头构建并校验过，这里不再重复取（失败会重复记 ERROR）
             if runtime is not None and hasattr(runtime, "on_start"):
                 try:
                     runtime.on_start()

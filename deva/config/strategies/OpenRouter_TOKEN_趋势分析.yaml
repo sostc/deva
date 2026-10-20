@@ -3,6 +3,9 @@ metadata:
   description: 分析 OpenRouter TOKEN 消耗趋势，检测上涨/下跌、加速/减速、异常拐点，为算力投资提供决策支持
   id: openrouter_token_trend_strategy
   category: AI 算力监控
+  bound_datasource_id: 3c8ea009eeb2
+  bound_datasource_ids:
+  - 3c8ea009eeb2
   tags:
     - openrouter
     - token
@@ -10,12 +13,12 @@ metadata:
     - AI算力
     - 异常检测
   created_at: 2026-03-28
-  updated_at: 2026-03-28
+  updated_at: 1792482000.0
 
 config:
   compute_mode: record
   handler_type: radar
-  strategy_type: plugin
+  strategy_type: legacy
   window_type: sliding
   window_size: 1
   window_interval: 1d

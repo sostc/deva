@@ -183,11 +183,23 @@ class ThreadPoolManager:
         # 检查解释器是否正在关闭
         if sys.is_finalizing():
             return None
-        
-        if self._total_submitted >= self._max_queue_size * self._max_workers:
-            self._total_rejected += 1
-            return None
-        
+
+        # ❗判据必须是「此刻还积压着多少」，不是「这辈子一共提交了多少」。
+        # 老代码拿 `_total_submitted >= _max_queue_size * _max_workers` 当过载闸门，
+        # 而 `_total_submitted` 只增不减（默认阈值 100×10=1000）：
+        # 进程累计提交够 1000 次之后，**每一次** submit 都返回 None，
+        # 异步数据源于是永久报「线程池过载，无法提交任务」。
+        # 更阴的是 `_perform_auto_tune` 会因 rejected>10 把队列容量 +500，
+        # 阈值跟着抬高，于是故障变成"偶发"——隔一阵冒一次，谁也不会去查。
+        # 累计计数 ≠ 当前故障。
+        with self._stats_lock:
+            in_flight = (
+                self._total_submitted - self._total_completed - self._total_rejected
+            )
+            if in_flight >= self._max_queue_size:
+                self._total_rejected += 1
+                return None
+
         try:
             future = self._pool.submit(fn, *args, **kwargs)
             self._total_submitted += 1

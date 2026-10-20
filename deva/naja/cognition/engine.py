@@ -107,6 +107,15 @@ class CognitionEngine:
         """获取完整记忆报告。"""
         return self._news_mind.get_memory_report()
 
+    def get_stats(self) -> Dict[str, Any]:
+        """轻量认知统计（首页卡片用）。
+
+        与 ``get_memory_report()`` 的区别：这里只读计数器与容器长度，
+        不排序主题、不构造三层记忆明细、不拼叙事报告 —— 首页高频调用要的是
+        几个数字，不是一份完整报告。
+        """
+        return self._news_mind.get_stats()
+
     def save_state(self) -> dict:
         """保存认知状态。"""
         return self._news_mind.save_state()

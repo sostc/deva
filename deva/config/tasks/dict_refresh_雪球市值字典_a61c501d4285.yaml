@@ -1,9 +1,9 @@
 config:
   cron_expr: 30 9 * * *
-  execution_mode: scheduler
+  execution_mode: manual
   run_at: ''
   scheduler_trigger: cron
-  task_type: schedule
+  task_type: manual
 func_code: "# 字典数据获取函数\n# 必须定义 fetch_data() 函数\n# 返回字典数据 (通常是 pandas DataFrame)\n\n\
   import pandas as pd\nimport requests\nimport json\n\ndef fetch_data():\n    \"\"\
   \"\n    从雪球 MCP 获取股票市值数据\n    \"\"\"\n    # 雪球 MCP 服务地址\n    mcp_url = \"http://localhost:8000/quote_detail\"\
@@ -39,8 +39,8 @@ func_code: "# 字典数据获取函数\n# 必须定义 fetch_data() 函数\n# �
   \ as e:\n            box[\"error\"] = e\n        finally:\n            loop.close()\n\
   \n    t = threading.Thread(target=_runner, daemon=True)\n    t.start()\n    t.join()\n\
   \    if box[\"error\"] is not None:\n        raise box[\"error\"]\n    return box[\"\
-  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary import get_dictionary_manager\n\
-  \n    mgr = get_dictionary_manager()\n    entry = mgr.get(\"a61c501d4285\")\n  \
+  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary.manager import DictionaryManager\n\
+  \n    mgr = DictionaryManager()\n    entry = mgr.get(\"a61c501d4285\")\n  \
   \  if entry is None:\n        return \"dictionary_not_found\"\n\n    try:\n    \
   \    data = fetch_data()\n        data = _resolve_awaitable(data)\n        entry.apply_fresh_data(data)\n\
   \        return \"ok\"\n    except Exception as e:\n        entry.mark_refresh_error(str(e))\n\
@@ -49,12 +49,12 @@ metadata:
   category: ''
   created_at: 1773040340.828845
   cron_expr: 30 9 * * *
-  description: 字典 雪球市值字典 鲜活任务
-  enabled: true
+  description: 字典 雪球市值字典 鲜活任务（已停用：上游雪球 MCP localhost:8000 未运行，且目标字典条目 a61c501d4285 在 NB 中不存在。上游恢复后把 execution_mode/task_type 改回 scheduler/schedule）
+  enabled: false
   event_condition: ''
   event_condition_type: contains
   event_source: log
-  execution_mode: scheduler
+  execution_mode: manual
   func_code_file: ''
   id: f2d2f6348631
   interval_seconds: 300.0
@@ -63,10 +63,10 @@ metadata:
   scheduler_trigger: cron
   source: file
   tags: []
-  task_type: schedule
-  updated_at: 1774624385.772325
+  task_type: manual
+  updated_at: 1792511250
 parameters:
-  enabled: true
+  enabled: false
   retry_count: 3
   retry_delay: 5
   timeout: 30

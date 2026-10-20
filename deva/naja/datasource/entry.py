@@ -65,6 +65,11 @@ class DataSourceEntry(RecoverableUnit):
     def _get_func_name(self) -> str:
         return "fetch_data"
 
+    def requires_compiled_code(self) -> bool:
+        """``replay`` 按 NB 表回放，不执行 ``fetch_data``，无需编译。"""
+        source_type = getattr(self._metadata, "source_type", "custom") or "custom"
+        return source_type != "replay"
+
     def start(self) -> dict:
         """启动数据源，replay 类型不需要编译代码"""
         source_type = getattr(self._metadata, "source_type", "custom") or "custom"
@@ -150,6 +155,8 @@ class DataSourceEntry(RecoverableUnit):
     def _start_timer_source(self, func: Callable) -> dict:
         """启动定时器数据源（使用共享调度管理器）"""
         try:
+            self._first_tick_logged = False
+            self._skip_reason_logged = ""
             self._clear_timer_handles()
             mode = (getattr(self._metadata, "execution_mode", "timer") or "timer").strip().lower()
             if mode not in {"timer", "scheduler", "event_trigger"}:
@@ -164,6 +171,26 @@ class DataSourceEntry(RecoverableUnit):
                     interval=interval,
                     func=lambda: self._execute_scheduled_fetch(func),
                 )
+                # ❗「启动成功」在过去等于「返回了 success」，但定时器到底有没有
+                # 真的开始 tick 完全看不出来：2026-10-20 实测金十/OpenRouter 两条
+                # 数据源状态是 running、start_time 是本次启动，而 last_data_ts
+                # 还停在半年前 —— 中间几十次 tick 一次都没发生，日志里一个字都没有。
+                # 把间隔打进日志，至少能一眼分辨「每 300s」和「每 0s」。
+                if result.get("success"):
+                    self._log(
+                        "INFO",
+                        f"定时器已启动: 每 {interval:g}s 执行一次",
+                        mode="timer",
+                        interval=interval,
+                    )
+                else:
+                    self._log(
+                        "ERROR",
+                        "定时器启动失败",
+                        mode="timer",
+                        interval=interval,
+                        error=result.get("error"),
+                    )
                 return result
 
             if mode == "scheduler":
@@ -296,10 +323,9 @@ class DataSourceEntry(RecoverableUnit):
                     try:
                         data = db_stream.get(key)
                         if data is not None:
+                            # 计数与 latest_data 由 ``_do_emit_data`` 统一登记，
+                            # 这里再写一遍会双计。
                             self._emit_data(data)
-                            self._state.last_data_ts = time.time()
-                            self._state.total_emitted += 1
-                            self._latest_data = data
 
                         if interval > 0:
                             if self._stop_event.wait(timeout=interval):
@@ -673,9 +699,57 @@ class DataSourceEntry(RecoverableUnit):
             fetch_time_ms = (time.time() - start_time) * 1000
 
             # 2. 发送数据（不包含在执行时间内）
+            # 2.0 数据源**自主跳过**（收盘 / 非交易日 / 未到采集窗口）
+            # ❗这既不是成功也不是失败，必须单独一条路走完：
+            #   · 当成功 → last_data_ts 被刷新，页面显示「刚刚有数据」，
+            #     实际一条没采到（假新鲜）；
+            #   · 当失败 → error_count 一路涨，实盘 67 次「故障」全是
+            #     收盘造成的，真正的抓取失败被淹在里面（累计计数 ≠ 当前故障）。
+            # 所以跳过只写 last_skip_*，既不动 last_data_ts 也不动 error_count。
+            if isinstance(data, dict) and (data.get("skipped") or data.get("skip")):
+                reason = str(
+                    data.get("reason") or data.get("skipped") or data.get("skip")
+                ) or "未说明原因"
+                self._state.last_skip_ts = time.time()
+                self._state.last_skip_reason = reason
+                # 同一原因只喊一次，否则 5s 一条会把日志淹掉
+                if getattr(self, "_skip_reason_logged", "") != reason:
+                    self._skip_reason_logged = reason
+                    self._log("INFO", f"本次按设计跳过取数：{reason}")
+                self.save()
+                return
+            if isinstance(data, dict) and (
+                data.get("success") is False
+                or str(data.get("status", "")).strip().lower() in ("error", "failed")
+            ):
+                # ❗数据源**自己**声明失败时不能再当成功发出去。
+                # OpenRouter 那条就是这么写的：取数失败返回
+                # ``{"success": False, ...}``，而这里以前只看 ``data is not None``
+                # → 一条「失败通知」被当成正常产出 emit、``last_data_ts`` 刷新、
+                # ``record_success`` 记一笔 —— 页面上「刚刚有数据」，
+                # 实际最近一次成功已经是半年前。失败必须走失败路径：
+                # 不更新 last_data_ts、不覆盖 latest_data（那是上一次成功的快照）。
+                raise RuntimeError(
+                    "fetch_data 返回失败状态: "
+                    f"{data.get('message') or data.get('error') or data}"
+                )
             if data is not None:
+                # 真的取到东西了 → 之前那条「跳过」已经不成立了，清掉，
+                # 否则页面上会一直挂着「非交易时段」而 last_data_ts 是新的。
+                self._state.last_skip_reason = ""
+                self._skip_reason_logged = ""
+                if isinstance(data, list) and not data:
+                    # ❗空列表既可能是「真的没有新内容」，也可能是「抓取失败但
+                    # 被 `except: return []` 吞掉了」——金十的 fetch_data 就是
+                    # 这么写的。以前这里和「抓到 30 条」走完全相同的分支：
+                    # last_data_ts 照更新、record_success 照记，于是页面显示
+                    # 「刚刚有数据」，实际一条都没有。空必须单独留痕。
+                    self._state.last_data_ts = time.time()
+                    self._state.latest_data = []
+                    self._latest_data = []
+                    self._log("WARNING", "本次抓取返回 0 条（非失败，但无数据）")
                 # 检测是否是批量数据（列表）
-                if isinstance(data, list):
+                elif isinstance(data, list):
                     self._emit_data(data, is_batch=True)
                     self._state.last_data_ts = time.time()
                     self._state.total_emitted += len(data)
@@ -687,7 +761,31 @@ class DataSourceEntry(RecoverableUnit):
                     self._state.total_emitted += 1
                     self._state.latest_data = data
                     self._latest_data = data
+                if not getattr(self, "_first_tick_logged", False):
+                    # 首次 tick 才记一条：这是「定时器到底有没有在跑」的
+                    # 最廉价证据，重启后 grep 一次就能确认，不必猜。
+                    # ❗别用 ``state.run_count == 0`` 判断「首次」—— 它是
+                    # **累计值**（金十 5456 次），进程重启后依然不是 0，
+                    # 这条日志就永远不会出现，等于没有。
+                    self._first_tick_logged = True
+                    self._log(
+                        "INFO",
+                        f"定时抓取首次触发成功（返回 {len(data) if isinstance(data, list) else 1} 条）",
+                    )
                 self._state.record_success()
+            else:
+                # None 是**没说明原因**的空：可能是异常被吞成了 None，
+                # 也可能是写代码的人用 None 表示「今天没有」——后者应该
+                # 用 {"skipped": ...} 显式声明。这里只能按失败计，但要说清。
+                self._state.record_error(
+                    "fetch_data 返回 None（未说明原因）；"
+                    "若属「按设计不取数」，请让它返回 {'skipped': 原因}"
+                )
+                self._log(
+                    "WARNING",
+                    "本次抓取返回 None 且未声明原因，按失败计；"
+                    "若属「按设计不取数」，请让 fetch_data 返回 {'skipped': 原因}",
+                )
             success = True
             self.save()
         except Exception as e:
@@ -738,8 +836,21 @@ class DataSourceEntry(RecoverableUnit):
                             asyncio.set_event_loop(self._event_loop)
                         data = self._event_loop.run_until_complete(data)
 
-                if data is not None:
+                if isinstance(data, dict) and (data.get("skipped") or data.get("skip")):
+                    # 与 _execute_scheduled_fetch 保持同一套语义：跳过不是数据，
+                    # 绝不能当产出发出去（否则下游会收到一个「非交易时段」的 dict）。
+                    reason = str(
+                        data.get("reason") or data.get("skipped") or data.get("skip")
+                    ) or "未说明原因"
+                    self._state.last_skip_ts = time.time()
+                    self._state.last_skip_reason = reason
+                    if getattr(self, "_skip_reason_logged", "") != reason:
+                        self._skip_reason_logged = reason
+                        self._log("INFO", f"本次按设计跳过取数：{reason}")
+                elif data is not None:
                     # 支持批量数据发送
+                    self._state.last_skip_reason = ""
+                    self._skip_reason_logged = ""
                     if isinstance(data, list):
                         self._emit_data(data, is_batch=True)
                         self._state.last_data_ts = time.time()
@@ -790,6 +901,15 @@ class DataSourceEntry(RecoverableUnit):
                     cache_max_age_seconds=3600,
                     description=f"DataSource {self.name} output",
                 )
+
+            # ❗产出计数必须放在**唯一的发射出口**。
+            # 以前只有 replay 回放线程手动更新 ``last_data_ts``/``total_emitted``，
+            # timer/directory/file 四类数据源永远停在创建时的 0 或上次回放的值 ——
+            # 数据源管理页于是把「一直在产出的实时行情」显示成「无数据 (0条)」，
+            # 把一个真实故障和正常运行渲染成同一副样子。
+            self._state.last_data_ts = time.time()
+            self._state.total_emitted += 1
+            self._latest_data = data
 
             try:
                 import pandas as pd

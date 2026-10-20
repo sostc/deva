@@ -825,7 +825,7 @@ class RadarEngine:
             id=f"radar_{uuid.uuid4().hex[:12]}",
             ts=signal.get("timestamp", time.time()),
             event_type=signal.get("signal_type", "unknown"),
-            score=signal.get("score", 0.5),
+            score=_clamp_event_score(signal.get("score", 0.5)),
             strategy_id=signal.get("metadata", {}).get("strategy_id", ""),
             strategy_name=signal.get("metadata", {}).get("strategy_name", "market_scanner"),
             signal_type=signal.get("signal_type", ""),
@@ -926,19 +926,49 @@ class RadarEngine:
         return {"success": True, "removed": removed, "cutoff": cutoff}
 
     def _extract_payload(self, result: Any) -> Optional[Dict[str, Any]]:
-        output = getattr(result, "output_full", None)
-        if output is None:
-            return None
+        """从「策略结果」或「裸 dict」里取出 (signal_type, score)。
 
-        if isinstance(output, dict):
-            signal_type = str(output.get("signal_type") or output.get("signal") or "")
-            score = output.get("score", output.get("confidence"))
-            return {
-                "signal_type": signal_type,
-                "score": score,
-                "output": output,
-            }
-        return None
+        ❗必须同时接受 dict：``openrouter_monitor.send_to_radar()`` 直接把一个
+        dict 传进 ``ingest_result``，而老代码只认 ``result.output_full`` 属性，
+        于是 ``getattr(dict, 'output_full', None)`` 恒为 None → 直接 return。
+        那条「雷达已发送」的日志打了两年，``naja_radar_events`` 一行没有 ——
+        接线正确但永远无效，比报错毒得多。
+
+        ``output_full`` 也可能是带 ``to_dict()`` 的对象（策略返回值不保证是
+        dict），按 ``to_dict()`` 归一，别再让类型差异把整条链吃掉。
+        """
+        if isinstance(result, dict):
+            source = result
+        else:
+            output = getattr(result, "output_full", None)
+            if output is None:
+                return None
+            if hasattr(output, "to_dict") and not isinstance(output, dict):
+                try:
+                    output = output.to_dict()
+                except Exception:
+                    return None
+            if not isinstance(output, dict):
+                return None
+            source = output
+
+        signal_type = str(
+            source.get("signal_type")
+            or source.get("signal")
+            or source.get("type")
+            or ""
+        )
+        raw_score = source.get("score")
+        if raw_score is None:
+            raw_score = source.get("confidence")
+        return {
+            "signal_type": signal_type,
+            # ❗score 绝不能留 None：``scan_anomaly`` 里 ``score - mean`` 会抛
+            # TypeError，整轮 ingest 全废，而 dispatcher 那边只记一条
+            # 「Radar 分发失败」，看不出来是「这个策略没给分」。
+            "score": _clamp_event_score(raw_score),
+            "output": source,
+        }
 
     def _build_event_from_fields(
         self,
@@ -965,10 +995,18 @@ class RadarEngine:
         )
 
     def _store_event(self, event: RadarEvent) -> None:
+        # ❗写失败以前是裸 ``except: return``：事件表长期 0 行时，既没有报错、
+        # 也没有计数，只能靠人肉去猜「是没产生事件，还是写不进去」。
+        # 这里把失败真的喊出来（同一错误只喊一次，避免每 5s 一条刷屏）。
         try:
             key = f"{int(event.ts * 1000)}_{event.id}"
             self._db[key] = event.to_dict()
-        except Exception:
+            self._store_fail_logged = ""
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if getattr(self, "_store_fail_logged", "") != msg:
+                self._store_fail_logged = msg
+                logger.warning("[Radar] 事件写入 %s 失败，雷达事件表将为空：%s", RADAR_EVENTS_TABLE, msg)
             return
 
     def _emit_to_insight_pool(self, events: List[RadarEvent]) -> None:

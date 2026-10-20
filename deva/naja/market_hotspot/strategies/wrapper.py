@@ -226,10 +226,20 @@ class HotspotStrategyWrapper(StrategyEntry):
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def stop(self) -> dict:
+    def stop(self, *, for_shutdown: bool = False) -> dict:
+        """停止单元。
+
+        ❗须与基类 ``RecoverableUnit.stop`` 保持同一签名：supervisor 的
+        recovery/进程退出流程会对所有 entry 传 ``for_shutdown=True``，
+        用来区分「用户主动停」与「进程退出」（后者要保留 _was_running，
+        下次启动才能恢复）。此前 override 没收这个参数，优雅重启时报
+        ``stop() got an unexpected keyword argument 'for_shutdown'``。
+        """
         try:
             self._hotspot_strategy.deactivate()
             self._state.status = UnitStatus.STOPPED.value
+            if not for_shutdown:
+                self._was_running = False
             return {"success": True, "message": f"热点策略 {self.name} 已停止"}
         except Exception as e:
             return {"success": False, "error": str(e)}

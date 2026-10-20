@@ -11,7 +11,72 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from deva import scheduler as deva_scheduler, timer as deva_timer
+from deva import scheduler as deva_scheduler
+
+import logging as _logging
+
+_logger = _logging.getLogger("deva.naja.scheduler")
+
+
+class IntervalTimer:
+    """按固定间隔跑函数的最小定时器（线程版，带异常保护）。
+
+    ❗为什么不用 ``deva.timer``：
+    ``deva.timer.run()`` 是一个 ``@gen.coroutine`` 的 ``while True`` 循环，
+    ``self._emit(self.func())`` **没有任何 try/except** —— 被调函数抛一次异常，
+    这个 coroutine 就永久结束，``started`` 仍然是 True、handle 还挂在
+    ``_timer_handles`` 里，**没有任何日志**。2026-10-20 实测：金十 / OpenRouter /
+    realtime_tick_5s 三条数据源的 ``state.status`` 是 running、定时器“启动成功”，
+    而 ``last_data_ts`` 停在半年前，中间一次 tick 都没有。
+
+    另外 ``deva.timer`` 依赖 ``get_io_loop(False)`` 造一个后台 IOLoop 线程；
+    在已经跑着 tornado/asyncio 的进程里，这个 loop 的生命周期不由我们掌握，
+    ``add_callback`` 可能永远不被执行。定时抓取不需要异步 IO 设施 ——
+    它只需要「每隔 N 秒在一个独立线程里跑一次，出错不要死」。
+
+    语义与 ``deva.timer`` 保持一致：**先执行一次，再等待间隔**。
+    """
+
+    def __init__(self, interval: float, func: Callable[[], Any], name: str = ""):
+        self.interval = max(0.1, float(interval))
+        self.func = func
+        self.name = name
+        self._stop = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self.tick_count = 0
+        self.last_error: Optional[str] = None
+
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._loop, daemon=True, name=f"interval-timer-{self.name or id(self)}"
+        )
+        self._thread.start()
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.func()
+                self.tick_count += 1
+            except Exception as e:  # noqa: BLE001
+                self.last_error = f"{type(e).__name__}: {e}"
+                _logger.exception(
+                    "[IntervalTimer] %s 执行异常（已捕获，循环继续）", self.name or "-"
+                )
+            self._stop.wait(self.interval)
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
+        self._thread = None
+
+    @property
+    def alive(self) -> bool:
+        return bool(self._thread and self._thread.is_alive())
 
 
 @dataclass
@@ -142,25 +207,30 @@ class SchedulerManager:
     
     def start_timer(self, name: str, interval: float, func: Callable) -> dict:
         """启动定时器
-        
+
         Args:
             name: 定时器名称
             interval: 间隔秒数
             func: 执行函数
-            
+
         Returns:
             {"success": True} 或 {"success": False, "error": str}
+
+        实现见 :class:`IntervalTimer` —— 用独立线程而不是 ``deva.timer``，
+        原因是后者的循环没有异常保护、且依赖一个不受本进程掌控的 IOLoop。
         """
         try:
             # 先停止已存在的定时器
             self.stop_timer(name)
-            
-            timer_handle = deva_timer(
+
+            timer_handle = IntervalTimer(
                 interval=max(0.1, float(interval)),
-                start=False,
                 func=func,
+                name=name,
             )
             timer_handle.start()
+            if not timer_handle.alive:
+                return {"success": False, "error": "定时器线程启动后立即退出"}
             self._timer_handles[name] = timer_handle
             return {"success": True}
         except Exception as e:

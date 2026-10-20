@@ -30,6 +30,11 @@ from ...config import get_llm_config
 
 LLM_REFLECTION_TABLE = "naja_llm_reflections"
 
+# 钉钉推送幂等状态：单独一张表，不写进 LLM_REFLECTION_TABLE ——
+# 那张表会被 UI/统计按 id 遍历，塞一条元数据会被当成一条"反思记录"。
+REFLECTION_PUSH_STATE_TABLE = "naja_reflection_push_state"
+_PUSH_STATE_KEY = "daily_push"
+
 
 @dataclass
 class Reflection:
@@ -107,6 +112,15 @@ class LLMReflectionEngine:
             return
 
         self._db = NB(LLM_REFLECTION_TABLE)
+
+        # 推送幂等状态（跨重启持久化：服务重启一次就重放一次反思曾是钉钉刷屏的根因）
+        self._push_state_db = NB(REFLECTION_PUSH_STATE_TABLE)
+        self._push_lock = threading.Lock()
+        self._close_lock = threading.Lock()
+        self._close_reflection_pending = False
+        self._last_push_date: str = self._load_last_push_date()
+        self.last_skip_reason: str = ""
+
         cfg = get_llm_config()
 
         self._enabled = bool(cfg.get("reflection_enabled", True))
@@ -189,13 +203,30 @@ class LLMReflectionEngine:
         if phase != "closed":
             return
 
+        # 收盘信号可能被重复投递（A股/美股各一次、时钟重连重放、进程重启后重放），
+        # 每次 closed 都起一个延迟线程 → 多条反思。这里用 pending 标志去重，
+        # 并且延迟结束后在 finally 里复位，不会把后续交易日的信号永久吞掉。
+        if self._has_pushed_today():
+            log.info("[LLMReflection] 今日反思已推送，忽略本次收盘信号")
+            return
+
+        with self._close_lock:
+            if self._close_reflection_pending:
+                log.info("[LLMReflection] 已有待执行的盘后反思，跳过重复排程")
+                return
+            self._close_reflection_pending = True
+
         log.info("[LLMReflection] 检测到收盘信号，延迟5分钟后启动反思...")
 
         def delayed_reflection():
             import time
-            time.sleep(300)
-            log.info("[LLMReflection] 延迟结束，开始每日反思...")
-            self.run_daily_reflection()
+            try:
+                time.sleep(300)
+                log.info("[LLMReflection] 延迟结束，开始每日反思...")
+                self.run_daily_reflection()
+            finally:
+                with self._close_lock:
+                    self._close_reflection_pending = False
 
         threading.Thread(target=delayed_reflection, daemon=True, name="post_market_reflection").start()
 
@@ -522,41 +553,114 @@ class LLMReflectionEngine:
 
         self._emit_to_insight(reflection)
 
-        # 反思完成后推送到钉钉
+        # 反思完成后推送到钉钉（每日仅一条，见 _push_reflection_to_dtalk 的幂等）
         self._push_reflection_to_dtalk(reflection, signals)
 
         return reflection
 
-    def _push_reflection_to_dtalk(self, reflection, signals: List[Dict[str, Any]]) -> None:
-        """将 LLM 反思结果推送到钉钉"""
+    # ------------------------------------------------------------------
+    # 钉钉推送幂等：一天只推一条
+    # ------------------------------------------------------------------
+    # ❗为什么必须有：任务 timer 语义是「先执行一次，再等间隔」（见
+    # scheduler/common.py），所以**每次服务启动都会立刻跑一次反思**；
+    # 2026-10-20 实测重启 25 次 → 钉钉收到 10 条「LLM 每日反思」。
+    # 幂等键是「本地日期」，落 NB，跨进程重启依然有效。
+
+    def _today_str(self) -> str:
+        return datetime.now().strftime("%Y-%m-%d")
+
+    def _load_last_push_date(self) -> str:
+        """从 NB 读上次推送日期；读不到返回空串（不编造"今天已推过"）"""
         try:
-            from deva.endpoints import Dtalk
+            state = self._push_state_db.get(_PUSH_STATE_KEY) or {}
+            if isinstance(state, dict):
+                return str(state.get("date") or "")
+            if isinstance(state, str):
+                return state
+        except Exception:
+            pass
+        return ""
 
-            # 构建消息内容
-            theme = reflection.theme
-            summary = reflection.summary
-            
-            # 如果 summary 是列表，转为字符串
-            if isinstance(summary, list):
-                summary_text = "；".join([str(s) for s in summary if s])
+    def _has_pushed_today(self) -> bool:
+        today = self._today_str()
+        if self._last_push_date == today:
+            return True
+        stored = self._load_last_push_date()
+        if stored == today:
+            self._last_push_date = stored
+            return True
+        return False
+
+    def _mark_pushed_today(self) -> None:
+        """记录「今天已推送」。写入失败时降级为进程内标记（不会重复推同一天）。"""
+        today = self._today_str()
+        self._last_push_date = today
+        payload = {"date": today, "ts": time.time()}
+        try:
+            upsert = getattr(self._push_state_db, "upsert", None)
+            if callable(upsert):
+                upsert(_PUSH_STATE_KEY, payload)
             else:
-                summary_text = str(summary) if summary else "暂无"
+                self._push_state_db[_PUSH_STATE_KEY] = payload
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"[LLMReflection] 推送日期落库失败（幂等退化为进程内）: {e}"
+            )
 
-            # 获取关键信号
-            signal_parts = []
-            for sig in signals[:5]:
-                sig_theme = sig.get('theme', '')
-                if sig_theme:
-                    signal_parts.append(sig_theme)
-            
-            signals_text = "\n".join([f"- {s}" for s in signal_parts]) if signal_parts else "无"
+    def _push_reflection_to_dtalk(
+        self,
+        reflection,
+        signals: List[Dict[str, Any]],
+        force: bool = False,
+    ) -> bool:
+        """将 LLM 反思结果推送到钉钉（同一自然日只允许成功推送一次）
 
-            # 获取持仓信息
-            portfolio = self._collect_portfolio()
-            portfolio_text = portfolio.get('summary', '无持仓数据')
+        Returns:
+            True = 本次真的发出去了；False = 被幂等拦下或发送失败。
 
-            # 构建 Markdown 消息
-            markdown = f"""## 🤖 LLM 每日反思
+        发送放在 ``_push_lock`` 里：并发线程（timer + 收盘事件）若都过了
+        「今天没推过」的检查，会各发一条 —— 锁 + 锁内二次检查才能真的只发一条。
+        """
+        import logging
+        log = logging.getLogger(__name__)
+
+        with self._push_lock:
+            if not force and self._has_pushed_today():
+                log.info(
+                    f"[LLMReflection] 今日反思已推送过（{self._last_push_date}），"
+                    f"跳过重复推送: {reflection.theme}"
+                )
+                return False
+
+            try:
+                from deva.endpoints import Dtalk
+
+                # 构建消息内容
+                theme = reflection.theme
+                summary = reflection.summary
+
+                # 如果 summary 是列表，转为字符串
+                if isinstance(summary, list):
+                    summary_text = "；".join([str(s) for s in summary if s])
+                else:
+                    summary_text = str(summary) if summary else "暂无"
+
+                # 获取关键信号
+                signal_parts = []
+                for sig in signals[:5]:
+                    sig_theme = sig.get('theme', '')
+                    if sig_theme:
+                        signal_parts.append(sig_theme)
+
+                signals_text = "\n".join([f"- {s}" for s in signal_parts]) if signal_parts else "无"
+
+                # 获取持仓信息
+                portfolio = self._collect_portfolio()
+                portfolio_text = portfolio.get('summary', '无持仓数据')
+
+                # 构建 Markdown 消息
+                markdown = f"""## 🤖 LLM 每日反思
 
 **主题**: {theme}
 
@@ -572,13 +676,18 @@ class LLMReflectionEngine:
 _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %H:%M:%S')}_
 """
 
-            dtalk_msg = f"@md@LLM每日反思|{markdown}"
-            dtalk = Dtalk()
-            dtalk.send(dtalk_msg)
-            log.info(f"[LLMReflection] 反思已推送到钉钉: {theme}")
+                dtalk_msg = f"@md@LLM每日反思|{markdown}"
+                dtalk = Dtalk()
+                dtalk.send(dtalk_msg)
 
-        except Exception as e:
-            log.warning(f"[LLMReflection] 推送反思到钉钉失败: {e}")
+                # 只有发送成功才记日期：抛异常时允许下次重试，不会被误判成"今天已推"
+                self._mark_pushed_today()
+                log.info(f"[LLMReflection] 反思已推送到钉钉: {theme}")
+                return True
+
+            except Exception as e:
+                log.warning(f"[LLMReflection] 推送反思到钉钉失败: {e}")
+                return False
 
     def _emit_liquidity_signal(self, now_ts: float) -> None:
         """将流动性结构作为独立信号推送到 InsightPool"""
@@ -650,22 +759,39 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
 
         return signals
 
-    def run_daily_reflection(self, force_refresh: bool = False) -> Optional[Reflection]:
+    def run_daily_reflection(
+        self,
+        force_refresh: bool = False,
+        force_push: bool = False,
+    ) -> Optional[Reflection]:
         """每日反思统一入口
 
         Args:
             force_refresh: 是否强制重新生成市场分析
                           - False (默认): 有现有分析就用，不重新生成
                           - True: 清空后重新生成
+            force_push: 是否无视「今天已推送」的幂等直接重跑
+                          - False (默认): 今天已推送过就直接跳过（不再调 LLM）
+                          - True: 手工补跑用，会重新生成并推送
 
         自动流程：盘后任务 → 市场分析 → 反思
         手动流程：
         - force_refresh=False: 有市场分析 → 直接反思
         - force_refresh=True: 清空+重新生成分析，再反思
+
+        ❗幂等为什么要放在最前面：这个入口有 3 个调用方（盘后任务、
+        交易时钟收盘事件、手工触发），而定时器是「启动即执行一次」的语义，
+        服务每重启一次就会重放一次 —— 放在这里短路，连 LLM 都不用调。
         """
         import logging
         log = logging.getLogger(__name__)
 
+        if not force_push and self._has_pushed_today():
+            self.last_skip_reason = f"今日已推送过（{self._last_push_date}），跳过重放"
+            log.info(f"[LLMReflection] {self.last_skip_reason}")
+            return None
+
+        self.last_skip_reason = ""
         log.info("[LLMReflection] 开始每日反思流程...")
 
         if force_refresh:

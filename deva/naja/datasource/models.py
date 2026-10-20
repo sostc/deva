@@ -41,6 +41,11 @@ class DataSourceState(UnitState):
     last_data_ts: float = 0
     total_emitted: int = 0
     pid: int = 0
+    # ❗「按设计跳过」必须有独立字段，不能和「失败」共用一个计数器。
+    # 盘中行情源在收盘后本来就取不到数；把它记进 error_count，页面上的
+    # 67 次故障全是收盘造成的，真正的抓取失败反而埋在里面看不见。
+    last_skip_ts: float = 0
+    last_skip_reason: str = ""
 
     def to_dict(self) -> dict:
         data = super().to_dict()
@@ -48,6 +53,8 @@ class DataSourceState(UnitState):
             "last_data_ts": self.last_data_ts,
             "total_emitted": self.total_emitted,
             "pid": self.pid,
+            "last_skip_ts": self.last_skip_ts,
+            "last_skip_reason": self.last_skip_reason,
         })
         return data
 
@@ -66,5 +73,7 @@ class DataSourceState(UnitState):
             last_data_ts=data.get("last_data_ts", 0),
             total_emitted=data.get("total_emitted", 0),
             pid=data.get("pid", 0),
+            last_skip_ts=data.get("last_skip_ts", 0),
+            last_skip_reason=data.get("last_skip_reason", ""),
         )
 

@@ -1,8 +1,8 @@
 config:
-  cron_expr: ''
-  execution_mode: timer
+  cron_expr: '0 5 * * *'
+  execution_mode: scheduler
   run_at: ''
-  scheduler_trigger: interval
+  scheduler_trigger: cron
   task_type: interval
 func_code: |
   """
@@ -13,8 +13,12 @@ func_code: |
   2. 分析市场状态，存储供LLM反思使用
   3. 触发LLM反思，生成每日反思报告
 
-  建议执行时间：美股收盘后（凌晨4:30-5:00）
-  执行间隔：每天一次
+  执行时间：每天 05:00（美股收盘后，北京时间）
+
+  ❗为什么用 cron 而不是 timer：
+    timer 的语义是「启动即执行一次」，服务每重启一次就会重放一次反思
+    （2026-10-20 实测重启 25 次 → 钉钉收到 10 条）。cron 只在固定时刻触发，
+    重启不会重放；再叠加引擎侧「同一自然日只推一条」的幂等，彻底不会刷屏。
   """
   def execute():
       from deva.naja.cognition.insight.llm_reflection import get_llm_reflection_engine
@@ -29,23 +33,29 @@ func_code: |
               "reflection_theme": result.theme,
               "reflection_summary": result.summary[:200],
           }
+
+      # 「今天已经推送过」是正常跳过，不是失败 —— 别让任务历史里出现假故障
+      skip_reason = getattr(engine, "last_skip_reason", "")
+      if skip_reason:
+          return {"success": True, "skipped": True, "reason": skip_reason}
+
       return {"success": False, "message": "反思生成失败"}
 metadata:
   category: ''
   created_at: 1774965800.0
-  cron_expr: ''
-  description: 盘后市场分析 + 每日反思 - 获取指数行情，分析市场，触发LLM反思
+  cron_expr: '0 5 * * *'
+  description: 盘后市场分析 + 每日反思 - 获取指数行情，分析市场，触发LLM反思（每天 05:00）
   enabled: true
   event_condition: ''
   event_condition_type: contains
   event_source: log
-  execution_mode: timer
+  execution_mode: scheduler
   func_code_file: ''
   id: market_analysis_after_close
-  interval_seconds: 43200.0
+  interval_seconds: 86400.0
   name: 盘后市场分析+每日反思
   run_at: ''
-  scheduler_trigger: interval
+  scheduler_trigger: cron
   source: file
   tags:
   - market
@@ -53,7 +63,7 @@ metadata:
   - reflection
   - after_close
   task_type: interval
-  updated_at: 1774966200.0
+  updated_at: 1792489682.0
 parameters:
   enabled: true
   retry_count: 3

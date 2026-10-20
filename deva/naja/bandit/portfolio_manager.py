@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Callable
 
 from deva import NB
+from deva.naja.bandit.positions_store import POSITIONS_WRITE_LOCK
 
 log = logging.getLogger(__name__)
 
@@ -111,6 +112,10 @@ class USStockPortfolio:
         self._db = NB(UNIFIED_POSITIONS_TABLE)
         self._position_callbacks: List[Callable[[str, USStockPosition], None]] = []
         self._equity = 0.0
+        #: ``"us"`` = 本地记账账户（现价由 ``PortfolioPriceFeed`` 喂）；
+        #: ``"futu"`` = 券商同步镜像（现价由 ``FutuPortfolioSyncer`` 覆盖，
+        #: 行情总线不得插手，否则「与券商一致」这个语义就没了）。
+        self.account_type = "us"
         self._load_positions()
 
     def _load_positions(self):
@@ -124,6 +129,7 @@ class USStockPortfolio:
                     self._positions[pos_id] = USStockPosition(**pos_data)
 
             self._equity = account_data.get("equity", 0.0)
+            self.account_type = account_data.get("account_type") or "us"
             log.info(f"[{self.account_name}] 加载 {len(self._positions)} 个持仓, 净资产=${self._equity:.2f}")
         except Exception as e:
             log.error(f"[{self.account_name}] 加载持仓失败: {e}")
@@ -139,24 +145,31 @@ class USStockPortfolio:
 
     def _save_account_info(self):
         try:
-            accounts_data = self._db.get("accounts", {})
-            if self.account_name not in accounts_data:
-                accounts_data[self.account_name] = {}
-            accounts_data[self.account_name]["equity"] = self._equity
-            accounts_data[self.account_name]["account_type"] = "us"
-            self._db["accounts"] = accounts_data
+            with POSITIONS_WRITE_LOCK:
+                accounts_data = self._db.get("accounts", {})
+                if self.account_name not in accounts_data:
+                    accounts_data[self.account_name] = {}
+                accounts_data[self.account_name]["equity"] = self._equity
+                accounts_data[self.account_name]["account_type"] = "us"
+                self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"[{self.account_name}] 保存账户信息失败: {e}")
 
     def _save_positions(self):
-        try:
-            accounts_data = self._db.get("accounts", {})
-            if self.account_name not in accounts_data:
-                accounts_data[self.account_name] = {"account_type": "us", "equity": self._equity}
+        """保存持仓到统一库（``accounts`` 键的读-改-写必须持锁）。
 
-            positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
-            accounts_data[self.account_name]["positions"] = positions_data
-            self._db["accounts"] = accounts_data
+        不加锁时：A 读 → B 读 → A 写 → B 写，A 的更新被 B 的旧快照覆盖，
+        表现为「持仓现价莫名回退」，且无任何报错。
+        """
+        try:
+            with POSITIONS_WRITE_LOCK:
+                accounts_data = self._db.get("accounts", {})
+                if self.account_name not in accounts_data:
+                    accounts_data[self.account_name] = {"account_type": "us", "equity": self._equity}
+
+                positions_data = {pos_id: vars(pos) for pos_id, pos in self._positions.items()}
+                accounts_data[self.account_name]["positions"] = positions_data
+                self._db["accounts"] = accounts_data
         except Exception as e:
             log.error(f"[{self.account_name}] 保存持仓失败: {e}")
 
@@ -519,8 +532,15 @@ class PortfolioManager:
 
         **不持久化**账户名：同步器每次都会注册，写进名册反而会在同步器不跑时
         留下一个永远为空的僵尸账户。
+
+        同时**显式**把 ``account_type`` 标成 ``futu`` —— 库里字段是同步器写的，
+        全新账户首次注册时还是空的，会被 ``PortfolioPriceFeed`` 误判成"本地记账
+        账户"而拿行情快照覆盖券商价格。
         """
-        return self.ensure_account(account_name, persist=False)
+        portfolio = self.ensure_account(account_name, persist=False)
+        if getattr(portfolio, "account_type", "") != "futu":
+            portfolio.account_type = "futu"
+        return portfolio
 
     def get_all_account_names(self) -> List[str]:
         return list(self._accounts.keys())
@@ -538,6 +558,43 @@ class PortfolioManager:
         result = {}
         for name, portfolio in self._us_portfolios.items():
             count = portfolio.update_prices_batch(price_map, prev_close_map)
+            if count > 0:
+                result[name] = count
+        return result
+
+    def get_local_accounts(self) -> Dict[str, USStockPortfolio]:
+        """**本地记账**账户（``account_type != "futu"``）。
+
+        与 :meth:`get_brokerage_portfolios` 的区别：那里给新闻焦点用，关心
+        "我持有什么"（券商账户也算）；这里给价格供给器用，关心"谁没有人喂价"。
+
+        ❗券商账户（``account_type == "futu"``）的现价**必须**由
+        ``FutuPortfolioSyncer`` 写入，行情总线不能覆盖 —— 否则账户展示的
+        数字与券商 App 对不上，用户以为对账出错。
+        """
+        return {
+            name: p
+            for name, p in self._us_portfolios.items()
+            if getattr(p, "account_type", "us") != "futu"
+        }
+
+    def update_local_prices(
+        self, price_map: Dict[str, float], prev_close_map: Dict[str, float] = None
+    ) -> Dict[str, int]:
+        """只给本地记账账户喂价（券商账户原样保留同步器写的值）。
+
+        返回 ``{账户名: 更新条数}``。**没有本地账户命中时返回 ``{}``**，
+        调用方据此区分"没有本地持仓"与"喂价失败"。
+        """
+        if not price_map:
+            return {}
+        result = {}
+        for name, portfolio in self.get_local_accounts().items():
+            try:
+                count = portfolio.update_prices_batch(price_map, prev_close_map)
+            except Exception as e:  # noqa: BLE001 —— 单账户失败不能拖垮其它账户
+                log.warning("[PortfolioManager] 账户 %s 喂价失败: %s", name, e)
+                continue
             if count > 0:
                 result[name] = count
         return result

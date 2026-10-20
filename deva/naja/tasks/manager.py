@@ -401,9 +401,21 @@ class TaskManager:
 
         return entry
 
+    def reload_for_recovery(self) -> int:
+        """恢复流程专用重载。
+
+        任务的 ``load_from_db()`` 本身就是「NB 基线 + 文件覆盖 + 保留运行状态」
+        的合并逻辑，直接复用即可（recovery 里本来就调它）。
+        """
+        return self.load_from_db()
+
     def restore_running_states(self) -> dict:
         restored_count = 0
         failed_count = 0
+        # 「不该恢复」≠「恢复失败」：``_was_running`` 为 False 的条目
+        # 以前既不计数也不解释，于是「16 个任务只恢复 13 个」看不出另外 3 个
+        # 是没启动过还是炸了。单独计数才能分辨。
+        skipped_count = 0
         results = []
 
         # 先检查并补执行错过的 cron 任务
@@ -418,14 +430,28 @@ class TaskManager:
                 prep = entry.prepare_for_recovery()
 
                 if not prep.get("can_recover"):
-                    results.append(
-                        {
-                            "entry_id": entry.id,
-                            "entry_name": entry.name,
-                            "success": False,
-                            "reason": prep.get("reason"),
-                        }
-                    )
+                    # ``fatal``（如 compile_failed）是真故障，不能算「跳过」
+                    if prep.get("fatal"):
+                        failed_count += 1
+                        results.append(
+                            {
+                                "entry_id": entry.id,
+                                "entry_name": entry.name,
+                                "success": False,
+                                "reason": prep.get("reason"),
+                                "error": prep.get("error"),
+                            }
+                        )
+                    else:
+                        skipped_count += 1
+                        results.append(
+                            {
+                                "entry_id": entry.id,
+                                "entry_name": entry.name,
+                                "success": False,
+                                "reason": prep.get("reason"),
+                            }
+                        )
                     continue
 
                 result = entry.start()
@@ -465,6 +491,7 @@ class TaskManager:
             "success": True,
             "restored_count": restored_count,
             "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "results": results,
         }
 
@@ -631,12 +658,25 @@ class TaskManager:
         total_success = sum(e._state.success_count for e in entries)
         total_failure = sum(e._state.failure_count for e in entries)
 
+        # ❗「累计失败次数」看不出有几个任务坏了：一个任务炸 50 次和 50 个任务
+        # 各炸一次，在这个数字上完全相同。首页要看的是**受影响的条目数**，
+        # 以及最近一次失败发生在什么时候，所以额外给出这两个口径。
+        failed_tasks = sum(1 for e in entries if getattr(e._state, "failure_count", 0) > 0)
+        last_failure_ts = 0
+        last_run_ts = 0
+        for e in entries:
+            last_failure_ts = max(last_failure_ts, getattr(e._state, "last_error_ts", 0) or 0)
+            last_run_ts = max(last_run_ts, getattr(e._state, "last_run_time", 0) or 0)
+
         return {
             "total": len(entries),
             "running": running,
             "stopped": len(entries) - running,
             "total_success": total_success,
             "total_failure": total_failure,
+            "failed_tasks": failed_tasks,
+            "last_failure_ts": last_failure_ts,
+            "last_run_ts": last_run_ts,
         }
 
     def _log(self, level: str, message: str, **extra):

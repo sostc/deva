@@ -282,9 +282,20 @@ class AppContainer:
             scheduler = getattr(SchedulerManager(), "_scheduler", None)
             if scheduler is None:
                 return False
-            asyncio_loop = getattr(getattr(scheduler, "loop", None), "asyncio_loop", None)
-            if asyncio_loop is None:
-                return False
+            # ❗必须查 **APScheduler 自己那条** loop（``_scheduler._ioloop``），
+            # 不能查 ``scheduler.loop`` —— 后者是流用的守护 loop，一直在跑，
+            # 哪怕定时器被挂到一条永不 start() 的 loop 上它也是绿的。
+            # 2026-10-20 的 cron 全线静默失效正是被这个假绿瞒住了一整天：
+            # 8 个任务全停在 14:02，而健康检查一路通过。
+            # ❗``ioloop_running`` 是 property（返回 bool），不是方法 ——
+            # 只按 callable 判会把「True」当成「没有这个能力」而掉进兜底分支，
+            # 结果 loop 明明在跑却报红（恒红假告警）。
+            probe = getattr(scheduler, "ioloop_running", None)
+            if probe is not None:
+                return bool(probe() if callable(probe) else probe)
+            # 兼容没有该属性的旧对象：直接按 APScheduler 内部字段判
+            inner = getattr(scheduler, "_scheduler", None)
+            asyncio_loop = getattr(getattr(inner, "_ioloop", None), "asyncio_loop", None)
             is_running = getattr(asyncio_loop, "is_running", None)
             return bool(is_running and is_running())
 
@@ -480,6 +491,7 @@ class AppContainer:
             return ("strategy", strategy_mgr)
 
         counts = {}
+        managers = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
             futures = [
                 executor.submit(_init_dict),
@@ -491,12 +503,57 @@ class AppContainer:
                 try:
                     name, mgr = future.result()
                     counts[name] = len(mgr._items)
+                    managers[name] = mgr
                 except Exception as e:
                     log.warning(f"[AppContainer] 初始化任务管理器失败: {e}")
+
+        self._register_recovery_managers(managers)
 
         StartupTimer.end("持久化管理器初始化")
         self._load_counts = counts
         self._load_errors = {}
+
+    #: 交给 RecoveryManager 的单元类型。
+    #:
+    #: ❗**task 故意不在这里**。任务状态由 ``restore_runtime_state()`` 在容器
+    #:   初始化阶段恢复；而 ``RecoveryManager.restore_all()`` 每次都会先调
+    #:   ``load_from_db()``，那一步会 ``self._items.clear()`` 并把条目重建一遍
+    #:   —— 已经在跑的 TaskEntry 线程会变成孤儿，新条目 ``is_running`` 又是
+    #:   False，接着被再启动一次，于是同一个定时任务跑两份。
+    #:   数据源/字典/策略没有这个早启动路径，所以可以安全走 RecoveryManager。
+    RECOVERABLE_UNIT_TYPES = ("datasource", "dictionary", "strategy")
+
+    def _register_recovery_managers(self, managers: dict) -> None:
+        """把已初始化的管理器登记到 RecoveryManager。
+
+        此前**全仓没有任何一处调用** ``recovery_manager.register()``，
+        于是 ``restore_all()`` 对每个单元恒定返回 ``Manager not registered``：
+        数据源与策略在每次重启后都不会自动恢复运行（2026-10-20 实测首页
+        长期显示「数据源 0/5」「策略 0/4」，看着像渲染错误，其实是真没跑）。
+
+        注册必须发生在管理器**初始化成功之后**——把未初始化/初始化失败的对象
+        注册进去，只会在恢复阶段换一个异常继续静默。
+        """
+        try:
+            from ..infra.runtime.recoverable import recovery_manager
+
+            registered = []
+            for unit_type in self.RECOVERABLE_UNIT_TYPES:
+                mgr = managers.get(unit_type)
+                if mgr is None:
+                    continue
+                recovery_manager.register(unit_type, mgr)
+                registered.append(unit_type)
+
+            missing = [
+                t for t in self.RECOVERABLE_UNIT_TYPES if t not in registered
+            ]
+            if missing:
+                # 初始化失败的管理器不注册，但必须留痕：否则又变成「静默少恢复一类」
+                log.warning(f"[AppContainer] 恢复单元未注册（初始化失败）: {missing}")
+            log.info(f"[AppContainer] RecoveryManager 已注册: {registered}")
+        except Exception as e:
+            log.warning(f"[AppContainer] RecoveryManager 注册失败: {e}")
 
     def _start_schedulers(self):
         """启动调度器
@@ -682,11 +739,37 @@ class AppContainer:
                         name, time.monotonic() - t0,
                     )
 
+            def init_portfolio_price_feed():
+                """给虚拟仓接上价格源。
+
+                ❗在此之前虚拟仓的现价**没有任何人更新**：``update_price`` 只有
+                ``adaptive_cycle`` / ``tuner`` 两个调用方，而 ``adaptive_cycle``
+                是懒单例 —— 没人访问它，它就永远不跑；行情总线的
+                ``subscribe()`` 更是全仓无人调用。结果是持仓现价永远停在开仓价
+                （实测 NVDA 记着 entry=450 / current=450，真实价已 217），
+                而 ``update_price`` 里的止损止盈判定**从未执行过一次**。
+
+                这个供给器每 30s 拉一次行情喂进去，止损止盈才真正生效。
+                首次运行时可能触发**迟到很久**的止损（那是对的，不是 bug）。
+                """
+                from ..bandit.portfolio_price_feed import get_portfolio_price_feed
+                vp = self.virtual_portfolio
+                if vp is None:
+                    # 属性可能还没被装配（懒加载）——回落到注册表里的**同一个**单例，
+                    # 千万别在这里 new 一个：两份 VirtualPortfolio 会各写各的账。
+                    from ..register import SR
+                    vp = SR("virtual_portfolio")
+                feed = get_portfolio_price_feed(portfolio=vp)
+                feed.start()
+                self.portfolio_price_feed = feed
+                log.info("[AppContainer] 虚拟仓价格供给器已启动")
+
             tasks = {
                 "attention_integration": init_attention_integration,
                 "SignalStream": init_signal_stream,
                 "MerrillClock": init_merrill_clock,
                 "调度器": init_schedulers,
+                "虚拟仓价格源": init_portfolio_price_feed,
             }
             # ❗这里**刻意不用** ThreadPoolExecutor：
             # ① 它作为上下文管理器退出时会 shutdown(wait=True)，某一项卡住就把

@@ -11,9 +11,9 @@ metadata:
   category: 交易信号
   compute_mode: record
   created_at: 1773675576.9572108
-  description: 将牛股精选结果转换为Bandit交易信号，生成买入/卖出建议
+  description: 【空壳占位·已禁用】将牛股精选结果转换为Bandit交易信号，生成买入/卖出建议
   dictionary_profile_ids: []
-  enabled: true
+  enabled: false
   func_code_file: ''
   handler_type: bandit
   id: a2a392d661ac
@@ -26,14 +26,14 @@ metadata:
   - bandit
   - signal
   - trade
-  updated_at: 1774627248.365692
+  updated_at: 1792482000.0
   version: 110
   window_interval: 5s
   window_return_partial: false
   window_size: 5
   window_type: sliding
 parameters:
-  enabled: true
+  enabled: false
   max_history_count: 200
   window_interval: 5s
   window_size: 5

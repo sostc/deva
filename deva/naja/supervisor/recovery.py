@@ -153,11 +153,15 @@ class RecoveryLifecycleMixin:
         except Exception as e:
             log.error(f"持久化市场热点系统状态失败: {e}")
 
+        # ❗三处都必须传 for_shutdown=True：``stop()`` 默认会把 was_running
+        #   清零，那是「用户主动停」的语义。进程退出时若也清零，下次启动就会
+        #   把全部单元当成「用户停的」而拒绝恢复 —— 数据源/策略长期 0/N 运行
+        #   的第二个根因就在这里（第一个是 RecoveryManager 从未被 register）。
         try:
             strategy_mgr = self._get_component('strategy')
             if strategy_mgr:
                 for entry in strategy_mgr.list_all():
-                    entry.stop()
+                    entry.stop(for_shutdown=True)
         except Exception as e:
             log.error(f"停止策略失败: {e}")
 
@@ -165,7 +169,7 @@ class RecoveryLifecycleMixin:
             ds_mgr = self._get_component('datasource')
             if ds_mgr:
                 for entry in ds_mgr.list_all():
-                    entry.stop()
+                    entry.stop(for_shutdown=True)
         except Exception as e:
             log.error(f"停止数据源失败: {e}")
 
@@ -173,7 +177,7 @@ class RecoveryLifecycleMixin:
             task_mgr = self._get_component('task')
             if task_mgr:
                 for entry in task_mgr.list_all():
-                    entry.stop()
+                    entry.stop(for_shutdown=True)
         except Exception as e:
             log.error(f"停止任务失败: {e}")
     

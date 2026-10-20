@@ -98,7 +98,7 @@ class DictionaryEntry(RecoverableUnit):
                 return {"success": True, "status": self._state.status}
         return super().start()
 
-    def stop(self) -> dict:
+    def stop(self, *, for_shutdown: bool = False) -> dict:
         if self._has_refresh_task():
 
             with self._execution_lock:
@@ -108,10 +108,11 @@ class DictionaryEntry(RecoverableUnit):
                 task_id = str(self._metadata.refresh_task_id or "")
                 SR('task_manager').stop(task_id)
                 self._state.status = UnitStatus.STOPPED.value
-                self._was_running = False
+                if not for_shutdown:
+                    self._was_running = False
                 self.save()
                 return {"success": True, "status": self._state.status}
-        return super().stop()
+        return super().stop(for_shutdown=for_shutdown)
 
     def _do_start(self, func: Callable) -> dict:
         # legacy fallback: no linked refresh task时沿用旧逻辑

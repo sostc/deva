@@ -867,6 +867,36 @@ class NewsMindStrategy:
             return 0.0
         return float(np.dot(v1, v2) / norm)
     
+    def get_stats(self) -> Dict[str, Any]:
+        """内存中的轻量计数器（首页等高频入口用）。
+
+        ❗别拿 ``get_memory_report()`` 当统计接口：它要排序全部主题、构造三层
+        记忆明细、拼叙事报告和语义图，首页每刷一次都跑一遍代价过高。
+
+        这里只读计数器与容器长度，不复制任何事件对象。缺失的项**不填 0**：
+        ``last_event_ts`` 在没有短期记忆时返回 ``None``，由调用方显示「未知」，
+        免得把「还没摄入过」伪装成「刚刚摄入」。
+        """
+        data: Dict[str, Any] = dict(self.stats)
+        data["active_topics"] = len(self.topics)
+        data["memory_short"] = len(self.short_memory)
+        data["memory_mid"] = len(self.mid_memory)
+        data["memory_long"] = len(self.long_memory)
+
+        last_event_ts = None
+        try:
+            if self.short_memory:
+                last = list(self.short_memory)[-1]
+                raw = getattr(last, "timestamp", None)
+                if isinstance(raw, datetime):
+                    last_event_ts = raw.timestamp()
+                elif raw is not None:
+                    last_event_ts = float(raw)
+        except Exception:
+            last_event_ts = None
+        data["last_event_ts"] = last_event_ts
+        return data
+
     def get_memory_report(self) -> Dict:
         """获取记忆报告"""
         # 主题排序（按活跃度），过滤掉噪音主题

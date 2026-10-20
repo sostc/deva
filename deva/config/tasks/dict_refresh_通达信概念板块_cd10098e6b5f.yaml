@@ -19,8 +19,8 @@ func_code: "import pandas as pd\nfrom pathlib import Path\n\ndef fetch_data():\n
   \ as e:\n            box[\"error\"] = e\n        finally:\n            loop.close()\n\
   \n    t = threading.Thread(target=_runner, daemon=True)\n    t.start()\n    t.join()\n\
   \    if box[\"error\"] is not None:\n        raise box[\"error\"]\n    return box[\"\
-  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary import get_dictionary_manager\n\
-  \n    mgr = get_dictionary_manager()\n    entry = mgr.get(\"cd10098e6b5f\")\n  \
+  value\"]\n\ndef execute(event=None):\n    from deva.naja.dictionary.manager import DictionaryManager\n\
+  \n    mgr = DictionaryManager()\n    entry = mgr.get(\"cd10098e6b5f\")\n  \
   \  if entry is None:\n        return \"dictionary_not_found\"\n\n    try:\n    \
   \    data = fetch_data()\n        data = _resolve_awaitable(data)\n        entry.apply_fresh_data(data)\n\
   \        return \"ok\"\n    except Exception as e:\n        entry.mark_refresh_error(str(e))\n\
@@ -44,7 +44,7 @@ metadata:
   source: file
   tags: []
   task_type: interval
-  updated_at: 1774624385.776493
+  updated_at: 1792511250
 parameters:
   enabled: true
   retry_count: 3

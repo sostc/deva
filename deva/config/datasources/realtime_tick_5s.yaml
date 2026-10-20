@@ -300,13 +300,16 @@ func_code: |
 
 
   def is_tradedate(dt):
-      from deva.naja.common.tradetime import is_tradedate as _is_tradedate
-      return _is_tradedate(dt)
+      # 交易日：当天该市场至少有交易时段。用统一的 market_session 口径，
+      # 别自己写「周一到周五」—— 节假日会把 A 股算成交易日。
+      from deva.naja.bandit.market_session import is_trading
+      probe = dt.replace(hour=10, minute=0, second=0, microsecond=0)
+      return bool(is_trading("CN", probe))
 
 
   def is_tradetime(dt):
-      from deva.naja.common.tradetime import is_tradetime as _is_tradetime
-      return _is_tradetime(dt)
+      from deva.naja.bandit.market_session import is_trading
+      return bool(is_trading("CN", dt))
 
 
   async def get_realtime_quant_async(force: bool = False) -> Optional[pd.DataFrame]:
@@ -333,13 +336,30 @@ func_code: |
       return None
 
 
+  def _skip_payload(reason):
+      """「按设计不取数」的唯一表达方式。
+
+      ❗不要用 None 表达这个意思：调度层把 None 等价成「失败但没说原因」，
+      于是收盘之后每 5 秒记一次错误，error_count 涨到 67 全是这么攒出来的，
+      真正的抓取失败反而淹在里面看不出来。
+      """
+      return {"skipped": reason, "reason": reason, "success": True}
+
+
   async def fetch_data_async():
       """异步入口"""
       try:
-          return await get_realtime_quant_async()
+          now = datetime.now()
+          if not (is_tradedate(now) and is_tradetime(now)):
+              from deva.naja.bandit.market_session import market_phase
+              phase = market_phase("CN", now)
+              return _skip_payload(f"非 A 股交易时段（当前 {phase}），按设计不取数")
+          # 时间闸门已经在这里过了，往下直接强制取数
+          return await get_realtime_quant_async(force=True)
       except Exception as e:
           print(f"[StockDataSource] 错误: {e}")
-          return None
+          # 失败必须显式声明，别再 return None 让上层猜是空还是错
+          return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 
   def fetch_data():
@@ -360,7 +380,7 @@ func_code: |
                   loop.close()
       except Exception as e:
           print(f"[StockDataSource] fetch_data 错误: {e}")
-          return None
+          return {"success": False, "error": f"{type(e).__name__}: {e}"}
 
 
   def fetch_by_category(categories: List[str]) -> Optional[pd.DataFrame]:
@@ -401,7 +421,7 @@ metadata:
   source: file
   source_type: timer
   tags: []
-  updated_at: 1774627416.0625339
+  updated_at: 1792482000.0
 parameters:
   enabled: true
   interval_seconds: 5.0

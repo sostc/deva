@@ -118,14 +118,20 @@ class WakeOrchestrator:
         """恢复组件内部运行状态（策略/数据源/任务的启停状态）
 
         归属：infra 层 RecoveryManager 的职责，此处仅做协调调用。
+
+        ❗**order 里不能有 task**：``restore_all()`` 每次都会先 ``load_from_db()``，
+        而该方法会 ``_items.clear()`` 重建条目——已经在跑的 TaskEntry 线程变孤儿、
+        新条目 ``is_running`` 又是 False，于是被再启动一次，同一个定时任务跑两份。
+        任务状态由 ``AppContainer.restore_runtime_state()`` 在容器初始化阶段恢复，
+        那条路径不重建条目，是安全的。
         """
         from deva.naja.infra.runtime.recoverable import recovery_manager
 
         try:
             result = recovery_manager.restore_all(
-                order=["datasource", "strategy", "task"]
+                order=["datasource", "dictionary", "strategy"]
             )
-            log.info(f"[WakeOrchestrator] 组件状态恢复完成")
+            log.info(f"[WakeOrchestrator] 组件状态恢复完成: {result}")
             return result
         except Exception as e:
             log.error(f"[WakeOrchestrator] 组件状态恢复失败: {e}")
