@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 log = logging.getLogger(__name__)
 
 _SEC_HEADERS = {"User-Agent": "Naja Research Agent naja@example.com"}
@@ -348,6 +350,7 @@ def _rolling_sum(quarters: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]
     return out
 
 
+@probe(KIND_DATASOURCE, "ds:points_sec", "时点基本面：SEC companyfacts", cadence="按需/缓存")
 def us_series(symbol: str, companyfacts: Optional[Dict[str, Any]] = None) -> List[FundamentalPoint]:
     """美股时点序列：季度 EPS/净利/现金流滚动 12 个月 + 每股净资产。
 

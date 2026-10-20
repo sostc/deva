@@ -32,6 +32,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 log = logging.getLogger(__name__)
 
 _EASTMONEY_URL = "https://datacenter.eastmoney.com/securities/api/data/get"
@@ -291,6 +293,7 @@ class FinancialDataFetcher:
             return self._fetch_us(code)
         return self._fetch_a(code)
 
+    @probe(KIND_DATASOURCE, "ds:eastmoney_fin", "A股财报（东方财富 datacenter）", cadence="按需/缓存")
     def _fetch_a(self, stock_code: str) -> List[StockFinancial]:
         """A 股：从东方财富获取财报"""
         try:
@@ -419,6 +422,7 @@ class FinancialDataFetcher:
             log.warning(f"[FinancialDataFetcher] SEC EDGAR {symbol} 失败: {e}")
             return [], ST_ERROR, f"{type(e).__name__}: {e}"
 
+    @probe(KIND_DATASOURCE, "ds:sec_edgar", "美股财报（SEC EDGAR XBRL）", cadence="按需/缓存")
     def _fetch_us_sec(self, symbol: str) -> Tuple[List[StockFinancial], str, str]:
         """从 SEC EDGAR API 获取真实财报数据"""
         import requests

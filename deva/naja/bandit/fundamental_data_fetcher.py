@@ -21,6 +21,8 @@ from datetime import datetime
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor
 
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 logger = logging.getLogger(__name__)
 
 
@@ -299,6 +301,7 @@ class FundamentalDataFetcher:
 
         return None
 
+    @probe(KIND_DATASOURCE, "ds:fundamental_sina", "基本面数据（新浪 PE/EPS/市值）", cadence="按需")
     def fetch_from_sina(self, stock_code: str) -> Optional[Dict]:
         """从新浪获取美股数据（含真实 PE / EPS / 市值）。
 

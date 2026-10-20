@@ -38,6 +38,11 @@ import asyncio
 import concurrent.futures
 import logging
 import threading
+
+# ❗本总线自己就写明「不绑定任何特定数据源」，所以它**不在 DatasourceManager 的
+# 注册体系内**，首页数据源卡原先永远看不到它。这里挂探针，让每一次真实回源
+# 都自动上报成败 —— 首页「数据源」卡的口径来自 FleetRegistry，不靠人记得登记。
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -107,6 +112,23 @@ def format_exchange_code(code: str) -> str:
 def _format_code(code: str) -> str:
     """内部别名，保留给既有调用方。"""
     return format_exchange_code(code)
+
+
+def looks_like_us_symbol(code: str) -> bool:
+    """裸字母股票代码（1~5 位）＝ 美股。
+
+    ❗曾经这里靠一个 **10 只的白名单**（nvda/aapl/tsla/…）决定谁走美股分支，
+    白名单外的美股（``alab`` / ``crwv`` / ``skuu`` …）两个分支都不进，被丢进
+    ``unrouted`` —— 行情抓不到，持仓现价永远停在开仓价。而白名单看起来"工作
+    正常"，因为最常看的那几只恰好在里面。
+
+    A 股（6 位数字）与港股（5 位数字）都是纯数字，``isalpha()`` 天然排除，
+    所以这个判据不会误伤。
+    """
+    c = (code or "").strip()
+    if c[:3].lower() == "gb_":
+        c = c[3:]
+    return c.isalpha() and 1 <= len(c) <= 5
 
 
 @dataclass
@@ -286,10 +308,29 @@ class MarketDataBus:
 
         self._fetch_in_progress: Set[str] = set()
         self._lock_fetch = threading.Lock()
+        # 已经喊过「总线不覆盖这个代码」的集合（同一只票只喊一次，别刷屏）
+        self._unrouted_warned: Set[str] = set()
 
         self._initialized = True
 
         log.info("[MarketDataBus] 行情数据服务总线已初始化")
+
+    def _warn_unrouted(self, codes: List[str]) -> None:
+        """把「总线没有这条路由」显式喊出来（每只票只喊一次）。
+
+        ❗这类沉默是危险的：调用方拿到 0.0 会当成「行情还没来」，
+        于是一直等、一直不报警，而真相是**这条链路根本不支持这个市场**。
+        """
+        fresh = [c for c in codes if c not in self._unrouted_warned]
+        if not fresh:
+            return
+        self._unrouted_warned.update(fresh)
+        log.warning(
+            "[MarketDataBus] 这些代码没有对应的行情路由，总线取不到（不是网络失败）：%s。"
+            "A 股需 sh/sz 前缀（5/6/9 开头为沪市）、美股走 gb_ 前缀；"
+            "港股（5 位数字）当前不由本总线覆盖，现价请以 futu_portfolio_syncer 同步值为准。",
+            "、".join(fresh),
+        )
 
     def get_price(self, code: str, timeout: float = 3.0) -> float:
         quote = self.get_quote(code)
@@ -389,10 +430,21 @@ class MarketDataBus:
             self._update_cache_from_quotes(quotes)
 
             code_to_normalized = {code: _normalize_code(code) for code in codes}
-            result = {
-                code: quotes.get(code, quotes.get(code_to_normalized[code], _EMPTY_QUOTE)).current
-                for code in codes
-            }
+
+            def _pick_price(code: str) -> float:
+                """按「裸码 → 带交易所前缀」逐级兜底取值。
+
+                ❗A 股分支历史上把 quote 存在 ``sh588200`` 这类**带前缀** key 上，
+                而调用方拿的是 ``588200`` —— 只查一个 key 就永远 miss。这里做
+                多形态兜底，避免同类映射错误再把整条链路静默归零。
+                """
+                for key in (code, code_to_normalized[code], _format_code(code)):
+                    quote = quotes.get(key)
+                    if quote is not None and getattr(quote, "current", 0) > 0:
+                        return quote.current
+                return 0.0
+
+            result = {code: _pick_price(code) for code in codes}
             self._emit_to_subscribers_from_quotes(quotes)
             return result
         except Exception as e:
@@ -473,11 +525,27 @@ class MarketDataBus:
         await asyncio.sleep(0)
 
         # Normalize and re-format codes to ensure proper prefixes for external APIs
-        US_COMMON_CODES = {"nvda", "aapl", "tsla", "msft", "googl", "amzn", "meta", "baba", "amd", "intc"}
         normalized_codes = {_normalize_code(c) for c in codes}
         formatted_codes = [_format_code(c) for c in normalized_codes]
-        a股_codes = [c for c in formatted_codes if c.startswith(("sh", "sz"))]
-        美股_codes = [c for c in formatted_codes if c.startswith("gb_") or c.lower() in US_COMMON_CODES]
+        a股_codes = [c for c in formatted_codes if c.startswith(("sh", "sz", "bj"))]
+        # ❗判据是「裸字母 1~5 位」而不是 10 只白名单：白名单外的美股（alab /
+        # crwv / skuu …）曾被静默丢进 unrouted，持仓现价永远停在开仓价。
+        美股_codes = [
+            c for c in formatted_codes
+            if c.startswith("gb_") or looks_like_us_symbol(c)
+        ]
+
+        # ❗没被任何分支接住的代码必须喊出来。
+        #
+        # 港股（``06666`` / ``00700``，5 位数字）在这里**两个列表都不进**：
+        # ``_format_code`` 原样返回，既不以 sh/sz 开头、也不在美股白名单里。
+        # 结果是它被静默丢弃，调用方只看到 current=0.0，看起来像「行情没到」。
+        # 港股现价目前由 ``futu_portfolio_syncer`` 同步维护，不靠这条总线 ——
+        # 但必须让「总线不覆盖港股」这件事可见，而不是伪装成取数失败。
+        routed = set(a股_codes) | set(美股_codes)
+        unrouted = sorted(c for c in formatted_codes if c not in routed)
+        if unrouted:
+            self._warn_unrouted(unrouted)
 
         quotes: Dict[str, MarketQuote] = {}
 
@@ -542,6 +610,7 @@ class MarketDataBus:
         except RuntimeError:
             return asyncio.run(self._do_fetch_async(list(normalized_codes)))
 
+    @probe(KIND_DATASOURCE, "ds:sina_ashare", "新浪A股行情（行情总线）", cadence="按需/批量")
     async def _fetch_ashare(self, codes: List[str]) -> Dict[str, MarketQuote]:
         try:
             import aiohttp
@@ -588,7 +657,17 @@ class MarketDataBus:
                 change = current - prev_close
                 change_pct = (change / prev_close * 100) if prev_close > 0 else 0
 
-                quotes[original] = MarketQuote(
+                # ❗key 必须用**裸码**（normalized），与美股分支保持一致。
+                #
+                # 曾经这里写 ``quotes[original] = ...``（即 ``sh588200``），而
+                # ``fetch()`` 是拿「调用方传进来的原始 code（``588200``）」和
+                # 「它的归一形式（``588200``）」去查 —— 两个都命中不了带前缀的
+                # key，于是 A 股/ETF **行情明明抓到了 3 条，却被映射成 0.0**。
+                #
+                # 后果：所有 A 股持仓的现价永远停在开仓价，止损止盈形同虚设，
+                # 而 log.debug 里只看得到「取不到行情」。实测 sh588200=0.92、
+                # sz000001=11.44 都在返回体里，就是取不出来。
+                q = MarketQuote(
                     code=original,
                     name=fields[0],
                     current=current,
@@ -605,6 +684,9 @@ class MarketDataBus:
                     fetch_time=now,
                     is_stale=False,
                 )
+                quotes[normalized] = q
+                # 双 key：normalized 供 ``fetch()`` 查，original 供既有调用方兼容
+                quotes.setdefault(original, q)
             except (ValueError, IndexError):
                 continue
         return quotes

@@ -158,6 +158,17 @@ def _load_syncer():
     _stub_package("deva.naja")
     _stub_package("deva.naja.bandit", BANDIT)
 
+    # ❗被测模块给「每次富途取数」挂了 FleetRegistry 探针
+    #   （``from deva.naja.infra.observability.fleet_registry import ...``）。
+    #   守卫这里是**桩件包**，没有 deva.naja.infra，不补桩会直接 ImportError，
+    #   守卫连被测模块都加载不了。桩件只需提供探针所需的最小同名符号。
+    _stub_package("deva.naja.infra")
+    _stub_package("deva.naja.infra.observability")
+    fleet = _stub_package("deva.naja.infra.observability.fleet_registry")
+    fleet.KIND_DATASOURCE = "datasource"
+    fleet.probe = lambda kind, unit_id, name, cadence="", source="probe": (
+        lambda fn: fn)   # 桩件探针：原样返回函数，不改变被测行为
+
     _load_by_path("deva.naja.bandit.data_freshness", FRESHNESS_PY)
     return _load_by_path("_futu_syncer_under_test", SYNCER_PY)
 

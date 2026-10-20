@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from bs4 import BeautifulSoup
 
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 log = logging.getLogger(__name__)
 
 # ============================================================================
@@ -169,6 +171,7 @@ def send_imessage(phone: str, text: str):
         return False
 
 
+@probe(KIND_DATASOURCE, "ds:arxiv", "AI 日报：arXiv 最新论文", cadence="cron 0 21 * * *")
 def fetch_arxiv_papers(category: str = "cs.AI", max_results: int = 5) -> List[Dict]:
     """获取arXiv最新论文"""
     try:
@@ -201,6 +204,7 @@ def fetch_arxiv_papers(category: str = "cs.AI", max_results: int = 5) -> List[Di
         return []
 
 
+@probe(KIND_DATASOURCE, "ds:huggingface", "AI 日报：HuggingFace 热门模型", cadence="cron 0 21 * * *")
 def fetch_huggingface_trending() -> List[Dict]:
     """获取HuggingFace热门模型"""
     try:
@@ -224,6 +228,7 @@ def fetch_huggingface_trending() -> List[Dict]:
         return []
 
 
+@probe(KIND_DATASOURCE, "ds:github_trending", "AI 日报：GitHub Trending", cadence="cron 0 21 * * *")
 def fetch_github_trending(topic: str = "machine-learning") -> List[Dict]:
     """获取GitHub Trending"""
     try:

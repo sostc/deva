@@ -48,6 +48,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from deva import NB
 from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_FUTU_SYNC
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 log = logging.getLogger(__name__)
 
@@ -577,6 +578,7 @@ class FutuPortfolioSyncer:
             "currency": _clean(row.get("currency", "")) or currency,
         }
 
+    @probe(KIND_DATASOURCE, "ds:futu_account", "富途 OpenD 账户/持仓同步", cadence="每 5 分钟")
     def _fetch_account(self, ctx, target: Dict[str, Any]) -> Dict[str, Any]:
         """在既有连接里取一个账户的持仓与资金。"""
         from futu import RET_OK

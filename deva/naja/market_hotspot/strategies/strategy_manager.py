@@ -799,23 +799,50 @@ def initialize_hotspot_strategies():
 
 def _auto_register_to_strategy_manager(manager: HotspotStrategyManager):
     """
-    自动将热点策略注册到策略管理系统
+    自动将热点策略挂接到策略管理系统（用于策略管理 UI / 首页统计统一可见）
 
-    这样在策略管理UI中可以统一看到所有策略
+    ❗这里是踩过坑的地方，三条改动都有血泪：
+
+    1. 原来写 ``from deva.naja.strategy import get_hotspot_manager as get_sm`` ——
+       ``deva/naja/strategy/__init__.py`` 的 ``__all__`` 里**根本没有这个名字**，
+       实测 ``ImportError``。而外面是 ``except Exception: pass``，于是**十几个
+       正在跑的热点策略永远汇不进 StrategyManager，且日志零痕迹**（首页策略卡
+       长期只显示文件策略）。正确名字是 ``get_strategy_manager``。
+    2. 原来直接写私有 ``strategy_mgr._items[strategy_id] = wrapper`` ——
+       ``load_prefer_files()`` 会 ``_items.clear()`` 重灌，一重载外部条目就
+       被抹掉。改走 ``attach_external_entry()``（存在独立的 _external_items 里）。
+    3. ``except Exception: pass`` 一律换成 ``log.warning`` 留痕。
+       **汇入失败必须看得见** —— 静默失败比报错危险得多。
     """
     try:
-        from deva.naja.strategy import get_hotspot_manager as get_sm
+        from deva.naja.strategy import get_strategy_manager as get_sm
         strategy_mgr = get_sm()
+    except Exception as e:
+        log.warning("[HotspotStrategyManager] 挂接策略管理系统失败，热点策略将不会出现在"
+                    "策略列表与首页统计中（%s: %s）", type(e).__name__, e)
+        return manager
 
-        for strategy_id in manager.strategies:
-            existing = strategy_mgr.get(strategy_id)
-            if existing is not None:
-                continue
-
+    attached = 0
+    failed = []
+    for strategy_id in manager.strategies:
+        try:
             wrapper = manager.create_strategy_entry(strategy_id)
-            if wrapper:
-                strategy_mgr._items[strategy_id] = wrapper
-    except Exception:
-        pass
+            if wrapper is None:
+                failed.append(f"{strategy_id}(无包装器)")
+                continue
+            if strategy_mgr.attach_external_entry(wrapper):
+                attached += 1
+            else:
+                failed.append(strategy_id)
+        except Exception as e:
+            failed.append(f"{strategy_id}({type(e).__name__})")
+            log.warning("[HotspotStrategyManager] 挂接策略 %s 失败（%s: %s）",
+                        strategy_id, type(e).__name__, e)
+
+    if failed:
+        log.warning("[HotspotStrategyManager] 热点策略挂接完成 %d 个，失败 %d 个: %s",
+                    attached, len(failed), ", ".join(failed))
+    else:
+        log.info("[HotspotStrategyManager] 热点策略已全部挂接到策略管理系统（%d 个）", attached)
 
     return manager

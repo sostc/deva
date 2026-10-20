@@ -30,6 +30,7 @@ from .trading_clock import (
 # 从统一关键词注册表导入
 from deva.naja.cognition.semantic.keyword_registry import NEWS_TOPIC_KEYWORDS
 from deva.naja.register import SR
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 try:
     import numpy as np
@@ -672,6 +673,7 @@ class RadarNewsFetcher:
             log.debug(f"[Radar-News] 获取新闻失败: {e}")
             return []
 
+    @probe(KIND_DATASOURCE, "ds:news_api", "新闻源抓取（金十数据）", cadence="定时轮询")
     def _fetch_from_source(self) -> List[NewsItem]:
         """
         从真实来源获取新闻（金十数据API）

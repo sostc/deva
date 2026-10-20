@@ -230,6 +230,16 @@ class Sandbox:
         deva.NB = _no_db
         _stub_package("deva.naja")
         _stub_package("deva.naja.bandit", BANDIT)
+        # ❗被测链路给富途同步器挂了 FleetRegistry 探针
+        #   （``from deva.naja.infra.observability.fleet_registry import ...``）。
+        #   这里是桩件包，没有 deva.naja.infra，不补桩会 ImportError，
+        #   表现为「无法加载同步器」——守卫因此整体失效。
+        _stub_package("deva.naja.infra")
+        _stub_package("deva.naja.infra.observability")
+        fleet = _stub_package("deva.naja.infra.observability.fleet_registry")
+        fleet.KIND_DATASOURCE = "datasource"
+        fleet.probe = lambda kind, unit_id, name, cadence="", source="probe": (
+            lambda fn: fn)
 
     def load(self):
         if self.exec_mod is not None:
