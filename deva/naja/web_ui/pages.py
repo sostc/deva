@@ -811,6 +811,46 @@ async def structural_growth_page():
             </div>
         </div>
 
+        <!-- ========== PE 重定价定位 ========== -->
+        <div style="background:#1e293b;border-radius:10px;overflow:hidden;margin-bottom:20px;">
+            <div style="padding:16px 20px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center;">
+                <h2 style="color:#e2e8f0;margin:0;font-size:18px;">🎯 PE 重定价定位 <span style="color:#64748b;font-size:13px;font-weight:normal;">（它是周期股还是成长股 · 结构性行情 price in 了多少 · 还有没有买点）</span></h2>
+                <span id="repricing-count" style="color:#64748b;font-size:13px;">加载中...</span>
+            </div>
+            <div id="repricing-ruler" style="padding:10px 20px;border-bottom:1px solid #334155;color:#64748b;font-size:12px;line-height:1.7;">
+                尺子加载中...
+            </div>
+            <div style="padding:8px 20px;border-bottom:1px solid #334155;color:#475569;font-size:11px;line-height:1.7;">
+                <b style="color:#64748b;">风险色：</b>
+                <span style="color:#10b981;">绿=健康</span> ·
+                <span style="color:#38bdf8;">蓝=中性</span> ·
+                <span style="color:#f97316;">橙=偏弱</span> ·
+                <span style="color:#f87171;">红=危险/不利</span> ·
+                <span style="color:#475569;">灰=不可用</span>
+                <span style="color:#475569;">（与 A 股涨红跌绿相反）</span>
+                ｜ ❗「定价进度」是<b style="color:#f87171;">反向指标</b>，越高越接近透支；
+                「不对称比」是正向指标，&lt;1 表示赢了赚一点、输了亏很多。
+            </div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="background:#0f172a;">
+                            <th style="padding:10px 12px;text-align:left;color:#94a3b8;">代码</th>
+                            <th style="padding:10px 12px;text-align:right;color:#94a3b8;">PE</th>
+                            <th style="padding:10px 12px;text-align:left;color:#94a3b8;">分类</th>
+                            <th style="padding:10px 12px;text-align:left;color:#94a3b8;">定价进度</th>
+                            <th style="padding:10px 12px;text-align:right;color:#94a3b8;">上行/下行</th>
+                            <th style="padding:10px 12px;text-align:right;color:#94a3b8;">不对称比</th>
+                            <th style="padding:10px 12px;text-align:left;color:#94a3b8;">判读</th>
+                        </tr>
+                    </thead>
+                    <tbody id="repricing-body">
+                        <tr><td colspan="7" style="padding:24px;text-align:center;color:#64748b;">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- ========== 行业明细表 ========== -->
         <div style="background:#1e293b;border-radius:10px;overflow:hidden;">
             <div style="padding:16px 20px;border-bottom:1px solid #334155;">
@@ -1239,8 +1279,118 @@ async def structural_growth_page():
         if(modal && e.target === modal) {{ hideStockIntro(); return; }}
     }});
 
+    // ---- PE 重定价定位 ----
+    // ❗风险色与 A 股涨红跌绿相反：红=危险/不利，绿=健康
+    function piColor(v) {{
+        if(v === null || v === undefined) return '#475569';
+        if(v > 1.0) return '#f87171';      // 已透支
+        if(v > 0.7) return '#f97316';      // 基本 price in
+        if(v >= 0.3) return '#38bdf8';     // 部分
+        return '#10b981';                  // 仍按周期定价
+    }}
+    function asymColor(v) {{
+        if(v === null || v === undefined) return '#475569';
+        if(v >= 2.0) return '#10b981';
+        if(v >= 1.0) return '#38bdf8';
+        return '#f87171';
+    }}
+
+    function loadRepricing() {{
+        fetch('/api/structural_growth/repricing')
+          .then(r=>r.json())
+          .then(d=>{{
+              var body = document.getElementById('repricing-body');
+              var ruler = document.getElementById('repricing-ruler');
+              if(!d.success) {{
+                  body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:#f87171;">加载失败: ' + (d.error||'') + '</td></tr>';
+                  ruler.textContent = '尺子加载失败';
+                  return;
+              }}
+              var rows = d.rows || [];
+              document.getElementById('repricing-count').textContent =
+                  d.usable_count + '/' + d.total + ' 只有结论';
+
+              // ---- 尺子说明（❗必须写清出身，否则读的人以为是绝对估值）----
+              var b = null;
+              for(var i=0;i<rows.length;i++) {{ if(rows[i].bands) {{ b = rows[i].bands; break; }} }}
+              if(b) {{
+                  var cyc = b.cyclical, mid = b.base, st = b.structural;
+                  var srcTag = cyc.source === 'fallback'
+                      ? '<span style="color:#f87171;">经验常量（实测样本不足）</span>'
+                      : '<span style="color:#10b981;">实测分位</span>';
+                  var txt = '尺子（全池共享，' + srcTag + '，样本 ' + b.samples + ' 只）：'
+                      + '周期 ' + cyc.low.toFixed(0) + '–' + cyc.high.toFixed(0) + 'x'
+                      + ' ｜ 基准 ' + mid.low.toFixed(0) + '–' + mid.high.toFixed(0) + 'x'
+                      + ' ｜ 结构性 ' + st.low.toFixed(0) + '–' + st.high.toFixed(0) + 'x'
+                      + '　区分度 ' + (b.discrimination === null ? '-' : b.discrimination.toFixed(0) + 'x');
+                  var exc = b.excluded || {{}};
+                  var exN = (exc.no_pe||[]).length + (exc.insane||[]).length;
+                  if(exN > 0) txt += '　❗' + exN + ' 只因 PE 缺失/异常未进尺子';
+                  ruler.innerHTML = txt
+                      + '<br><span style="color:#475569;">❗这是<b>相对尺子</b>：定价进度 = 它的 PE 在同类池里的位置，'
+                      + '不是绝对估值。池子整体高估时，这把尺子测不出高估。</span>';
+                  if(b.note) ruler.innerHTML += '<br><span style="color:#f97316;">' + b.note + '</span>';
+              }}
+
+              if(rows.length === 0) {{
+                  body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:#64748b;">无数据</td></tr>';
+                  return;
+              }}
+              var html = '';
+              rows.forEach(function(r) {{
+                  var pe = (r.pe_now === null || r.pe_now === undefined)
+                      ? '<span style="color:#475569;" title="' + (r.pe_note||'') + '">未采集</span>'
+                      : r.pe_now.toFixed(1);
+                  if(!r.usable) {{
+                      // ❗不可用必须显示原因，不许留空 —— 空白和"还没算"长得一样
+                      html += '<tr>'
+                          + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#94a3b8;">' + r.code + '</td>'
+                          + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;">' + pe + '</td>'
+                          + '<td colspan="4" style="padding:8px 12px;border-bottom:1px solid #334155;color:#475569;font-size:12px;">'
+                          + '— 不可用：' + (r.reason||'未知原因') + '</td>'
+                          + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#475569;font-size:12px;">数据不足，不做判断</td>'
+                          + '</tr>';
+                      return;
+                  }}
+                  var pi = r.priced_in;
+                  var pc = piColor(pi);
+                  var piTxt = (pi === null || pi === undefined) ? '-' : pi.toFixed(2);
+                  var bar = '';
+                  if(pi !== null && pi !== undefined) {{
+                      var w = Math.max(0, Math.min(1, pi)) * 100;
+                      bar = '<div style="width:70px;height:5px;background:#0f172a;border-radius:3px;display:inline-block;vertical-align:middle;margin-left:6px;">'
+                          + '<div style="width:' + w + '%;height:100%;background:' + pc + ';border-radius:3px;"></div></div>';
+                  }}
+                  var up = (r.upside_pct === null || r.upside_pct === undefined) ? '-' : (r.upside_pct>0?'+':'') + r.upside_pct.toFixed(0) + '%';
+                  var dn = (r.downside_pct === null || r.downside_pct === undefined) ? '-' : r.downside_pct.toFixed(0) + '%';
+                  var upc = (r.upside_pct === null || r.upside_pct === undefined) ? '#475569' : (r.upside_pct > 0 ? '#10b981' : '#f87171');
+                  var as = (r.asymmetry === null || r.asymmetry === undefined) ? '-' : r.asymmetry.toFixed(2);
+                  var ac = asymColor(r.asymmetry);
+                  html += '<tr>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#e2e8f0;font-weight:600;">' + r.code + '</td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;color:#e2e8f0;">' + pe + '</td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;"><span style="color:#cbd5e1;">' + r.regime_name + '</span>'
+                      + '<span style="color:#475569;font-size:11px;margin-left:4px;">' + (r.confidence||0).toFixed(2) + '</span>'
+                      + '<div style="color:#475569;font-size:10px;line-height:1.4;">' + ((r.evidence||[])[0] || '') + '</div></td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;"><span style="color:' + pc + ';font-weight:600;">' + piTxt + '</span>' + bar
+                      + '<div style="color:#475569;font-size:10px;">' + (r.priced_in_label||'') + '</div></td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;"><span style="color:' + upc + ';">' + up + '</span>'
+                      + ' <span style="color:#64748b;">/</span> <span style="color:#f87171;">' + dn + '</span></td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;color:' + ac + ';font-weight:600;">' + as + '</td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#cbd5e1;font-size:12px;">' + (r.verdict||'') + '</td>'
+                      + '</tr>';
+              }});
+              body.innerHTML = html;
+          }})
+          .catch(e=>{{
+              document.getElementById('repricing-body').innerHTML =
+                  '<tr><td colspan="7" style="padding:24px;text-align:center;color:#f87171;">加载失败: ' + e.message + '</td></tr>';
+          }});
+    }}
+
     // 页面加载后拉取全部股票
     loadAllStocks();
+    loadRepricing();
     </script>
     """
 

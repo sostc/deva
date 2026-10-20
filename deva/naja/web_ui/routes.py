@@ -40,6 +40,7 @@ from .api_extensions import (
     StructuralGrowthRunHandler,
     StructuralGrowthDetailHandler,
     StructuralGrowthAllStocksHandler,
+    StructuralGrowthRepricingHandler,
     StructuralGrowthHistoryHandler,
 )
 from deva.naja.cognition.ui import cognition_glossary_page
@@ -1028,6 +1029,7 @@ def create_handlers(cdn: str = None):
         (r'/api/structural_growth/run', StructuralGrowthRunHandler),
         (r'/api/structural_growth/detail/([^/]+)', StructuralGrowthDetailHandler),
         (r'/api/structural_growth/all_stocks', StructuralGrowthAllStocksHandler),
+        (r'/api/structural_growth/repricing', StructuralGrowthRepricingHandler),
         (r'/api/structural_growth/history', StructuralGrowthHistoryHandler),
         (r'/api/naja/digest', NajaDigestHandler),
         (r'/api/naja/digest/send', NajaDigestSendHandler),

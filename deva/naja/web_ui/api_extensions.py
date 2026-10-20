@@ -1600,6 +1600,60 @@ class StructuralGrowthAllStocksHandler(RequestHandler):
             self.write(json.dumps({"success": False, "error": str(e)}, ensure_ascii=False))
 
 
+class StructuralGrowthRepricingHandler(RequestHandler):
+    """结构性增长雷达 - PE 重定价定位 API
+
+    返回每只票的：真实 PE、周期/成长分类、定价进度、不对称比、一句话判读。
+    ❗算不出来的票照样返回（``usable=False`` + ``reason``），
+    **不许在 API 层过滤掉** —— 页面上「哪些票没结论」本身就是结论。
+    """
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    async def get(self):
+        try:
+            from deva.naja.application import get_app_container
+            container = get_app_container()
+            if container is None:
+                self.set_status(503)
+                self.write(json.dumps({"success": False, "error": "AppContainer 未初始化"},
+                                      ensure_ascii=False))
+                return
+
+            def phase_of(industry_id: str) -> str:
+                """S0–S4 阶段来自观察池（这里只做取数，不参与判定）"""
+                try:
+                    t = container.structural_growth_pool.get(industry_id)
+                    return t.phase.value if t is not None else ""
+                except Exception:  # noqa: BLE001
+                    return ""
+
+            from deva.naja.structural_growth.repricing_service import get_repricing_service
+            svc = get_repricing_service(phase_provider=phase_of)
+            # 涉及 36 只票的财报/行情取数，放线程池避免阻塞事件循环
+            import tornado.ioloop
+            loop = tornado.ioloop.IOLoop.current()
+            rows = await loop.run_in_executor(None, svc.evaluate_all)
+            self.write(json.dumps({
+                "success": True,
+                "rows": rows,
+                "usable_count": sum(1 for r in rows if r.get("usable")),
+                "total": len(rows),
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({"success": False, "error": f"{type(e).__name__}: {e}"},
+                                  ensure_ascii=False))
+
+
 class StructuralGrowthHistoryHandler(RequestHandler):
     """结构性增长雷达 - 运行历史 API"""
 
