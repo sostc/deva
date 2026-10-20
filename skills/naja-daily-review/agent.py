@@ -4,6 +4,7 @@ Naja Daily Review Agent
 汇总 Naja 系统核心数据，生成结构化复盘报告并通过 iMessage 发送。
 """
 
+import os
 import subprocess
 from datetime import datetime
 
@@ -189,7 +190,20 @@ def run():
     report = generate_daily_review()
     print(report)
 
-    phone = "+86XXXXXXXXXXX"
+    # ❗号码不写进代码（仓库公开）：环境变量 NAJA_NOTIFY_PHONE 或 ~/.naja/notify.json
+    phone = os.environ.get("NAJA_NOTIFY_PHONE", "").strip()
+    if not phone:
+        try:
+            import json
+            from pathlib import Path
+            phone = str(json.loads(
+                (Path.home() / ".naja" / "notify.json").read_text(encoding="utf-8")
+            ).get("phone") or "").strip()
+        except Exception:
+            phone = ""
+    if not phone:
+        print("⚠️ 未配置通知手机号（设 NAJA_NOTIFY_PHONE 或写 ~/.naja/notify.json），跳过发送")
+        return
     if send_imessage(phone, report):
         print("\n✅ 复盘报告已发送到 iMessage")
     else:

@@ -24,6 +24,7 @@ import logging
 import time
 from datetime import datetime, timedelta, time as dtime
 from typing import Dict, Any, Tuple
+from deva.naja.infra.notify_recipient import get_notify_phone
 from deva.naja.register import SR
 
 log = logging.getLogger(__name__)
@@ -796,7 +797,11 @@ class Jin10LiveNewsWakeSync:
             log.warning(f"[WakeSync] Jin10LiveNews: 钉钉推送失败 - {e}")
             try:
                 from deva.naja.strategy.daily_review import send_imessage
-                phone = get_config("notify.phone", "+86XXXXXXXXXXX")
+                # ❗号码不硬编码（仓库公开）：取不到就留痕跳过，不许拿默认值兜底
+                phone = get_notify_phone()
+                if not phone:
+                    log.warning("[WakeSync] Jin10LiveNews: 未配置通知手机号，跳过 iMessage 降级推送")
+                    return False
                 send_imessage(phone, f"📌 金十重要事件\n{news.title}\n{news.display_time}")
                 log.info(f"[WakeSync] Jin10LiveNews: 已推送iMessage - {news.title[:30]}...")
                 return True
@@ -1054,9 +1059,13 @@ class PortfolioPriceWakeSync:
     def should_wake_sync(self, last_active: datetime) -> bool:
         """判断是否需要同步"""
         try:
-            from deva.naja.bandit.market_observer import MarketDataObserver
+            from deva.naja.bandit.market_observer import get_market_observer
 
-            observer = MarketDataObserver()
+            # ❗必须走单例。以前这里 ``MarketDataObserver()`` 每次新建一个实例，
+            # 它读得到持久化的 tracked_stocks（所以日志里「跟踪 29 只」是真的），
+            # 但 ``_price_callbacks`` 是空的 —— 价格只写进这个临时实例的
+            # ``_last_prices``，然后随实例一起被丢掉，虚拟组合一分钱都没更新。
+            observer = get_market_observer()
             now = datetime.now()
 
             if not hasattr(observer, '_last_prices') or not observer._last_prices:
@@ -1086,12 +1095,12 @@ class PortfolioPriceWakeSync:
     def execute_wake_sync(self, start: datetime, end: datetime) -> Dict[str, Any]:
         """执行同步 - 通知各组件拉取"""
         try:
-            from deva.naja.bandit.market_observer import MarketDataObserver
+            from deva.naja.bandit.market_observer import get_market_observer
             import threading
 
             log.info(f"[WakeSync] PortfolioPrice开始同步")
 
-            observer = MarketDataObserver()
+            observer = get_market_observer()
 
             tracked_stocks = list(observer._tracked_stocks) if observer._tracked_stocks else []
 
@@ -1107,8 +1116,29 @@ class PortfolioPriceWakeSync:
                 """后台异步拉取价格"""
                 try:
                     if hasattr(observer, '_fetch_prices_from_datasource'):
+                        before = dict(getattr(observer, '_last_prices', {}) or {})
                         observer._fetch_prices_from_datasource()
-                        log.info(f"[WakeSync] PortfolioPrice: 后台完成 {len(tracked_stocks)} 只股票价格更新")
+                        after = getattr(observer, '_last_prices', {}) or {}
+                        # ❗以前不管拉没拉到都写「后台完成 N 只股票价格更新」，
+                        # N 取自 tracked 而不是真正更新的只数 —— 一只没取到时
+                        # 日志照样报成功。现在按 `_last_prices` 的真实增量统计，
+                        # 并显式区分「跟踪 N / 取到 M / 新增 K」。
+                        updated = sum(
+                            1 for code, price in after.items()
+                            if price > 0 and before.get(code) != price
+                        )
+                        if updated:
+                            log.info(
+                                "[WakeSync] PortfolioPrice: 后台拉取完成 "
+                                "跟踪 %s 只 · 本轮取到 %s 只 · 价格变化 %s 只",
+                                len(tracked_stocks), len(after), updated,
+                            )
+                        else:
+                            log.warning(
+                                "[WakeSync] PortfolioPrice: 后台拉取结束但**没有任何价格变化** "
+                                "（跟踪 %s 只 · 缓存 %s 只）—— 行情链路可能断了",
+                                len(tracked_stocks), len(after),
+                            )
                 except Exception as e:
                     log.warning(f"[WakeSync] PortfolioPrice: 后台拉取失败 - {e}")
 

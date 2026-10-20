@@ -45,7 +45,8 @@ All credentials stored in `.credentials/` (gitignored).
 
 **Configuration:**
 - DingTalk: 已配置
-- iMessage: 已配置（+86XXXXXXXXXXX）
+- iMessage: 已配置（号码**不入库** —— 见环境变量 `NAJA_NOTIFY_PHONE` 或
+  `~/.naja/notify.json`；统一入口 `deva.naja.infra.notify_recipient.get_notify_phone()`）
 
 ---
 

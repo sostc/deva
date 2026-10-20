@@ -29,6 +29,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from deva.naja.infra.notify_recipient import get_notify_phone
+
 from .dedup import format_dup_suffix
 from .focus import NewsFocusState, build_focus_state, collapse_identifiers
 from .triage import GROUP_LABELS, GROUP_ORDER, NewsTriage, TriageConfig
@@ -635,8 +637,14 @@ def run_daily_digest(*, push: bool = False, out_dir: Optional[Path] = None) -> D
 
 
 def _push_via_imessage(text: str) -> bool:
-    """复用 ai_daily_report 的推送方式（尽力而为，失败只记日志）。"""
-    phone = os.environ.get("NAJA_NEWS_DIGEST_PHONE", "+86XXXXXXXXXXX")
+    """复用 ai_daily_report 的推送方式（尽力而为，失败只记日志）。
+
+    ❗号码不再硬编码（仓库公开）：统一入口取不到就留痕跳过。
+    """
+    phone = get_notify_phone()
+    if not phone:
+        log.warning("[NewsDigest] 未配置通知手机号，跳过 iMessage 推送")
+        return False
     try:
         import subprocess
 

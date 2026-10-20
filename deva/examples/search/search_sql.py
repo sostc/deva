@@ -31,7 +31,7 @@ index_service = IndexService(config=config, session=session)
 index_service.register_class(CpipLog)
 
 # 添加数据
-log = CpipLog(tel='+86XXXXXXXXXXX', lib_name='tensorflow', loginfo='installlog')
+log = CpipLog(tel='13800000000', lib_name='tensorflow', loginfo='installlog')
 session.add(log)
 session.commit()
 
@@ -69,7 +69,7 @@ index_service = IndexService(config=config, session=session)
 index_service.register_class(CpipLog)
 
 
-log = CpipLog(tel='+86XXXXXXXXXXX', lib_name='tensorflow', loginfo='istalllog')
+log = CpipLog(tel='13800000000', lib_name='tensorflow', loginfo='istalllog')
 session.add(log)
 session.commit()
 

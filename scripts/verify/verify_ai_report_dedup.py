@@ -276,7 +276,9 @@ def main() -> int:
     check("func_code 转发到模块实现",
           "from deva.naja.tasks.ai_daily_report import" in yaml_func)
     check("不再内联旧实现", "def fetch_arxiv_papers" not in yaml_func)
-    check("不再硬编码手机号", "+86XXXXXXXXXXX" not in yaml_func)
+    # ❗号码本身不写进守卫（仓库公开）—— 用「疑似中国大陆手机号」的模式来判
+    check("不再硬编码手机号",
+          not re.search(r"(?<!\d)(?:\+?86)?1[3-9]\d{9}(?!\d)", yaml_func))
     check("yaml 的 name 未漂移", yaml_doc.get("metadata", {}).get("name") == "ai_daily_report")
 
     # 文件优先于 NB 的前提：yaml 的 updated_at 必须 >= NB 里的值。

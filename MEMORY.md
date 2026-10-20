@@ -13,7 +13,9 @@
 
 ### Preferences Learned
 - **发送图片**: 用户希望直接通过 iMessage 发送图片
-- **iMessage 手机号**: +86XXXXXXXXXXX（中国号码，86是国家码）
+- **iMessage 手机号**: 不写进仓库（本仓库是公开的）。代码统一走
+  `deva.naja.infra.notify_recipient.get_notify_phone()`，号码配在环境变量
+  `NAJA_NOTIFY_PHONE` 或 `~/.naja/notify.json`（`{"phone": "..."}`）
 - **沟通风格**: 直接说重点，像专家顾问
 - **高效时段**: 晚上
 - **工作模式**: 异步沟通
