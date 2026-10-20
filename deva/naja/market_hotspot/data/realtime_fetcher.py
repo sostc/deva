@@ -38,6 +38,10 @@ from deva.naja.radar.trading_clock import (
 )
 from deva.naja.register import SR
 
+# ❗本文件的 docstring 直写「不依赖数据源系统」，所以 DatasourceManager 里
+# 没有它、首页数据源卡也永远看不到它。挂探针让每次真实回源都自动上报。
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 from .sina_parser import (
     _get_sina_session,
     _close_sina_session,
@@ -826,6 +830,7 @@ class RealtimeDataFetcher:
             self._last_error = str(e)
             log.error(f"[RealtimeDataFetcher] [{market}] 获取 {level} 数据失败: {e}")
 
+    @probe(KIND_DATASOURCE, "ds:hotspot_sina_cn", "热点实盘行情（新浪 A 股）", cadence="tick")
     def _fetch_realtime_data(self, symbols: List[str]) -> Optional[pd.DataFrame]:
         """
         从 Sina 行情源获取实时数据
@@ -938,6 +943,7 @@ class RealtimeDataFetcher:
             log.debug(f"[RealtimeDataFetcher] 源头噪音过滤失败: {e}")
             return df
 
+    @probe(KIND_DATASOURCE, "ds:hotspot_us", "热点美股行情", cadence="tick")
     async def _fetch_us_stocks(self, symbols: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """获取美股股票数据。
 

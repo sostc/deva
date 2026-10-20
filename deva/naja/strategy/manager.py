@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import threading
 import time
 from typing import Any, Dict, List, Optional
 
 from ..infra.management.base_manager import CatalogManagerMixin, SingletonLazyManager
+from ..infra.runtime.recoverable import as_epoch_seconds
 from ..infra.runtime.thread_pool import get_thread_pool
 from .output_controller import get_output_controller
 from .models import (
@@ -20,10 +22,18 @@ from .models import (
 from .entry import StrategyEntry
 
 
+logger = logging.getLogger(__name__)
+
+
 def _get_nb():
     """延迟加载 NB 避免循环导入"""
     from deva import NB
     return NB
+
+
+def _as_ts(value) -> float:
+    """时间戳归一（date / datetime / 数字 / 字符串 → epoch 秒）。见中央实现。"""
+    return as_epoch_seconds(value)
 
 
 class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
@@ -54,10 +64,77 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
 
     def _initialize_manager_state(self):
         self._items: Dict[str, StrategyEntry] = {}
+        # ❗外部体系（热点策略等）挂进来的条目单独存放，不进 _items。
+        # 原因：``load_prefer_files()`` / ``load_from_db()`` 都会 ``_items.clear()``
+        # 再重灌文件/NB 条目 —— 外部条目混在 _items 里会被一次重载**静默抹掉**，
+        # 表现为「首页策略数忽大忽小」。分开放 + list_all() 合并，重载就伤不到它。
+        self._external_items: Dict[str, StrategyEntry] = {}
         self._items_lock = threading.Lock()
         self._experiment_lock = threading.Lock()
         self._experiment_session: Optional[Dict[str, Any]] = None
+        self._last_load_report: Dict[str, Any] = {}
         self.load_prefer_files()
+
+    def attach_external_entry(self, entry) -> bool:
+        """挂接一个**外部体系**的策略条目（如热点策略包装器）。
+
+        与 ``create()`` 的区别：不写 NB、不参与 ``reload_all()`` / 启停恢复，
+        因为它的生命周期由它自己的体系管（热点策略由 HotspotStrategyManager 管）。
+        这里只解决「让它在策略列表与统计里被看见」。
+
+        ❗失败必须返回 False 并留痕，调用方**不许** ``except: pass`` 吞掉 ——
+        热点策略曾因汇入代码里一个不存在的 import 名字 + 静默 except，
+        14 个在跑的策略从首页消失了整整一天且日志零痕迹。
+        """
+        self._ensure_initialized()
+        entry_id = str(getattr(entry, "id", "") or "")
+        if not entry_id:
+            logger.warning("[StrategyManager] 挂接外部策略失败：条目缺 id")
+            return False
+        try:
+            with self._items_lock:
+                # 文件/NB 条目优先：同名时以 _items 为准，外部只补空缺
+                if entry_id in self._items:
+                    return True
+                self._external_items[entry_id] = entry
+            return True
+        except Exception as e:
+            logger.warning("[StrategyManager] 挂接外部策略 %s 失败（%s: %s）",
+                           entry_id, type(e).__name__, e)
+            return False
+
+    def detach_external_entry(self, entry_id: str) -> bool:
+        """摘掉一个外部挂接条目。"""
+        self._ensure_initialized()
+        try:
+            with self._items_lock:
+                return self._external_items.pop(entry_id, None) is not None
+        except Exception:
+            return False
+
+    def list_external(self) -> List[StrategyEntry]:
+        """只看外部挂接进来的条目（热点策略等）。"""
+        self._ensure_initialized()
+        try:
+            with self._items_lock:
+                return list(self._external_items.values())
+        except Exception:
+            return []
+
+    def list_all(self) -> List[StrategyEntry]:
+        """文件/NB 条目 + 外部挂接条目（按 id 去重，前者优先）。
+
+        ❗重载（``load_prefer_files`` / ``load_from_db``）只会清 ``_items``，
+        外部条目在 ``_external_items`` 里不受影响，所以首页策略数不会因重载跳变。
+        """
+        self._ensure_initialized()
+        try:
+            with self._items_lock:
+                merged = {e.id: e for e in self._external_items.values()}
+                merged.update({e.id: e for e in self._items.values()})
+                return list(merged.values())
+        except Exception:
+            return list(self._items.values())
 
     def health_check(self):
         """健康检查"""
@@ -679,15 +756,20 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         return count
 
     def load_prefer_files(self) -> int:
-        """只从文件加载策略配置，不再从 NB 加载
+        """加载策略：NB 条目作基线（带运行状态），文件配置按 ``updated_at`` 覆盖。
 
-        加载策略：
-        1. 扫描 config/strategies/ 目录下的所有 YAML 文件
-        2. 为每个文件创建 StrategyEntry
-        3. 文件名作为策略名
+        ❗这里原来是「只用文件」：``self._items.clear()`` 后只塞文件条目，
+        而 ``_create_entry_from_file_config`` 里 ``StrategyState()`` 是全新构造的
+        —— ``_was_running`` 恒为 False。后果是双重的：
 
-        Returns:
-            加载的策略数量
+        1. 重启后**一个策略都不会自动恢复**（``should_restore()`` 只看
+           ``_was_running``，不看文件里的 ``enabled``）；
+        2. 恢复流程再走 ``load_from_db()``，把内存里 14 条文件策略换成 NB 里
+           3 条历史残留，**另外 11 条静默消失**，UI 上「策略」只剩 3 个。
+
+        数据源那边早就用「DB 基线 + 文件较新则覆盖」的写法，状态才留得住。
+        策略现在对齐：文件只提供**配置**，运行状态一律从 NB 继承，
+        文件比 NB 旧的条目直接保留 NB 版本（否则每次重启都清一次 ``was_running``）。
         """
         from deva.naja.config.file_config import get_file_config_manager
 
@@ -695,6 +777,9 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         file_names = file_mgr.list_names()
 
         loaded_count = 0
+        overridden = 0
+        inherited_state = 0
+        failed = []
 
         if not hasattr(self, '_items') or self._items is None:
             self._items = {}
@@ -708,6 +793,25 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
         with self._items_lock:
             self._items.clear()
 
+            # ① DB 基线：只有这里带着 was_running / state
+            try:
+                db = _get_nb()(STRATEGY_TABLE)
+                for entry_id, data in list(db.items()):
+                    if not isinstance(data, dict):
+                        continue
+                    try:
+                        entry = StrategyEntry.from_dict(data)
+                        if not entry.id:
+                            continue
+                        self._items[entry.id] = entry
+                        loaded_count += 1
+                    except Exception as e:
+                        failed.append(("db", entry_id, str(e)))
+                        self._log("ERROR", "Load entry failed", id=entry_id, error=str(e))
+            except Exception as e:
+                self._log("ERROR", "Load strategy db baseline failed", error=str(e))
+
+            # ② 文件覆盖：配置以文件为准，状态从基线继承
             for name in file_names:
                 file_item = file_mgr.get(name)
                 if not file_item:
@@ -715,16 +819,56 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
 
                 try:
                     file_entry = self._create_entry_from_file_config(file_item)
-                    if file_entry:
-                        self._items[file_entry.id] = file_entry
+                    if not file_entry:
+                        continue
+
+                    existing = self._items.get(file_entry.id)
+                    if existing is not None:
+                        file_time = _as_ts(getattr(file_item.metadata, 'updated_at', 0))
+                        db_time = _as_ts(getattr(existing._metadata, 'updated_at', 0))
+                        if file_time and db_time and file_time < db_time:
+                            # NB 更新：保留 NB 条目（它带着运行状态）
+                            continue
+                        # 文件更新：用文件配置，但**不许丢掉运行状态**
+                        file_entry._state = existing._state
+                        file_entry._was_running = existing._was_running
+                        inherited_state += 1
+                        overridden += 1
+                    else:
                         loaded_count += 1
+
+                    self._items[file_entry.id] = file_entry
                 except Exception as e:
+                    failed.append(("file", name, str(e)))
                     self._log("ERROR", f"Load from file failed: {name}", error=str(e))
 
         with self._experiment_lock:
             self._load_experiment_session()
 
-        return loaded_count
+        self._last_load_report = {
+            "total": len(self._items),
+            "from_db": loaded_count,
+            "from_file_overridden": overridden,
+            "state_inherited": inherited_state,
+            "failed": failed,
+        }
+        if failed:
+            # ❗加载失败不许静默：以前这里只有 _log，UI 上看不出「少了一个策略」
+            self._log(
+                "ERROR",
+                f"策略加载: {len(self._items)} 条，{len(failed)} 条失败",
+                failed=[f"{k}:{n}" for k, n, _ in failed],
+            )
+        return len(self._items)
+
+    def reload_for_recovery(self) -> int:
+        """恢复流程专用重载：等价于 ``load_prefer_files()``。
+
+        ``RecoveryManager.restore_all()`` 以前无条件调 ``load_from_db()``，
+        对策略来说是把文件配置整体换成 NB 残留（14 → 3）。有了这个方法，
+        恢复前的重载与启动时的加载走同一条路径，不再出现两套真相。
+        """
+        return self.load_prefer_files()
 
     def _create_entry_from_file_config(self, file_item) -> Optional['StrategyEntry']:
         """从文件配置创建 StrategyEntry"""
@@ -734,26 +878,48 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
             return None
 
         file_metadata = file_item.metadata
-        file_config = file_item.config
-        file_params = file_item.parameters
+        file_config = file_item.config or {}
+        file_params = file_item.parameters or {}
+
+        def _pick(key: str, default=None):
+            """config 段优先，metadata 段兜底，parameters 段最后。
+
+            ❗yaml 里 ``bound_datasource_id`` / ``window_*`` / ``handler_type``
+            / ``strategy_type`` 实际都写在 **metadata** 段（UI 导出格式），
+            而老代码只读 ``config`` 段 → 这些字段全部退回默认值：
+            策略看着「已绑定数据源」，其实 ``bound_datasource_id`` 是空串，
+            启动后拿不到任何数据；``strategy_type`` 也退回 ``legacy``。
+            读不到就是读不到，但**静默变成默认值**比报错难查得多。
+            """
+            if key in file_config and file_config[key] not in (None, ''):
+                return file_config[key]
+            val = getattr(file_metadata, key, None)
+            if val not in (None, ''):
+                return val
+            if key in file_params and file_params[key] not in (None, ''):
+                return file_params[key]
+            return default
 
         metadata = StrategyMetadata(
             id=file_metadata.id or file_item.name,
-            name=file_item.name,
+            # ❗name 以 metadata.name 为准（文件名只是兜底）。文件名与 name
+            # 不一致时（`OpenRouter_TOKEN_趋势分析.yaml` vs 「OpenRouter TOKEN 趋势分析」），
+            # 用文件名当显示名既认不出，也让「按 name 合并」失效 → 同一条策略变两条。
+            name=getattr(file_metadata, 'name', '') or file_item.name,
             description=file_metadata.description or '',
             tags=file_metadata.tags or [],
             category=file_metadata.category or '默认',
-            bound_datasource_id=file_config.get('bound_datasource_id', ''),
-            bound_datasource_ids=file_config.get('bound_datasource_ids', []),
-            compute_mode=file_config.get('compute_mode', 'record'),
-            window_size=file_params.get('window_size', 5),
-            window_type=file_config.get('window_type', 'sliding'),
-            window_interval=file_config.get('window_interval', '10s'),
-            window_return_partial=file_config.get('window_return_partial', False),
-            dictionary_profile_ids=file_config.get('dictionary_profile_ids', []),
-            max_history_count=file_params.get('max_history_count', 100),
-            strategy_type=file_config.get('strategy_type', 'legacy'),
-            handler_type=file_config.get('handler_type', 'unknown'),
+            bound_datasource_id=_pick('bound_datasource_id', '') or '',
+            bound_datasource_ids=_pick('bound_datasource_ids', []) or [],
+            compute_mode=_pick('compute_mode', 'record'),
+            window_size=_pick('window_size', 5),
+            window_type=_pick('window_type', 'sliding'),
+            window_interval=_pick('window_interval', '10s'),
+            window_return_partial=_pick('window_return_partial', False),
+            dictionary_profile_ids=_pick('dictionary_profile_ids', []) or [],
+            max_history_count=_pick('max_history_count', 100),
+            strategy_type=_pick('strategy_type', 'legacy'),
+            handler_type=_pick('handler_type', 'unknown'),
             version=1,
             created_at=file_metadata.created_at or time.time(),
             updated_at=file_metadata.updated_at or time.time(),
@@ -851,6 +1017,11 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
     def restore_running_states(self) -> dict:
         restored_count = 0
         failed_count = 0
+        # 「本来就不该恢复」不是失败：``_was_running`` 为 False 的条目
+        # ``should_restore()`` 返回 (False, "")，以前会被计进 failed_count，
+        # 于是日志天天报「strategy 恢复失败 2 个」，而那两个策略只是从没被启动过。
+        # 失败摘要会撒谎，比没有摘要更毒。
+        skipped_count = 0
         results = []
 
         with self._items_lock:
@@ -861,6 +1032,7 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
                 "success": True,
                 "restored_count": 0,
                 "failed_count": 0,
+                "skipped_count": 0,
                 "results": [],
             }
 
@@ -873,6 +1045,15 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
                 prep = entry.prepare_for_recovery()
 
                 if not prep.get("can_recover"):
+                    if prep.get("fatal"):
+                        # 编译不过/构建不出运行时是真故障，带上 error 让上层计入 failed
+                        return {
+                            "entry_id": entry.id,
+                            "entry_name": entry.name,
+                            "success": False,
+                            "reason": prep.get("reason"),
+                            "error": prep.get("error") or prep.get("reason"),
+                        }
                     return {
                         "entry_id": entry.id,
                         "entry_name": entry.name,
@@ -918,8 +1099,10 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
                     results.append(result)
                     if result.get("success"):
                         restored_count += 1
-                    else:
+                    elif "error" in result:
                         failed_count += 1
+                    else:
+                        skipped_count += 1
                 except Exception as e:
                     failed_count += 1
                     entry_id = futures.get(future, "unknown")
@@ -934,13 +1117,16 @@ class StrategyManager(SingletonLazyManager, CatalogManagerMixin[StrategyEntry]):
                 results.append(result)
                 if result.get("success"):
                     restored_count += 1
-                else:
+                elif "error" in result:
                     failed_count += 1
+                else:
+                    skipped_count += 1
 
         return {
             "success": True,
             "restored_count": restored_count,
             "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "results": results,
         }
     

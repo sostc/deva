@@ -18,6 +18,7 @@ from dataclasses import dataclass, asdict
 from deva import NB
 from deva.naja.bandit.data_freshness import get_freshness_tracker, SOURCE_US_PRICE
 from deva.naja.register import SR
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +186,7 @@ class USStockPriceManager:
         if self._last_prices:
             log.info(f"[PriceManager] 从持久化加载 {len(self._last_prices)} 个股票价格")
 
+    @probe(KIND_DATASOURCE, "ds:us_sina", "美股行情（新浪）", cadence="盘中实时")
     async def fetch_from_sina(self, stock_codes: List[str]) -> Dict[str, PriceSnapshot]:
         """从新浪获取价格"""
         from deva.naja.market_hotspot.data.global_market_futures import GlobalMarketAPI
@@ -214,6 +216,7 @@ class USStockPriceManager:
 
         return results
 
+    @probe(KIND_DATASOURCE, "ds:us_xueqiu", "美股行情（雪球，备用）", cadence="按需")
     async def fetch_from_xueqiu(self, stock_codes: List[str]) -> Dict[str, PriceSnapshot]:
         """从雪球获取价格（备用）"""
         results = {}

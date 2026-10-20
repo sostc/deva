@@ -67,6 +67,7 @@ from deva.naja.cognition.semantic.keyword_registry import (
 )
 
 from deva.naja.events import NarrativeStateEvent, publish_event
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 
 OPPORTUNITY_TYPES: Dict[str, Dict[str, Any]] = {
@@ -2134,6 +2135,7 @@ class NarrativeTracker:
             log.error(f"[NarrativeTracker] 盘后市场分析失败: {e}")
             return {"success": False, "message": str(e)}
 
+    @probe(KIND_DATASOURCE, "ds:narrative_indices", "叙事追踪：主要指数行情", cadence="按需")
     def _fetch_market_indices(self) -> Dict[str, Dict]:
         """获取主要指数行情"""
         try:

@@ -24,6 +24,7 @@ from datetime import datetime
 import aiohttp
 
 from deva.naja.market import normalize_market
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 log = logging.getLogger(__name__)
 
@@ -201,6 +202,18 @@ ALL_CODES = {**FUTURES_CODES, **_active_us_market_ids}
 MARKET_ID_TO_CODE = {v: k for k, v in ALL_CODES.items()}
 
 
+def _looks_like_us_symbol(code: str) -> bool:
+    """裸字母股票代码（1~5 位）＝ 美股。
+
+    ❗这是 ``_parse_response`` 的最后一道兜底：上面那张 ``_get_us_stock_codes()``
+    是**静态配置表**，表外的美股（alab / skuu / crwv …）四条分支全不命中，
+    整行被静默丢掉。A 股（6 位数字）、港股（5 位数字）、指数都是纯数字，
+    ``isalpha()`` 天然排除，不会误伤。
+    """
+    c = (code or "").strip()
+    return c.isalpha() and 1 <= len(c) <= 5
+
+
 @dataclass
 class MarketData:
     """市场数据"""
@@ -297,7 +310,14 @@ class GlobalMarketAPI:
             if not data:
                 return None
             fields = data.split(",")
-            if len(fields) < 30:
+            # ❗阈值只卡「必需字段」而不是写死 30。
+            #
+            # 新浪美股行的字段数**随数据完整度变化**：热门票 30+，冷门票只有
+            # 20 出头。原先写 ``len(fields) < 30: return None``，于是
+            # ``gb_alab``（字段 23 个，现价 286.58 明明就在 fields[1]）被整行
+            # 丢掉，只在 log.debug 里留一句「解析失败」—— 持仓现价永远不动。
+            # 必需字段：0=名称 1=现价 2=涨跌幅 3=时间 4=涨跌额 5=开盘 6=最高 7=最低。
+            if len(fields) < 8:
                 return None
 
             name = fields[0]
@@ -470,7 +490,7 @@ class GlobalMarketAPI:
         us_codes = set(_get_us_stock_codes().keys())
         china_codes = _get_china_codes()
         index_codes = set(INDEX_CODES.keys())
-        
+
         # 构建美股代码映射（带gb_前缀和不带前缀）
         us_code_map = {}
         for code in us_codes:
@@ -488,12 +508,14 @@ class GlobalMarketAPI:
                 code_part = prefix.split("_")[-1]
                 full_code = prefix.split("hq_str_")[-1] if "hq_str_" in prefix else f"hf_{code_part}"
 
+                # ❗顺序有讲究：期货/指数/A 股先判（它们的 code 段含数字或带前缀，
+                # 不会被下面的美股兜底抢走），美股**放在最后兜底**。
+                #
+                # 原先美股分支只认 ``_get_us_stock_codes()``（一张静态配置表）里的
+                # 代码，表外的美股（alab / skuu / crwv …）四条分支全不命中，
+                # 整行被静默丢掉 —— 持仓现价永远不动，日志里只有一句 debug。
                 if full_code in futures_codes:
                     parsed = self._parse_futures_line(line)
-                    if parsed:
-                        result[code_part] = parsed
-                elif full_code in us_codes or code_part in us_code_map:
-                    parsed = self._parse_us_stock_line(line)
                     if parsed:
                         result[code_part] = parsed
                 elif full_code in index_codes:
@@ -504,6 +526,14 @@ class GlobalMarketAPI:
                     parsed = self._parse_china_stock_line(line, full_code)
                     if parsed:
                         result[full_code] = parsed
+                elif (
+                    full_code in us_codes
+                    or code_part in us_code_map
+                    or _looks_like_us_symbol(code_part)
+                ):
+                    parsed = self._parse_us_stock_line(line)
+                    if parsed:
+                        result[code_part] = parsed
             except Exception as e:
                 log.debug(f"解析行失败: {line[:50]}... error: {e}")
                 continue
@@ -666,6 +696,7 @@ class GlobalMarketAPI:
         """获取A股指数数据（上证指数、沪深300、创业板）"""
         return await self.fetch(list(INDEX_CODES.keys()))
 
+    @probe(KIND_DATASOURCE, "ds:global_futures", "全球股指期货/美股（新浪）", cadence="定时")
     async def fetch_all(self) -> Dict[str, MarketData]:
         """获取所有市场数据"""
         return await self.fetch(self.codes)

@@ -23,6 +23,8 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+
 log = logging.getLogger(__name__)
 
 
@@ -125,6 +127,7 @@ class ImaClient:
     #  检索
     # ------------------------------------------------------------------
 
+    @probe(KIND_DATASOURCE, "ds:ima_kb", "IMA 知识库检索", cadence="按需")
     def search(self, query: str, limit: int = 5) -> List[ImaSnippet]:
         """
         检索知识库

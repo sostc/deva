@@ -292,7 +292,21 @@ class DailyReviewScheduler:
             return False
 
 
+#: ❗原来这里写的是 ``return DailyReviewScheduler()`` —— 文档字符串说「单例」，
+#: 实际**每次调用都 new 一个新对象**（还 import 了 SR 却没用）。后果：
+#:   1. container 里 ``scheduler.start()`` 起的那个对象，之后谁也拿不到；
+#:   2. 认知页「手动触发复盘」按钮拿到的是全新未启动对象；
+#:   3. 首页 FleetRegistry 读它必然读到 ``_running=False`` 的**假「已停止」**。
+#: 改成真正的进程内缓存单例。
+_scheduler_instance: Optional["DailyReviewScheduler"] = None
+_scheduler_lock = threading.Lock()
+
+
 def get_daily_review_scheduler() -> DailyReviewScheduler:
-    """获取复盘调度器单例"""
-    from deva.naja.register import SR
-    return DailyReviewScheduler()
+    """获取复盘调度器单例（进程内唯一）"""
+    global _scheduler_instance
+    if _scheduler_instance is None:
+        with _scheduler_lock:
+            if _scheduler_instance is None:
+                _scheduler_instance = DailyReviewScheduler()
+    return _scheduler_instance

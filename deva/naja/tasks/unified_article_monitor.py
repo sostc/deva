@@ -2,8 +2,9 @@
 统一文章监控器 - 合并 iMessage 和微信文章学习功能
 
 支持两种渠道：
-- iMessage：通过 imesg CLI 监听
-- 微信：通过 OpenClaw API 监听
+- iMessage：通过 imsg CLI 监听（chats + history --json，JSONL 输出）
+- 微信：通过 OpenClaw gateway(127.0.0.1:18789) 监听，默认关闭
+  （OpenClaw 已于 2026-10-02 卸载，启用需 NAJA_WECHAT_ENABLED=1）
 
 两种运行模式：
 - 实时监听：持续运行，定期检查新消息
@@ -12,11 +13,13 @@
 
 import json
 import logging
+import os
 import re
+import shutil
 import subprocess
 import time
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from enum import Enum
@@ -26,27 +29,61 @@ import requests
 log = logging.getLogger(__name__)
 
 from deva.naja.tasks.article_learner import ArticleLearner
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
-# 发送 iMessage 通知的函数（原代码中功能）
+# ============== 日志冷却 ==============
+# 同一个 key 在 cooldown 秒内只输出一次 WARNING，避免「每分钟一条」的告警刷屏
+_WARN_LAST: Dict[str, float] = {}
+_WARN_COOLDOWN_SEC = 3600
+
+
+def _warn_throttled(key: str, message: str, cooldown: int = _WARN_COOLDOWN_SEC):
+    """带冷却的 WARNING（同类问题默认 1 小时最多一条）"""
+    now = time.time()
+    if now - _WARN_LAST.get(key, 0) < cooldown:
+        log.debug(message)
+        return
+    _WARN_LAST[key] = now
+    log.warning(message)
+
+
+def _imsg_bin() -> Optional[str]:
+    """定位 imsg CLI，找不到返回 None（注意：正确的命令名是 imsg，不是 imesg）"""
+    return shutil.which("imsg")
+
+
+# 发送 iMessage 通知的函数
 def send_notification(text: str) -> bool:
-    """发送 iMessage 通知给爸爸"""
+    """发送 iMessage 通知给爸爸（优先 imsg CLI，失败降级 osascript）"""
+    phone = getattr(__import__('deva'), '_PHONE', '+86XXXXXXXXXXX')
+
+    imsg = _imsg_bin()
+    if imsg:
+        try:
+            result = subprocess.run(
+                [imsg, "send", "--to", phone, "--text", text],
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
+            if result.returncode == 0:
+                _mark_self_sent(text)
+                return True
+            log.warning(f"[UnifiedMonitor] imsg send 失败: {(result.stderr or '').strip()[:200]}")
+        except Exception as e:
+            log.warning(f"[UnifiedMonitor] imsg send 异常: {e}")
+
+    # 降级：osascript（对 text 做转义，避免引号破坏脚本）
     try:
-        import subprocess
-        phone = getattr(__import__('deva'), '_PHONE', '+86XXXXXXXXXXX')
-        
-        # 使用 osascript 发送 iMessage
-        script = f'''
-        tell application "Messages"
-            send "{text}" to buddy "{phone}"
-        end tell
-        '''
-        
+        safe = text.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'tell application "Messages"\nsend "{safe}" to buddy "{phone}"\nend tell'
         result = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
-            timeout=10
+            timeout=15
         )
-        
+        if result.returncode == 0:
+            _mark_self_sent(text)
         return result.returncode == 0
     except Exception as e:
         log.warning(f"[UnifiedMonitor] 发送通知失败: {e}")
@@ -65,8 +102,23 @@ _LEARNING_DIR.mkdir(parents=True, exist_ok=True)
 
 # iMessage 配置
 _IMESSAGE_PROCESSED_FILE = _LEARNING_DIR / "processed_messages.json"
+# Naja 自己发出去的消息指纹（用于避免「自己发的链接被自己学到」的自循环）
+_SELF_SENT_FILE = _LEARNING_DIR / "self_sent_messages.json"
+
+# 只监听这些会话（identifier 匹配，支持子串）
+_IMSG_CHAT_WHITELIST = ("+86XXXXXXXXXXX", "+86XXXXXXXXXXX")
+# 只处理最近 N 分钟内到达的消息
+_IMSG_LOOKBACK_MIN = 5
+# 每次每会话拉取的历史条数（只取最近若干条做增量判断）
+_IMSG_HISTORY_LIMIT = 20
+# processed 集合上限，防止 JSON 无限膨胀
+_PROCESSED_MAX = 500
 
 # 微信配置
+# OpenClaw（含 18789 gateway）已于 2026-10-02 卸载，端口不再监听。
+# 默认关闭该渠道，避免每分钟一条 ConnectionError 噪声。
+# 如需恢复：export NAJA_WECHAT_ENABLED=1
+_WECHAT_ENABLED = os.environ.get("NAJA_WECHAT_ENABLED", "0").lower() in ("1", "true", "yes")
 _WECHAT_GATEWAY_URL = "http://127.0.0.1:18789"
 _WECHAT_AUTH_TOKEN = "2a87d7bf09e81ec6a3a5e79a18c80129615b17f90a361daa"
 _WECHAT_HEADERS = {
@@ -102,66 +154,178 @@ def _load_set_from_json(file_path: Path) -> set:
 
 
 def _save_set_to_json(file_path: Path, item: Any):
-    """保存项到JSON文件的集合中"""
+    """保存项到JSON文件的集合中（保留最近 _PROCESSED_MAX 条，防止无限膨胀）"""
     processed = _load_set_from_json(file_path)
     processed.add(str(item))
+    if len(processed) > _PROCESSED_MAX:
+        processed = set(list(processed)[-_PROCESSED_MAX:])
     with open(file_path, "w") as f:
         json.dump(list(processed), f)
 
 
-# ============== iMessage 相关 ==============
-def _check_new_imessage_messages() -> List[Dict[str, Any]]:
-    """检查新收到的iMessage消息"""
+def _norm_digits(value: Any) -> str:
+    """只保留数字，用于号码归一化匹配"""
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _self_fingerprint(text: str) -> str:
+    """消息文本指纹，用于识别 Naja 自己发出去的消息"""
+    return "self:" + hashlib.md5((text or "").strip().encode("utf-8")).hexdigest()[:16]
+
+
+def _mark_self_sent(text: str):
+    """记录 Naja 自己发出去的消息，抓取时跳过（防止自循环）"""
+    if not text:
+        return
     try:
-        result = subprocess.run(
-            ["imesg", "list", "--limit", "20"],
+        _save_set_to_json(_SELF_SENT_FILE, _self_fingerprint(text))
+    except Exception as e:
+        log.debug(f"[iMessage] 记录自发消息失败: {e}")
+
+
+# ============== iMessage 相关 ==============
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """解析 ISO8601 时间戳（兼容 Z 后缀 / 小数秒），返回本地朴素时间"""
+    if not value:
+        return None
+    s = str(value).strip()
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().replace(tzinfo=None)
+
+
+def _imsg_jsonl(args: List[str], timeout: int = 20) -> List[Dict[str, Any]]:
+    """
+    调用 imsg CLI 并解析 JSONL 输出。
+
+    注意两点历史坑：
+    1) 命令名是 imsg，不是 imesg；
+    2) imsg 没有 `list` 子命令，只有 chats / history / watch / send / rpc，
+       且 --json 输出是「每行一个 JSON 对象」的 JSONL，不是数组，
+       也不是 `id|date|chat|text` 的管道分隔格式。
+    """
+    imsg = _imsg_bin()
+    if not imsg:
+        _warn_throttled("imsg_missing", "[iMessage] imsg CLI 不存在（PATH 中找不到），跳过文章监听")
+        return []
+
+    try:
+        proc = subprocess.run(
+            [imsg, *args, "--json"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=timeout
         )
+    except subprocess.TimeoutExpired:
+        _warn_throttled("imsg_timeout", f"[iMessage] imsg {' '.join(args)} 超时（{timeout}s）")
+        return []
+    except Exception as e:
+        _warn_throttled("imsg_exec", f"[iMessage] imsg 执行异常: {e}")
+        return []
 
-        if result.returncode != 0:
-            log.warning(f"[iMessage] 获取消息失败: {result.stderr}")
+    if proc.returncode != 0:
+        _warn_throttled(
+            "imsg_rc",
+            f"[iMessage] imsg {' '.join(args)} 失败 rc={proc.returncode}: "
+            f"{(proc.stderr or '').strip()[:200]}"
+        )
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    for line in (proc.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
+def _select_imsg_chat_ids() -> List[int]:
+    """选出需要监听的会话 chat id（按号码白名单匹配）"""
+    targets = {_norm_digits(w) for w in _IMSG_CHAT_WHITELIST}
+    targets = {t for t in targets if t}
+
+    if not targets:
+        # 白名单为空时不监听任何会话，避免误听全部会话
+        return []
+
+    chat_ids: List[int] = []
+    for row in _imsg_jsonl(["chats"]):
+        cid = row.get("id")
+        if cid is None:
+            continue
+        ident = _norm_digits(row.get("identifier"))
+        name = str(row.get("name") or "").lower()
+
+        hit = False
+        if ident:
+            # 号码可能带/不带国家码，双向后缀匹配
+            hit = any(ident == t or ident.endswith(t) or t.endswith(ident)
+                      for t in targets)
+        if not hit and name:
+            hit = "baba" in name or "spark" in name
+
+        if hit:
+            try:
+                chat_ids.append(int(cid))
+            except (TypeError, ValueError):
+                continue
+    return chat_ids
+
+
+@probe(KIND_DATASOURCE, "ds:imessage_monitor", "iMessage 文章监控（imsg CLI）", cadence="定时轮询")
+def _check_new_imessage_messages() -> List[Dict[str, Any]]:
+    """检查新收到的 iMessage 消息（仅最近 _IMSG_LOOKBACK_MIN 分钟内、非本人发出）"""
+    try:
+        chat_ids = _select_imsg_chat_ids()
+        if not chat_ids:
+            log.debug("[iMessage] 未匹配到目标会话")
             return []
 
-        messages = []
-        current_time = datetime.now()
-        processed = _load_set_from_json(_IMESSAGE_PROCESSED_FILE)
+        cutoff = datetime.now() - timedelta(minutes=_IMSG_LOOKBACK_MIN)
+        self_sent = _load_set_from_json(_SELF_SENT_FILE)
+        messages: List[Dict[str, Any]] = []
 
-        for line in result.stdout.strip().split("\n"):
-            if not line.strip():
-                continue
+        for cid in chat_ids:
+            rows = _imsg_jsonl([
+                "history", "--chat-id", str(cid),
+                "--limit", str(_IMSG_HISTORY_LIMIT),
+            ])
+            for row in rows:
+                if row.get("is_from_me"):
+                    continue  # 跳过自己发出去的消息
 
-            parts = line.split("|")
-            if len(parts) >= 4:
-                msg_id = parts[0].strip()
-                date_str = parts[1].strip()
-                chat = parts[2].strip()
-                text = "|".join(parts[3:]).strip()
-
-                if msg_id in processed:
+                text = (row.get("text") or "").strip()
+                if not text:
                     continue
 
-                if chat and ("baba" in chat.lower() or "spark" in chat.lower()
-                           or "+86XXXXXXXXXXX" in chat):
-                    try:
-                        msg_time = datetime.fromisoformat(date_str)
-                        if current_time - msg_time < timedelta(minutes=5):
-                            messages.append({
-                                "id": msg_id,
-                                "time": msg_time,
-                                "chat": chat,
-                                "text": text,
-                                "channel": ChannelType.IMESSAGE
-                            })
-                    except Exception:
-                        pass
+                # chat.db 里本机发出的消息有时 is_from_me 仍为 False，用指纹兜底
+                if _self_fingerprint(text) in self_sent:
+                    continue
+
+                msg_time = _parse_ts(row.get("created_at"))
+                if msg_time is None or msg_time < cutoff:
+                    continue
+
+                messages.append({
+                    "id": str(row.get("guid") or row.get("id") or ""),
+                    "time": msg_time,
+                    "chat": str(cid),
+                    "text": text,
+                    "channel": ChannelType.IMESSAGE
+                })
 
         return messages
 
-    except FileNotFoundError:
-        log.warning("[iMessage] imesg 命令不存在")
-        return []
     except Exception as e:
         log.error(f"[iMessage] 检查消息失败: {e}")
         return []
@@ -194,7 +358,12 @@ def _save_wechat_cursor(cursor: str):
 
 
 def _fetch_wechat_messages() -> List[Dict[str, Any]]:
-    """从微信获取新消息"""
+    """从微信获取新消息（渠道默认关闭，见 _WECHAT_ENABLED）"""
+    if not _WECHAT_ENABLED:
+        log.debug("[WeChat] 渠道已关闭（依赖的 OpenClaw gateway 18789 已卸载，"
+                  "如需启用请设置 NAJA_WECHAT_ENABLED=1）")
+        return []
+
     try:
         cursor = _load_wechat_cursor()
 
@@ -294,7 +463,7 @@ def _format_imessage_result(learner: ArticleLearner, result) -> str:
         source = result.source if hasattr(result, 'source') else "未知来源"
         confidence = result.confidence if hasattr(result, 'confidence') else 0.5
         return f"📖 {title}\n📰 {source}\n🧠 置信度: {confidence:.0%}\n\n⏰ {datetime.now().strftime('%H:%M')}"
-    except Exception as e:
+    except Exception:
         return f"📖 学习完成（详情已记录）\n\n⏰ {datetime.now().strftime('%H:%M')}"
 
 
@@ -393,7 +562,9 @@ def check_all_once(channels: Optional[List[ChannelType]] = None) -> Dict[str, An
         处理结果统计
     """
     if channels is None:
-        channels = [ChannelType.IMESSAGE, ChannelType.WECHAT]
+        channels = [ChannelType.IMESSAGE]
+        if _WECHAT_ENABLED:
+            channels.append(ChannelType.WECHAT)
 
     learner = ArticleLearner()
     stats = {
@@ -447,9 +618,11 @@ def start_listener(channels: Optional[List[ChannelType]] = None, interval: int =
         interval: 检查间隔（秒）
     """
     if channels is None:
-        channels = [ChannelType.IMESSAGE, ChannelType.WECHAT]
+        channels = [ChannelType.IMESSAGE]
+        if _WECHAT_ENABLED:
+            channels.append(ChannelType.WECHAT)
 
-    log.info(f"[UnifiedMonitor] 启动统一文章监听器...")
+    log.info("[UnifiedMonitor] 启动统一文章监听器...")
     log.info(f"[UnifiedMonitor] 监听渠道: {[c.value for c in channels]}")
     log.info(f"[UnifiedMonitor] 检查间隔: {interval}秒")
 

@@ -28,6 +28,7 @@ except ImportError:
     HAS_AIOHTTP = False
 
 from deva.naja.cognition.merrill_clock import EconomicData
+from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class EconomicDataFetcher:
         
         return await self._fetch_fred_data()
     
+    @probe(KIND_DATASOURCE, "ds:fred", "FRED 美联储经济数据", cadence="cron 30 4 * * *")
     async def _fetch_fred_data(self) -> EconomicData:
         """从 FRED API 获取数据"""
         if not HAS_AIOHTTP:
