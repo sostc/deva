@@ -14,6 +14,7 @@ from typing import List, Dict, Any
 from bs4 import BeautifulSoup
 
 from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+from deva.naja.infra.notify_recipient import get_notify_phone
 
 log = logging.getLogger(__name__)
 
@@ -1069,7 +1070,8 @@ def execute() -> dict:
         except Exception as e:
             log.warning(f"[AI_Report_v2] 保存失败: {e}")
 
-        phone = os.environ.get("NAJA_AI_REPORT_PHONE", "+86XXXXXXXXXXX")
+        # ❗号码不再硬编码（仓库是公开的）：取不到就跳过推送，绝不猜一个出来
+        phone = get_notify_phone()
         slot = current_slot_date()
         skip_reason = ""
 
@@ -1080,6 +1082,10 @@ def execute() -> dict:
             log.info(f"[AI_Report_v2] 生成完成但放弃推送: {reason}")
             sent = False
             skip_reason = reason
+        elif not phone:
+            log.warning("[AI_Report_v2] 未配置通知手机号，跳过推送（不认领槽位）")
+            sent = False
+            skip_reason = "未配置通知手机号"
         elif not claim_send_slot(slot):
             log.info(f"[AI_Report_v2] 槽位 {slot} 已被并发执行体认领，放弃推送")
             sent = False

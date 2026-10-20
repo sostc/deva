@@ -32,7 +32,8 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
-_IMESSAGE_PHONE = "+86XXXXXXXXXXX"
+# ❗号码不写进代码（仓库是公开的）。取号统一走 notify_recipient.get_notify_phone()：
+# 未配置时返回 ""，调用方必须留痕并跳过推送，不许拿硬编码兜底。
 
 
 def _normalize_hotspot_market(value: Optional[str]) -> str:
@@ -65,6 +66,7 @@ def send_imessage(phone: str, text: str) -> bool:
         return False
 
 
+from deva.naja.infra.notify_recipient import get_notify_phone
 from deva.naja.cognition.narrative import get_narrative_tracker
 from deva.naja.cognition.semantic.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
 from deva.naja.bandit.portfolio_manager import get_portfolio_manager
@@ -1851,7 +1853,12 @@ def run_review_and_push(market: str = 'a_share') -> tuple[ReviewReport, bool]:
                 collector=collector,
                 resonance_result=resonance_result,
             )
-        sent = send_imessage("+86XXXXXXXXXXX", imessage_text)
+        phone = get_notify_phone()
+        if not phone:
+            log.warning(f"[DailyReview] 未配置通知手机号，{market_name}复盘报告跳过 iMessage 推送")
+            sent = False
+        else:
+            sent = send_imessage(phone, imessage_text)
         if sent:
             log.info(f"[DailyReview] {market_name}复盘报告已推送到iMessage")
         else:

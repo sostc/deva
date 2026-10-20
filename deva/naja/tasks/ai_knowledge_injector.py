@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from deva.naja.infra.notify_recipient import get_notify_phone
 from deva.naja.knowledge import (
     get_knowledge_store, get_state_manager, get_cognition_interface,
     KnowledgeStore, KnowledgeEntry, KnowledgeState,
@@ -427,8 +428,16 @@ class AIKnowledgeInjector:
         return "\n".join(lines)
 
 
-def send_notification(text: str, phone: str = "+86XXXXXXXXXXX"):
-    """发送通知"""
+def send_notification(text: str, phone: Optional[str] = None):
+    """发送通知。
+
+    ❗号码默认不再写死在签名里（仓库公开）—— 不传就走统一入口；
+    取不到必须留痕并跳过，不许拿硬编码号码兜底。
+    """
+    phone = phone or get_notify_phone()
+    if not phone:
+        log.warning("[KnowledgeInjector] 未配置通知手机号，跳过推送")
+        return False
     try:
         import subprocess
         escaped_text = text.replace('"', '\\"')

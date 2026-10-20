@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 from deva.naja.tasks.article_learner import ArticleLearner
 from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
+from deva.naja.infra.notify_recipient import chat_whitelist, get_notify_phone
 
 # ============== 日志冷却 ==============
 # 同一个 key 在 cooldown 秒内只输出一次 WARNING，避免「每分钟一条」的告警刷屏
@@ -54,8 +55,14 @@ def _imsg_bin() -> Optional[str]:
 
 # 发送 iMessage 通知的函数
 def send_notification(text: str) -> bool:
-    """发送 iMessage 通知给爸爸（优先 imsg CLI，失败降级 osascript）"""
-    phone = getattr(__import__('deva'), '_PHONE', '+86XXXXXXXXXXX')
+    """发送 iMessage 通知给爸爸（优先 imsg CLI，失败降级 osascript）
+
+    ❗号码不再硬编码（仓库公开）：走统一入口，取不到就留痕跳过。
+    """
+    phone = get_notify_phone()
+    if not phone:
+        log.warning("[UnifiedMonitor] 未配置通知手机号，跳过推送")
+        return False
 
     imsg = _imsg_bin()
     if imsg:
@@ -106,7 +113,10 @@ _IMESSAGE_PROCESSED_FILE = _LEARNING_DIR / "processed_messages.json"
 _SELF_SENT_FILE = _LEARNING_DIR / "self_sent_messages.json"
 
 # 只监听这些会话（identifier 匹配，支持子串）
-_IMSG_CHAT_WHITELIST = ("+86XXXXXXXXXXX", "+86XXXXXXXXXXX")
+# ❗号码不写死在这里 —— 默认取「通知号码本人」，追加用 NAJA_IMSG_CHAT_WHITELIST
+# （逗号分隔）。写成常量的话每次模块加载都要读一次配置，且会把号码固化进仓库。
+def _imsg_chat_whitelist() -> tuple:
+    return chat_whitelist()
 # 只处理最近 N 分钟内到达的消息
 _IMSG_LOOKBACK_MIN = 5
 # 每次每会话拉取的历史条数（只取最近若干条做增量判断）
@@ -251,7 +261,7 @@ def _imsg_jsonl(args: List[str], timeout: int = 20) -> List[Dict[str, Any]]:
 
 def _select_imsg_chat_ids() -> List[int]:
     """选出需要监听的会话 chat id（按号码白名单匹配）"""
-    targets = {_norm_digits(w) for w in _IMSG_CHAT_WHITELIST}
+    targets = {_norm_digits(w) for w in _imsg_chat_whitelist()}
     targets = {t for t in targets if t}
 
     if not targets:
