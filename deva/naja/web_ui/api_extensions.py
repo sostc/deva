@@ -1394,6 +1394,68 @@ class NajaDigestHandler(RequestHandler):
             }, ensure_ascii=False))
 
 
+class NewsDigestHandler(RequestHandler):
+    """「今日新闻消化」（/news 页面）的那份数据，原样导出。
+
+    ═══ 为什么需要这个接口 ═══
+    大有（H5 的股市胶囊）要把「新闻 tab 里看到的东西」摆出来。而"该看什么"
+    的口径全在 ``NewsTriage`` 里：持仓命中、叙事命中、档位（holding / theme /
+    macro）、同事件折叠 —— 在外面再写一份筛选就是两份口径，早晚会不一样。
+    所以这里只做一次导出，筛的规则一行都不复制。
+
+    ═══ 必须在**主进程**里跑 ═══
+    持仓与叙事是活的状态（app container + manas 引擎）。独立脚本 import 出来
+    自己算会降级（实测：「账户初始化失败（虚拟测试）→ 持仓读作空」、
+    「manas 不可用 → 主题退化为 keyword_registry 预设」），算出来的东西跟页面
+    上看到的不是一回事。所以宁可从一个已经跑起来的服务里开个只读口子，也不让
+    外部脚本自己拼一份。
+
+    参数：hours（默认 24，最大 72，同页面窗口）、per_group_limit（默认 8）。
+    """
+
+    def set_default_headers(self):
+        self.set_header("Content-Type", "application/json; charset=utf-8")
+        self.set_header("Access-Control-Allow-Origin", "*")
+        self.set_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.set_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def options(self):
+        self.set_status(204)
+        self.finish()
+
+    def get(self):
+        try:
+            hours = int(self.get_argument("hours", "24"))
+        except (TypeError, ValueError):
+            hours = 24
+        try:
+            limit = int(self.get_argument("per_group_limit", "8"))
+        except (TypeError, ValueError):
+            limit = 8
+        # 同 /news 页面的口径：窗口只有 24/48/72，组内条数有个上限 ——
+        # 传个 1000 进来会把整池子倒出去，那不是"新闻 tab 的样子"。
+        hours = max(1, min(hours, 72))
+        limit = max(1, min(limit, 30))
+        try:
+            from deva.naja.news.digest import get_news_digest_summary
+
+            digest = get_news_digest_summary(hours=hours, per_group_limit=limit)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": True,
+                "digest": digest,
+            }, ensure_ascii=False, default=str))
+        except Exception as e:
+            self.set_status(500)
+            self.write(json.dumps({
+                "timestamp": time.time(),
+                "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "success": False,
+                "error": "%s: %s" % (type(e).__name__, e),
+            }, ensure_ascii=False))
+
+
 class NajaDigestSendHandler(RequestHandler):
     """发送市场学习汇报到外部通知通道。"""
 

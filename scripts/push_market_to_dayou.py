@@ -7,7 +7,7 @@
 大有的线上服务器（ssl.secsay.com）上没有 Naja：8080 只在这台 Mac 上跑。
 所以让大有来拉是拉不到的 —— 它连不上家里这台机器。方向只能是这一个：
 
-    Naja 本机 8080 /api/market/timeline（Naja 自己抓的，抓取逻辑只此一份）
+    Naja 本机 8080 /api/news/digest（= /news 新闻 tab 的同一份数据）
         │  有新条目
         ▼
     POST https://ssl.secsay.com/marketpush   {key, items:[...]}
@@ -15,10 +15,24 @@
         ▼
     大有 data/market_news.db → H5 抽屉 GET /marketnews
 
-这个脚本**不碰 Naja 的内部状态、不 import deva**：它只读一个现成的 HTTP
-接口，Naja 怎么改都不影响它（接口没了就只记一条日志，什么都不干）。
-反过来说，大有那边也没有第二份抓取实现 —— 金十怎么翻、怎么打分，永远只有
-Naja 这一处口径。
+推什么：**新闻 tab 里那三组** —— 持仓相关 / 关注叙事 / 外部要闻。
+2026-11-01 用户改的口径：一开始推的是 `/api/market/timeline`（原始全量时间线），
+现在线上看到一大堆伊朗、俄乌、中东的消息，跟"股市"两回事。用户要的是
+「和 Naja 新闻 tab 里一致，就是和持仓、关注主题等相关的新闻，不是全部」。
+
+为什么不自己筛
+-------------
+「该看什么」的口径在 `deva/naja/news/triage.py`：持仓命中、叙事命中、档位、
+同事件折叠。在这里再写一遍 = 两份口径，早晚不一样。所以脚本只做搬运：
+从 `/api/news/digest` 拿已分好组的条目，摊平后原样推走。
+
+❗为什么走 HTTP 而不是 import deva
+----
+持仓与叙事是**活的状态**（app container + manas 引擎）。独立进程 import
+自己算会降级（实测：「账户初始化失败（虚拟测试）→ 持仓读作空」、
+「manas 不可用 → 主题退化为 keyword_registry 预设」），算出来跟页面上看到的
+不是一回事。所以宁可要 Naja 开那个只读接口（`/api/news/digest`），
+也不在这边拼一份"看起来差不多"的。
 
 用法
 ----
@@ -29,17 +43,19 @@ Naja 这一处口径。
      服务器那边是 data/market_push.key，两边必须一模一样。
      搞不到密钥就**什么都不推**（只记日志），不会静默成功。
 
-状态：~/.naja/dayou_push_state.json 记已推过的 id —— 只是省流量，
-     真去重在大有那一层（它按 flash_id / 标题+时间做 INSERT OR IGNORE），
+状态：~/.naja/doyou_push_state.json 记已推过的 id —— 只是省流量，
+     真去重在大有那一层（它按标题+时间做 INSERT OR IGNORE），
      所以状态文件丢了最多重推一遍，不会产生重复条目。
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 NAJA_API = os.getenv('NAJA_API', 'http://127.0.0.1:8080')
@@ -50,8 +66,18 @@ KEY_FILE = os.path.join(HOME, '.naja', 'dayou_push.key')
 
 INTERVAL = int(os.getenv('PUSH_INTERVAL', '45'))     # 秒
 KEEP_IDS = 1200                                       # 本地记住多少条已推
-KINDS = ('jin10_news', 'high_score_news')             # 新闻 tab 里那两类
-TIMEOUT = 12
+TIMEOUT = 20                                          # digest 要现算，给宽一点
+# 和 /news 页面一致：24 小时窗、每组 8 条。三组一共最多 24 条 —— 这是"新闻 tab
+# 一屏"的量，不是"今天全部新闻"。
+WINDOW_HOURS = int(os.getenv('NEWS_WINDOW_HOURS', '24'))
+PER_GROUP = int(os.getenv('NEWS_PER_GROUP', '8'))
+GROUP_ORDER = ('holding', 'theme', 'macro')
+
+# 分组名由 Naja 给（group_labels），这里只做兜底 —— 两边名字必须一个说法，
+# 但**以 Naja 为准**（它才是口径的所有者），兜底只防接口临时缺字段。
+GROUP_FALLBACK = {'holding': '持仓相关', 'theme': '关注叙事',
+                  'macro': '外部要闻'}
+
 
 
 def log(msg):
@@ -98,44 +124,96 @@ def save_state(state):
 
 # ------------------------------------------------------------------ 取 / 推
 
-def fetch_timeline():
-    url = NAJA_API + '/api/market/timeline'
+def fetch_digest():
+    """取「新闻 tab」那三组。返回 (items, labels, meta)。
+
+    条目已经分好组、组内按相关度排、同事件折叠过 —— 这里**不再筛**，
+    只把三组摊平成一个列表（holding → theme → macro）。
+    """
+    q = urllib.parse.urlencode({'hours': WINDOW_HOURS,
+                                'per_group_limit': PER_GROUP})
+    url = NAJA_API + '/api/news/digest?' + q
     req = urllib.request.Request(url, headers={'Accept': 'application/json'})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
         data = json.loads(resp.read().decode('utf-8'))
-    if not isinstance(data, dict):
-        return []
-    return [x for x in (data.get('list') or [])
-            if isinstance(x, dict) and x.get('type') in KINDS]
+    if not isinstance(data, dict) or not data.get('success'):
+        # 接口自己失败时带 error —— 原样报出来，别让它看起来像"今天没新闻"
+        raise RuntimeError((data or {}).get('error') or 'digest 接口返回失败')
+    dg = data.get('digest') or {}
+    if not dg.get('available'):
+        return [], {}, {'reason': dg.get('reason') or '最近窗口内没有已评分的新闻',
+                        'stats': dg.get('stats') or {}}
+    labels = dg.get('group_labels') or {}
+    out = []
+    for g in GROUP_ORDER:
+        for it in (dg.get('groups') or {}).get(g) or []:
+            if isinstance(it, dict) and (it.get('title') or '').strip():
+                the = dict(it)
+                the['_group'] = g
+                out.append(the)
+    return out, labels, {'stats': dg.get('stats') or {},
+                         'focus': dg.get('focus') or {},
+                         'hours': dg.get('window_hours') or WINDOW_HOURS}
 
 
 def norm(it):
-    """只留大有要的字段 —— 多余的（block_name / stock_codes…）不往线上送。"""
+    """只留大有要的字段 —— 多余的（reasons / tier_band…）不往线上送。"""
+    ts = it.get('timestamp') or 0
+    try:
+        ts = float(ts)
+    except (TypeError, ValueError):
+        ts = 0.0
+    if ts > 1e11:                                   # 毫秒 → 秒
+        ts = ts / 1000.0
+    title = (it.get('title') or '').strip()[:300]
+    text = (it.get('summary') or '').strip()
+    if text and text == title:
+        text = ''
+    # 「为什么给你看」：持仓/自选命中最重要，其次是叙事命中；股票代码也是命中。
+    hits = []
+    for name in (it.get('holding_hits') or []):
+        hits.append('持仓·%s' % str(name)[:14])
+    for name in (it.get('watchlist_hits') or []):
+        hits.append('自选·%s' % str(name)[:14])
+    for name in (it.get('narrative_hits') or []):
+        hits.append('主题·%s' % str(name)[:14])
+    if not hits:
+        for code in (it.get('stock_codes') or [])[:2]:
+            hits.append('相关·%s' % str(code)[:14])
     out = {
-        'type': it.get('type') or '',
-        'title': (it.get('title') or it.get('summary') or '').strip()[:300],
-        'text': (it.get('text') or '').strip()[:2000],
+        'group': it.get('_group') or it.get('group') or '',
+        'title': title,
+        'text': text[:2000],
         'source': it.get('source') or '',
         'url': it.get('url') or '',
-        'timestamp': it.get('timestamp') or 0,
+        'timestamp': ts,
+        'relevance': it.get('relevance') or 0,
+        'hits': hits[:4],
     }
-    if it.get('flash_id'):
-        out['flash_id'] = str(it['flash_id'])
-    if it.get('importance_score') is not None:
-        out['importance_score'] = it.get('importance_score')
-    elif it.get('score') is not None:
-        out['score'] = it.get('score')
     if isinstance(it.get('topics'), list):
-        out['topics'] = it['topics'][:6]
+        out['topics'] = [str(x)[:12] for x in it['topics'][:4]]
     if it.get('sentiment') is not None:
         out['sentiment'] = it.get('sentiment')
+    if it.get('dup_count') and int(it['dup_count']) > 1:
+        out['dup_count'] = int(it['dup_count'])
     return out
 
 
 def ident(it):
-    if it.get('flash_id'):
-        return 'f:' + str(it['flash_id'])
-    return 't:%s|%s' % (it.get('title', '')[:120], it.get('timestamp') or 0)
+    """稳定的去重键：**只认标题**（+ 日期）。
+
+    digest 里没有 flash_id；timestamp 偶尔为 0（重要事件那种聚合条），拿它当
+    键的一部分会让同一条每轮算出不同的键、被反复推。标题 + 日期既能挡住重复，
+    也不会把隔天同名的一条当成旧的吞掉。
+    """
+    title = (it.get('title') or '').strip()
+    ts = it.get('timestamp') or 0
+    try:
+        day = time.strftime('%Y-%m-%d', time.localtime(float(ts) or time.time()))
+    except (TypeError, ValueError, OSError):
+        day = time.strftime('%Y-%m-%d')
+    h = hashlib.md5(('%s|%s' % (title, day)).encode('utf-8')).hexdigest()[:16]
+    return 'd:' + h
 
 
 def post(items, key):
@@ -153,15 +231,17 @@ def post(items, key):
 
 def beat(key, state):
     try:
-        items = fetch_timeline()
+        items, labels, meta = fetch_digest()
     except urllib.error.URLError as e:
         log('Naja 8080 连不上（那边没在跑？）: %s' % getattr(e, 'reason', e))
         return 0
     except Exception as e:
-        log('取时间线失败: %s: %s' % (type(e).__name__, e))
+        log('取新闻 tab 失败: %s: %s' % (type(e).__name__, e))
         return 0
 
     if not items:
+        # 「没新闻」和「取不到」要分开说：前者是市场安静，后者是管线断了。
+        log('这一轮没有可推的：%s' % (meta.get('reason') or '三组都是空的'))
         return 0
 
     sent = set(state.get('sent') or [])
@@ -195,8 +275,14 @@ def beat(key, state):
 
     state['sent'] = (state.get('sent') or []) + [k for k, _ in fresh]
     save_state(state)
-    log('推了 %d 条（新增 %s / 重复 %s）'
-        % (len(fresh), res.get('added'), res.get('skipped')))
+    cnt = {}
+    for _, n in fresh:
+        lbl = (labels or {}).get(n.get('group')) or GROUP_FALLBACK.get(
+            n.get('group')) or n.get('group') or '未分组'
+        cnt[lbl] = cnt.get(lbl, 0) + 1
+    log('推了 %d 条（新增 %s / 重复 %s）%s'
+        % (len(fresh), res.get('added'), res.get('skipped'),
+           '｜' + ' · '.join('%s %d' % (k, v) for k, v in cnt.items())))
     return len(fresh)
 
 
