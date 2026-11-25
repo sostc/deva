@@ -473,21 +473,39 @@ class TradingCenter:
         return recent[0] if recent else None
 
     def get_decision_plan_summary(self, limit: int = 10) -> Dict[str, Any]:
-        """[公开] dashboard 用的决策面板数据（纯 dict）。"""
+        """[公开] dashboard 用的决策面板数据（纯 dict）。
+
+        ❗「最近 N 条」一旦整段都是否决，稀少的「通过」会被完全挤出视野 ——
+        用户看到满屏「已否决」，无从回答「到底有没有通过过」。所以除 ``recent``
+        之外，额外从**更大的历史窗口**按 ``approved`` 分流：
+
+        · ``recent_approved``：窗口内 approved=True 的记录（最新在前，供 UI 置顶）
+        · ``stats.approved`` / ``stats.rejected``：窗口内批准/否决计数（平衡视图）
+
+        窗口只用于展示分流，**不改变 ``recent`` / ``latest`` 的原口径**；读不到
+        就如实返回 0 / 空列表，绝不合成分辨不出真假的「通过」。
+        """
         journal = self._journal()
         recent = self.get_recent_decisions(limit=limit)
-        approved = sum(1 for item in recent if item.get("approved") is True)
+        # ❗从更大窗口分流：recent 只有 limit 条，近期全否时一条通过都看不到。
+        # 窗口上限与 journal 容量一致（2000），保证「历史上有过通过」不会被漏掉。
+        window = self.get_recent_decisions(limit=2000)
+        approved_items = [item for item in window if item.get("approved") is True]
+        approved = len(approved_items)
+        rejected = sum(1 for item in window if item.get("approved") is False)
         actionable = sum(1 for item in recent if self._plan_entry_actionable(item))
         persisted_total = journal.count()
         return {
             "available": bool(recent),
             "latest": recent[0] if recent else None,
             "recent": recent,
+            "recent_approved": approved_items[:10],
             "stats": {
                 # 落盘总条数（跨重启累计）；落盘不可用时退回本进程队列长度
                 "total": persisted_total if persisted_total else len(self._recent_plans_deque()),
                 "shown": len(recent),
                 "approved": approved,
+                "rejected": rejected,
                 "actionable": actionable,
                 "persisted": journal.stats().get("available", False),
             },

@@ -129,6 +129,12 @@ def render_decision_plan_panel(summary: dict = None) -> str:
     latest = summary.get("latest") or {}
     stats = summary.get("stats") or {}
     recent = summary.get("recent") or []
+    # ❗分流：近期若整段都是否决，稀少的「批准」会被挤出 recent。通过单独一路
+    # 置顶显示，并给「批准 X / 否决 Y」的平衡计数——让「一条通过都没有」也是
+    # 一眼可见的事实，而不是被满屏否决淹没后的猜测。
+    recent_approved = summary.get("recent_approved") or []
+    approved_n = int(stats.get("approved", 0) or 0)
+    rejected_n = int(stats.get("rejected", 0) or 0)
 
     persisted = bool(stats.get("persisted"))
     persisted_text = "已落盘" if persisted else "仅内存"
@@ -156,6 +162,31 @@ def render_decision_plan_panel(summary: dict = None) -> str:
         approved_text, approved_color = "已否决", "#dc2626"
     else:
         approved_text, approved_color = "—", "#64748b"
+
+    # 平衡条：批准/否决计数（来自更大历史窗口，不是只看最近几条）
+    balance_html = (
+        f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">'
+        f'<span style="font-size:11px;color:#64748b;">历史判定</span>'
+        f'<span style="font-size:11px;font-weight:600;color:#16a34a;">✅ 批准 {approved_n}</span>'
+        f'<span style="font-size:11px;font-weight:600;color:#dc2626;">⛔ 否决 {rejected_n}</span>'
+        f'</div>'
+    )
+
+    # 通过记录单独置顶（最多 5 条），审核者不必在否决堆里翻找
+    approved_html = "".join(_render_plan_row(p) for p in recent_approved[:5])
+    if approved_html:
+        approved_block = (
+            '<div style="background:#f0fdf4;border-radius:6px;padding:10px;margin-bottom:12px;">'
+            '<div style="font-size:11px;font-weight:600;color:#15803d;margin-bottom:6px;">'
+            '✅ 批准记录（历史窗口内 · 最新优先）</div>'
+            f'{approved_html}</div>'
+        )
+    else:
+        approved_block = (
+            '<div style="background:#f8fafc;border-radius:6px;padding:8px 10px;margin-bottom:12px;'
+            'font-size:11px;color:#94a3b8;">'
+            '✅ 批准记录：历史窗口内无批准（不是被否决淹没，是确实没有）</div>'
+        )
 
     recent_html = "".join(_render_plan_row(p) for p in recent[1:6]) or (
         '<div style="font-size: 11px; color: #94a3b8;">（暂无更早记录）</div>'
@@ -204,6 +235,10 @@ def render_decision_plan_panel(summary: dict = None) -> str:
                 </div>
             </div>
         </div>
+
+        {balance_html}
+
+        {approved_block}
 
         <div style="background: #f8fafc; border-radius: 6px; padding: 10px; margin-bottom: 12px;">
             <div style="font-size: 11px; font-weight: 600; color: #0f172a; margin-bottom: 6px;">

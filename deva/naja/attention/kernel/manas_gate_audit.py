@@ -32,6 +32,7 @@ action_type）和一句**理由**（action_gate_reason，形如「策略不自�
       绝不能影响决策本身。
 """
 
+import re
 from collections import deque
 from datetime import datetime
 from typing import Any, Deque, Dict, List, Optional
@@ -39,6 +40,13 @@ from typing import Any, Deque, Dict, List, Optional
 import logging
 
 log = logging.getLogger(__name__)
+
+#: reason 里连续变化的数值（regime-0.47 / 折扣0.78 / 天时0.46 …）。
+#: ❗折叠判等时必须剥掉这些数字，否则同一句「环境阻力」会因为逆风数值
+#: 每几秒漂一次而被拆成 19 行，把 recent(20) 全占满 —— 用户看到满屏
+#: 「被拒绝」，恰好就是本项目实际发生的现象。数值本身仍在 entry 的
+#: regime_score / discount 等字段里逐条保留，折叠只影响「同类算几行」。
+_REASON_DRIFT_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 #: NB 表名（与 attention/tracking 下的表命名风格一致）
 GATE_AUDIT_TABLE = "naja_manas_gate_audit"
@@ -136,39 +144,67 @@ class GateAuditLog:
         }
 
     @staticmethod
-    def _is_same_decision(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    def _fold_key(reason: Any) -> str:
+        """折叠判等用的 reason：剥掉连续漂移的数值，只留语义骨架。
+
+        「逆风(regime-0.47)」与「逆风(regime-0.50)」是同一类拒绝，不该占两行。
+        剥完仍保留「环境阻力 / 主因 / 行动 / ✗未通过」这些可解释信息。
+        """
+        return _REASON_DRIFT_RE.sub("#", str(reason or ""))
+
+    @classmethod
+    def _is_same_decision(cls, a: Dict[str, Any], b: Dict[str, Any]) -> bool:
         return (a.get("action_type") == b.get("action_type")
                 and a.get("should_act") == b.get("should_act")
-                and a.get("reason") == b.get("reason"))
+                and cls._fold_key(a.get("reason")) == cls._fold_key(b.get("reason")))
 
     # ── 读取 ────────────────────────────────────────────────────────────────
 
-    def recent(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """最近的判定记录（时间正序）。"""
+    def recent(self, limit: int = 20, should_act: Optional[bool] = None) -> List[Dict[str, Any]]:
+        """最近的判定记录（时间正序）。
+
+        ``should_act=True`` 只看通过、``False`` 只看拒绝，``None`` 全部。
+        通过记录本就稀少，放在整段里会被高频拒绝挤出 recent —— 分流后 UI
+        才能把它单独置顶，而不是让用户以为「一条通过都没有」。
+        """
         if limit <= 0:
             return []
-        return [dict(e) for e in list(self._entries)[-limit:]]
+        entries = list(self._entries)
+        if should_act is not None:
+            entries = [e for e in entries if bool(e.get("should_act")) is bool(should_act)]
+        return [dict(e) for e in entries[-limit:]]
 
     def stats(self) -> Dict[str, Any]:
-        """汇总：总判定次数、拒绝率、首次/最近时间、Top 拒绝理由。"""
+        """汇总：总判定次数、通过/拒绝率、档位分布、首末时间、Top 理由。"""
         if not self._entries:
             return {
-                "total_decisions": 0, "hold_ratio": None,
+                "total_decisions": 0, "hold_ratio": None, "act_ratio": None,
+                "acted": 0, "held": 0, "by_action_type": {},
                 "first_ts": None, "last_ts": None, "top_reasons": [],
             }
 
         total = sum(e.get("occurrences", 1) for e in self._entries)
         holds = sum(e.get("occurrences", 1) for e in self._entries if not e.get("should_act"))
+        acts = total - holds
 
         reason_counts: Dict[str, int] = {}
+        action_counts: Dict[str, int] = {}
         for e in self._entries:
-            key = e.get("reason") or "(空)"
-            reason_counts[key] = reason_counts.get(key, 0) + e.get("occurrences", 1)
+            n = e.get("occurrences", 1)
+            # 理由也按归一化的语义骨架聚合，避免同一类拒绝拆成十几行
+            key = self._fold_key(e.get("reason")) or "(空)"
+            reason_counts[key] = reason_counts.get(key, 0) + n
+            at = str(e.get("action_type") or "unknown")
+            action_counts[at] = action_counts.get(at, 0) + n
         top_reasons = sorted(reason_counts.items(), key=lambda kv: kv[1], reverse=True)[:5]
 
         return {
             "total_decisions": total,
             "hold_ratio": round(holds / total, 4) if total else None,
+            "act_ratio": round(acts / total, 4) if total else None,
+            "acted": acts,
+            "held": holds,
+            "by_action_type": action_counts,
             "first_ts": self._entries[0].get("ts"),
             "last_ts": self._entries[-1].get("ts"),
             "top_reasons": [{"reason": r, "count": c} for r, c in top_reasons],

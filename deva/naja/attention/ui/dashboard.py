@@ -202,9 +202,11 @@ def _get_gate_audit_state() -> Dict[str, Any]:
             "available": True,
             "stats": log.stats(),
             "recent": log.recent(limit=20),
+            # ❗通过单列，避免被高频拒绝挤出 recent；UI 可置顶展示
+            "recent_approved": log.recent(limit=10, should_act=True),
         }
     except Exception:
-        return {"available": False, "stats": {}, "recent": []}
+        return {"available": False, "stats": {}, "recent": [], "recent_approved": []}
 
 
 def _get_strategy_learning_state(os) -> Dict[str, Any]:
@@ -323,9 +325,9 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "event_encoder": {"enabled": False, "encoded_events": [], "encoding_summary": {"total_encoded": 0}},
         "multi_scorer": {"enabled": False, "heads": {}, "fusion_result": {}},
         "manas_engine": {"available": False, "timing_engine": {}, "regime_engine": {}, "output": {}},
-        "manas_gate_audit": {"available": False, "stats": {}, "recent": []},
-        "decision_plan": {"available": False, "latest": None, "recent": [],
-                          "stats": {"total": 0, "shown": 0, "approved": 0,
+        "manas_gate_audit": {"available": False, "stats": {}, "recent": [], "recent_approved": []},
+        "decision_plan": {"available": False, "latest": None, "recent": [], "recent_approved": [],
+                          "stats": {"total": 0, "shown": 0, "approved": 0, "rejected": 0,
                                     "actionable": 0, "persisted": False}},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},
         "attention_memory": {"enabled": False, "total_events": 0, "recent_events": []},
