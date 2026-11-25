@@ -64,14 +64,6 @@ class WakeOrchestrator:
         except:
             pass
 
-        if sleep_hours < self.SKIP_THRESHOLD_HOURS and last_active is not None and has_jin10_cache:
-            log.info(f"[WakeOrchestrator] 休眠不足 {self.SKIP_THRESHOLD_HOURS} 小时，且有金十缓存，跳过补作业")
-            return {
-                "success": True,
-                "action": "skipped",
-                "reason": f"休眠时长 {sleep_hours:.2f}h < {self.SKIP_THRESHOLD_HOURS}h 阈值",
-            }
-
         results = {
             "success": True,
             "sleep_hours": round(sleep_hours, 2),
@@ -79,14 +71,36 @@ class WakeOrchestrator:
             "wake_sync": None,
         }
 
-        if last_active:
-            results["recovery"] = self._recover_components()
-            results["wake_sync"] = self._sync_external_data(last_active, sleep_hours)
-        else:
-            log.info("[WakeOrchestrator] 无上次活跃时间记录，做组件恢复 + 金十数据同步")
-            results["recovery"] = self._recover_components()
-            results["wake_sync"] = self._sync_jin10_only()
+        # ❗组件状态恢复 与 数据补齐 是两件事，绝不能共用同一个阈值。
+        #
+        # 这里曾经写成：``sleep_hours < 1h 且有金十缓存 → 直接 return``，
+        # 把 ``_recover_components()`` 一起短路掉了。后果（2026-10-20 23:50）：
+        # 一次只停了 3 分钟的重启，5 个数据源全部停在 stopped，整整一个交易日
+        # 没产数（realtime_tick_5s 的 run_count=0、total_emitted=0），
+        # 而 NB 里这些条目的 ``was_running`` 明明是 True —— 台账说「该在跑」，
+        # 进程里一个都没起来。
+        #
+        # 休眠时长只该决定「要不要补历史数据」；「上次在跑的东西重新拉起来」
+        # 是无条件的，否则任何一次短重启都等于把整个运行时停摆。
+        results["recovery"] = self._recover_components()
 
+        if last_active is None:
+            log.info("[WakeOrchestrator] 无上次活跃时间记录，仅做金十数据同步")
+            results["wake_sync"] = self._sync_jin10_only()
+            return results
+
+        if sleep_hours < self.SKIP_THRESHOLD_HOURS and has_jin10_cache:
+            reason = (
+                f"休眠时长 {sleep_hours:.2f}h < {self.SKIP_THRESHOLD_HOURS}h 阈值"
+                "（组件状态恢复已照常执行，仅跳过数据补齐）"
+            )
+            log.info(f"[WakeOrchestrator] 休眠不足 {self.SKIP_THRESHOLD_HOURS} 小时，且有金十缓存，跳过补作业")
+            results["action"] = "skipped"
+            results["reason"] = reason
+            results["wake_sync"] = {"success": True, "skipped": True, "reason": reason}
+            return results
+
+        results["wake_sync"] = self._sync_external_data(last_active, sleep_hours)
         return results
 
     def _sync_jin10_only(self) -> Dict[str, Any]:

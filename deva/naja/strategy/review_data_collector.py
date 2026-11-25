@@ -197,18 +197,52 @@ class ReviewDataCollector:
         - 今日新闻数量
 
         从持久化的每日摘要中读取（只读状态，不读实体）
+
+        空态必须分三种，不能都塌成一个空列表：
+        - ``ok`` + 空列表：摘要正常、今天确实没收录到新闻；
+        - ``no_data`` + reason：摘要根本没生成（表空 / 当天无记录）→ 链路断了；
+        - ``error``：读表抛异常。
+        早先无论哪种都返回 ``ok``，报告因此把「没数据」渲染成「暂无重要舆情」，
+        让一次新闻链路全断的事故看起来像「今天市场很平静」。
         """
         try:
             from deva import NB
 
             nb = NB("naja_radar_news")
-            daily_summary = nb.get("daily_summary", {})
+            daily_summary = nb.get("daily_summary")
 
             today = datetime.now().strftime('%Y-%m-%d')
-            today_data = daily_summary.get(today, {})
-
             yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+
+            if not isinstance(daily_summary, dict) or not daily_summary:
+                log.warning(
+                    "[ReviewDataCollector] 新闻摘要为空: naja_radar_news.daily_summary 不存在，"
+                    "新闻雷达链路未产出，本次复盘不展示舆情"
+                )
+                return {
+                    "status": "no_data",
+                    "reason": "新闻摘要未生成（naja_radar_news.daily_summary 不存在）",
+                    "total_news": 0,
+                    "macro_news": [],
+                    "industry_news": [],
+                }
+
+            today_data = daily_summary.get(today, {})
             yesterday_data = daily_summary.get(yesterday, {})
+
+            if not today_data:
+                latest = max(daily_summary.keys())
+                log.warning(
+                    f"[ReviewDataCollector] 今日无新闻摘要记录（最新一次: {latest}）"
+                )
+                return {
+                    "status": "no_data",
+                    "reason": f"今日（{today}）无新闻摘要记录，最近一次为 {latest}",
+                    "total_news": 0,
+                    "macro_news": [],
+                    "industry_news": [],
+                    "last_updated": latest,
+                }
 
             return {
                 "status": "ok",

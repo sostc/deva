@@ -48,9 +48,32 @@ def _warn_throttled(key: str, message: str, cooldown: int = _WARN_COOLDOWN_SEC):
     log.warning(message)
 
 
+# ❗守护进程（launchd 拉起）的 PATH 只有 /usr/bin:/bin:/usr/sbin:/sbin，
+# 里面没有 Homebrew 的 /opt/homebrew/bin —— 而 imsg 就装在那儿。
+# 只靠 shutil.which() 会永远返回 None，于是每次都告警并降级 osascript。
+# 这里显式补一组常见安装位置做兜底，让「命令存在但 PATH 太窄」不再误判。
+_IMSG_CANDIDATES = (
+    "/opt/homebrew/bin/imsg",
+    "/usr/local/bin/imsg",
+    "/opt/local/bin/imsg",
+)
+
+
 def _imsg_bin() -> Optional[str]:
     """定位 imsg CLI，找不到返回 None（注意：正确的命令名是 imsg，不是 imesg）"""
-    return shutil.which("imsg")
+    found = shutil.which("imsg")
+    if found:
+        return found
+    for path in _IMSG_CANDIDATES:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    # 最后再试一次：把 Homebrew 目录临时拼进 PATH 再 which
+    extra = os.environ.get("NAJA_IMSG_EXTRA_PATH", "/opt/homebrew/bin:/usr/local/bin")
+    if extra:
+        found = shutil.which("imsg", path=f"{os.environ.get('PATH', '')}:{extra}")
+        if found:
+            return found
+    return None
 
 
 # 发送 iMessage 通知的函数

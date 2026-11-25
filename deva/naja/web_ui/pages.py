@@ -117,6 +117,12 @@ async def watchdesk():
     await render_watch_desk(ctx)
 
 
+async def georisk():
+    """东南亚 AI 算力风险监控（未启用时只显示未启用，不建库）"""
+    from deva.naja.geo_risk.ui import render_geo_risk
+    await render_geo_risk(_ctx())
+
+
 async def bandit_attribution():
     """Bandit 盈亏归因分析"""
     from deva.naja.bandit.attribution_ui import render_attribution_page

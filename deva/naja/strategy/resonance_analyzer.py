@@ -56,9 +56,19 @@ class ResonanceAnalyzer:
         """
         self._extract_keywords(market_focus, news_focus, internal_changes)
 
+        # 三路数据只要有一路没成功，就不能断言「无共振」：
+        # 「看不见」和「确实没有」是两件事，后者才是能拿去交易的建议。
+        missing = []
+        if market_focus.get("status") != "ok":
+            missing.append("行情")
+        if news_focus.get("status") != "ok":
+            missing.append("舆情")
+        if internal_changes.get("status") != "ok":
+            missing.append("内部变化")
+
         resonances = self._calculate_resonances()
         overall_score = self._calculate_overall_score(resonances)
-        conclusion = self._generate_conclusion(resonances, overall_score)
+        conclusion = self._generate_conclusion(resonances, overall_score, missing)
 
         return {
             "status": "ok",
@@ -68,6 +78,7 @@ class ResonanceAnalyzer:
             "resonances": resonances,
             "overall_score": overall_score,
             "conclusion": conclusion,
+            "data_missing": missing,
         }
 
     def _extract_keywords(
@@ -233,18 +244,39 @@ class ResonanceAnalyzer:
 
         return round(sum(scores) / len(scores), 2)
 
-    def _generate_conclusion(self, resonances: Dict[str, Any], overall_score: float) -> str:
-        """生成共振结论"""
+    def _generate_conclusion(
+        self,
+        resonances: Dict[str, Any],
+        overall_score: float,
+        missing: Optional[List[str]] = None,
+    ) -> str:
+        """生成共振结论
+
+        missing 非空时必须降级为「无法判断」：缺一路数据就无法证明共振存在，
+        但这**不等于**「确认没有共振」。把「看不见」写成「没有」，会直接变成
+        一条方向错误的交易建议（2026-10-21 复盘即如此：舆情链路全断，
+        报告却输出「无共振 → 保持中性」）。
+        """
+        missing = missing or []
         resonance_count = sum(1 for r in resonances.values() if r.get("resonance"))
 
         if resonance_count == 3:
-            return "三重共振 → 大机会/大风险，积极操作"
+            base = "三重共振 → 大机会/大风险，积极操作"
         elif resonance_count == 2:
-            return "双重共振 → 机会存在，顺势而为"
+            base = "双重共振 → 机会存在，顺势而为"
         elif resonance_count == 1:
-            return "单点共振 → 谨慎观望"
+            base = "单点共振 → 谨慎观望"
         else:
-            return "无共振 → 保持中性，等待信号"
+            base = "无共振 → 保持中性，等待信号"
+
+        if not missing:
+            return base
+        if resonance_count == 0:
+            return (
+                f"无法判断 → {'/'.join(missing)}数据缺失，"
+                f"既不能确认共振、也不能排除，不作为信号依据"
+            )
+        return f"{base}（注：{'/'.join(missing)}数据缺失，结论可能不完整）"
 
 
 def get_resonance_analyzer() -> ResonanceAnalyzer:

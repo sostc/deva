@@ -1020,7 +1020,10 @@ class MenuBarTray:
                     from deva.llm.client import sync_gpt
                     try:
                         summary = sync_gpt(prompt)
-                    except Exception:
+                    except Exception as e:
+                        from deva.llm.errors import is_non_retryable
+                        if is_non_retryable(e):
+                            raise
                         # 启动时端口还活着、之后才死掉的本地代理会落到这里
                         # （启动期清洗当时判定它是"活代理"因而保留了它）。
                         # sanitize_proxy_env() 返回非空 = 确实剔掉了死代理，
@@ -1059,23 +1062,21 @@ class MenuBarTray:
 
     @staticmethod
     def _summarize_error_hint(exc):
-        """把大模型调用异常翻译成一句**可操作**的中文提示。
+        """把 LLM 异常类型翻译成一句**可操作**的中文提示。
 
-        原来失败时只显示裸的 ``Connection error.``——用户完全不知道
-        该去看哪里。而连接类错误绝大多数是代理/网络不可达（2026-10-13
-        的「一键总结失效」正是被一个已失效的本地代理劫持），所以这里
-        直接点明排查方向，让错误自证。
+        只按异常类型判断，不再匹配错误文案。
         """
-        text = str(exc)
-        if any(k in text for k in (
-            "Connection error", "ConnectError", "APIConnectionError",
-            "All connection attempts failed", "timed out", "Timeout",
-        )):
-            return "网络/代理不可达，请检查代理是否运行"
-        if "401" in text or "Unauthorized" in text or "AuthenticationError" in text:
-            return "API Key 无效或过期"
-        if "402" in text or "Insufficient" in text or "quota" in text.lower():
+        from deva.llm.errors import (
+            LLMAuthError, LLMConfigError, LLMQuotaError, LLMServiceError, LLMTimeoutError,
+        )
+        if isinstance(exc, LLMQuotaError):
             return "余额或额度不足"
+        if isinstance(exc, LLMAuthError):
+            return "API Key 无效或过期"
+        if isinstance(exc, LLMConfigError):
+            return "模型配置缺失，请先完成配置"
+        if isinstance(exc, (LLMTimeoutError, LLMServiceError)):
+            return "网络/代理不可达，请检查代理是否运行"
         return "发生错误"
 
     def _build_summary_prompt(self, events):

@@ -121,6 +121,13 @@ class RealtimeDataFetcher:
         self._last_snapshot_save_time: float = 0.0
         self._snapshot_save_count: int = 0
         self._last_snapshot_prune_ts: float = 0.0   # 快照历史轮转的节流时间戳
+        # 快照采样间隔（秒）。快照是「复盘用的行情存档」，与取数档位（HIGH/MEDIUM/LOW）
+        # 无关：早期只在 LOW 档写快照，而 A 股几乎全在 HIGH 档，导致全天快照近乎为空，
+        # 复盘读不到当日行情（2026-10-21 事故）。改为独立节流，任何档位到点都落一次。
+        try:
+            self._snapshot_interval: float = float(os.getenv("NAJA_SNAPSHOT_INTERVAL", "300") or 300)
+        except Exception:
+            self._snapshot_interval = 300.0
 
         self._load_snapshot_config()
 
@@ -381,6 +388,10 @@ class RealtimeDataFetcher:
                 # 同步到热点系统
                 self._process_cn_hotspot(cn_df)
 
+                # 首次全量是全天唯一一次覆盖全市场的机会，必须落一次快照，
+                # 否则后续按档位取数只能覆盖几十只，复盘会误当成「全市场」。
+                self._record_snapshot_if_due(cn_df)
+
                 try:
                     from deva.naja.market_hotspot.integration import process_data_with_hotspots
                     hotspot_system = self._hotspot_ref()
@@ -451,6 +462,8 @@ class RealtimeDataFetcher:
                 us_df = self._convert_us_to_dataframe(us_data)
                 log.debug(f"[RealtimeDataFetcher] _convert_us_to_dataframe 返回: {us_df}, 类型: {type(us_df)}, 长度: {len(us_df) if us_df is not None else 'N/A'}")
                 if us_df is not None and len(us_df) > 0:
+                    # 同 A 股：首次全量落一次快照，保证全市场覆盖
+                    self._record_snapshot_if_due(us_df)
                     log.debug(f"[RealtimeDataFetcher] 调用 process_data (US)")
                     self._hotspot_system_inner.process_data(us_df, market='US')
                     log.debug(f"[RealtimeDataFetcher] process_data (US) 完成")
@@ -718,8 +731,7 @@ class RealtimeDataFetcher:
 
                 self._write_to_market_data_bus(data)
 
-                if level == "LOW" and self._save_snapshot_enabled:
-                    self._save_market_snapshot(data)
+                self._record_snapshot_if_due(data)
 
                 log.info(f"[RealtimeDataFetcher] [{level}] 获取 {len(data)} 条数据，累计 {self._fetch_count} 批")
 
@@ -760,8 +772,7 @@ class RealtimeDataFetcher:
                                 self._write_to_market_data_bus(us_df)
                                 self._fetch_count += 1
                                 self._us_fetch_count += 1
-                                if level == "LOW" and self._save_snapshot_enabled:
-                                    self._save_market_snapshot(us_df)
+                                self._record_snapshot_if_due(us_df)
                                 log.debug(f"[RealtimeDataFetcher] [{market}] 获取 {len(us_df)} 条数据，累计 {self._fetch_count} 批")
                                 # 触发策略执行
                                 try:
@@ -816,8 +827,7 @@ class RealtimeDataFetcher:
 
                 self._write_to_market_data_bus(data)
 
-                if level == "LOW" and self._save_snapshot_enabled:
-                    self._save_market_snapshot(data)
+                self._record_snapshot_if_due(data)
 
                 log.info(f"[RealtimeDataFetcher] [{market}] [{level}] 获取 {len(data)} 条数据，累计 {self._fetch_count} 批")
             else:
@@ -1357,6 +1367,20 @@ class RealtimeDataFetcher:
 
         except Exception as e:
             log.debug(f"[RealtimeDataFetcher] 处理美股热点失败: {e}")
+
+    def _record_snapshot_if_due(self, data: pd.DataFrame):
+        """到点才落一次行情快照（与取数档位解耦）。
+
+        快照服务的是「复盘/回放」这类离线消费方，需要的是覆盖全市场的当日存档；
+        而取数档位（HIGH/MEDIUM/LOW）服务的是实时性，两者节奏不该绑在一起。
+        这里只按时间节流，任何档位取到数据都可能触发落库，保证一天下来有足够采样。
+        """
+        if not self._save_snapshot_enabled:
+            return
+        now = time.time()
+        if now - self._last_snapshot_save_time < self._snapshot_interval:
+            return
+        self._save_market_snapshot(data)
 
     def _save_market_snapshot(self, data: pd.DataFrame):
         """保存市场快照到历史行情表（quant_snapshot_5min_window）"""

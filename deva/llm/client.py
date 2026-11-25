@@ -1,10 +1,19 @@
 import threading
 import time
 import traceback
-from openai import APIStatusError
+from openai import APIStatusError, APIConnectionError, APITimeoutError
 from ..core.namespace import NB
 from ..core.bus import log, warn, debug
 from .worker_runtime import run_ai_in_worker, run_sync_in_worker
+from .errors import (
+    LLMError,
+    LLMConfigError,
+    LLMResponseError,
+    LLMServiceError,
+    LLMTimeoutError,
+    friendly_message,
+    from_api_status,
+)
 from .config_utils import (
     build_model_config_example,
     build_model_config_message,
@@ -18,30 +27,27 @@ except ImportError:
     AsyncOpenAI = None
 
 
-def _get_friendly_error_message(error: Exception) -> str:
-    if isinstance(error, APIStatusError):
-        status_code = getattr(error, 'status_code', None) or getattr(error, 'code', None)
-        error_message = ""
-        if hasattr(error, 'response'):
-            try:
-                body = error.response.json() if hasattr(error.response, 'json') else {}
-                error_message = body.get('error', {}).get('message', str(error))
-            except Exception:
-                error_message = str(error)
-        
-        if status_code == 402 or 'Insufficient Balance' in error_message or '余额' in error_message:
-            return "API 余额不足，请充值后重试"
-        elif status_code == 401:
-            return "API 密钥无效或已过期，请检查配置"
-        elif status_code == 429:
-            return "请求过于频繁，请稍后重试"
-        elif status_code == 500:
-            return "API 服务内部错误，请稍后重试"
-        elif status_code == 503:
-            return "API 服务暂时不可用，请稍后重试"
-        else:
-            return f"API 错误 ({status_code}): {error_message}"
-    return f"请求失败: {type(error).__name__}: {error}"
+def _status_code(error: Exception):
+    """只认数值状态码；provider 的 code 若是字符串（如 invalid_api_key）不参与分类。"""
+    status = getattr(error, "status_code", None)
+    if status is None:
+        code = getattr(error, "code", None)
+        status = code if isinstance(code, int) else None
+    return status
+
+
+def _provider_message(error: Exception) -> str:
+    """仅用于展示/日志，不参与异常分类。"""
+    response = getattr(error, "response", None)
+    try:
+        body = response.json() if response is not None and hasattr(response, "json") else {}
+    except Exception:
+        return ""
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            return str(err.get("message") or "")
+    return ""
 
 
 
@@ -136,7 +142,7 @@ class GPT:
     def _ensure_model_ready(self):
         if not self._missing_configs:
             return
-        raise RuntimeError(
+        raise LLMConfigError(
             build_model_config_message(self.model_type, self._missing_configs)
             + " 请先完成配置。"
         )
@@ -151,6 +157,23 @@ class GPT:
             return await client.chat.completions.create(**kwargs)
         finally:
             await client.close()
+
+    def _raise_for_api_error(self, error: APIStatusError, label: str):
+        """按 HTTP 状态码抛对应异常；只有可重试错误才切换备用模型。"""
+        exc = from_api_status(_status_code(error), _provider_message(error))
+        {"level": "ERROR", "source": "deva.llm", "message": f"{label}: {exc}",
+         "traceback": traceback.format_exc()} >> warn
+        if exc.retryable:
+            self._switch_model()
+        raise exc from error
+
+    def _raise_transient(self, error: BaseException, label: str, *, timeout: bool):
+        exc = (LLMTimeoutError("LLM 请求超时") if timeout
+               else LLMServiceError(f"LLM 连接失败: {type(error).__name__}"))
+        {"level": "ERROR", "source": "deva.llm", "message": f"{label}: {exc}",
+         "traceback": traceback.format_exc()} >> warn
+        self._switch_model()
+        raise exc from error
     
     def sync_query(self, prompts):
         """
@@ -163,7 +186,7 @@ class GPT:
             str: 模型生成的文本
             
         异常:
-            Exception: 查询失败时抛出，并自动切换模型类型
+            LLMError 子类：配额/鉴权/配置错误不可重试，限流/服务/超时/空响应可重试。
         """
         try:
             if isinstance(prompts, str):
@@ -178,24 +201,26 @@ class GPT:
                 self._chat_create(messages=messages, stream=False, max_tokens=8000)
             )
             {"level": "DEBUG", "source": "deva.llm", "message": "sync query response received"} >> debug
-            
+
             # 检查响应是否有效
             if response is None or response.choices is None or len(response.choices) == 0:
-                raise RuntimeError("LLM 返回空响应")
-            
+                raise LLMResponseError("LLM 返回空响应")
+
             message_content = response.choices[0].message.content if response.choices[0].message else None
             if message_content is None:
-                raise RuntimeError("LLM 返回空消息内容")
-            
+                raise LLMResponseError("LLM 返回空消息内容")
+
             return message_content
         except APIStatusError as e:
-            friendly_msg = _get_friendly_error_message(e)
-            {"level": "ERROR", "source": "deva.llm", "message": f"同步查询失败: {friendly_msg}", "traceback": traceback.format_exc()} >> warn
-            self._switch_model()
-            raise RuntimeError(friendly_msg) from e
+            self._raise_for_api_error(e, "同步查询失败")
+        except (TimeoutError, APITimeoutError) as e:
+            self._raise_transient(e, "同步查询失败", timeout=True)
+        except APIConnectionError as e:
+            self._raise_transient(e, "同步查询失败", timeout=False)
+        except LLMError:
+            raise
         except Exception as e:
             {"level": "ERROR", "source": "deva.llm", "message": "同步查询失败", "traceback": traceback.format_exc()} >> warn
-            self._switch_model()
             raise
 
     async def async_query(self, prompts):
@@ -209,7 +234,7 @@ class GPT:
             str: 模型生成的文本
             
         异常:
-            Exception: 查询失败时抛出，并自动切换模型类型
+            LLMError 子类：配额/鉴权/配置错误不可重试，限流/服务/超时/空响应可重试。
         """
         try:
             if isinstance(prompts, str):
@@ -222,27 +247,29 @@ class GPT:
             )
 
             if completion is None:
-                raise RuntimeError("异步查询返回结果为空，请稍后重试")
+                raise LLMResponseError("异步查询返回结果为空")
 
             if not completion.choices:
                 log.error(f"[LLM调用来源]\n{''.join(traceback.format_stack())}")
                 log.error(f"[LLM响应详情] completion={completion}, dir={dir(completion)}")
                 if hasattr(completion, 'model_dump'):
                     log.error(f"[LLM响应] model_dump={completion.model_dump()}")
-                raise RuntimeError("异步查询返回结果为空，choices 为空")
+                raise LLMResponseError("异步查询返回结果为空，choices 为空")
 
             if completion.choices[0].message is None:
-                raise RuntimeError("异步查询返回结果为空，message 为 None")
+                raise LLMResponseError("异步查询返回结果为空，message 为 None")
 
             return completion.choices[0].message.content
         except APIStatusError as e:
-            friendly_msg = _get_friendly_error_message(e)
-            {"level": "ERROR", "source": "deva.llm", "message": f"异步查询失败: {friendly_msg}", "traceback": traceback.format_exc()} >> warn
-            self._switch_model()
-            raise RuntimeError(friendly_msg) from e
+            self._raise_for_api_error(e, "异步查询失败")
+        except (TimeoutError, APITimeoutError) as e:
+            self._raise_transient(e, "异步查询失败", timeout=True)
+        except APIConnectionError as e:
+            self._raise_transient(e, "异步查询失败", timeout=False)
+        except LLMError:
+            raise
         except Exception as e:
             {"level": "ERROR", "source": "deva.llm", "message": "异步查询失败", "traceback": traceback.format_exc()} >> warn
-            self._switch_model()
             raise
             
     async def async_json_query(self, prompts):
@@ -259,24 +286,36 @@ class GPT:
         >>> response = await gpt.async_json_query("返回JSON格式的天气数据")
         >>> print(response)  # 输出: {"weather": "sunny", "temperature": 25}
         """
-        if isinstance(prompts, str):
-            prompts = [prompts]
-            
-        messages = [{"role": "user", "content": prompt} for prompt in prompts]
-        
-        completion = await run_ai_in_worker(
-            self._chat_create(
-                messages=messages,
-                stream=False,
-                max_tokens=8000,
-                response_format={'type': 'json_object'}
+        try:
+            if isinstance(prompts, str):
+                prompts = [prompts]
+
+            messages = [{"role": "user", "content": prompt} for prompt in prompts]
+
+            completion = await run_ai_in_worker(
+                self._chat_create(
+                    messages=messages,
+                    stream=False,
+                    max_tokens=8000,
+                    response_format={'type': 'json_object'}
+                )
             )
-        )
 
-        if completion is None:
-            raise RuntimeError("异步查询返回结果为空，请稍后重试")
+            if completion is None or not getattr(completion, "choices", None):
+                raise LLMResponseError("异步 JSON 查询返回结果为空")
 
-        return completion.choices[0].message.content
+            return completion.choices[0].message.content
+        except APIStatusError as e:
+            self._raise_for_api_error(e, "异步 JSON 查询失败")
+        except (TimeoutError, APITimeoutError) as e:
+            self._raise_transient(e, "异步 JSON 查询失败", timeout=True)
+        except APIConnectionError as e:
+            self._raise_transient(e, "异步 JSON 查询失败", timeout=False)
+        except LLMError:
+            raise
+        except Exception as e:
+            {"level": "ERROR", "source": "deva.llm", "message": "异步 JSON 查询失败", "traceback": traceback.format_exc()} >> warn
+            raise
     
     async def close(self):
         """关闭客户端连接，释放资源"""
@@ -341,9 +380,9 @@ async def get_gpt_response(prompt, display_func=None, flush_interval=3):
     
     try:
         text = await get_gpt().async_query(prompt)
-    except Exception:
-        {"level": "ERROR", "source": "deva.llm", "message": "请求失败", "traceback": traceback.format_exc()} >> warn
-        display_func("当前请求人数过多，请稍后重试~~")
+    except Exception as e:
+        {"level": "ERROR", "source": "deva.llm", "message": f"请求失败: {e}", "traceback": traceback.format_exc()} >> warn
+        display_func(friendly_message(e))
         return
     if text:
         for paragraph in str(text).split("\n"):

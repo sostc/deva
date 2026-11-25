@@ -13,6 +13,7 @@ Radar News Fetcher - 感知系统/新闻抓取/舆情
 import hashlib
 import json
 import random
+import re
 import threading
 import time
 import logging
@@ -44,6 +45,128 @@ def _radar_news_log(msg: str):
     """雷达新闻日志"""
     if os.environ.get("NAJA_RADAR_DEBUG") == "true":
         log.info(f"[Radar-News] {msg}")
+
+
+# ── 舆情分类 ─────────────────────────────────────────────
+# 归属「宏观」的主题名（NEWS_TOPIC_KEYWORDS 里的 topic_name），其余主题都算行业
+MACRO_TOPICS = frozenset({
+    "宏观/美联储", "宏观/通胀", "宏观经济", "地缘政治", "国际贸易",
+    "自然灾害", "公共卫生", "外汇/美元", "外汇/人民币", "外汇/欧元",
+    "人物/政治", "政治事件", "国际组织", "大宗商品/原油", "大宗商品/黄金",
+})
+
+# 公司层面主题优先于宏观：「财报超预期、营收增长30%」会同时命中
+# 企业业绩和宏观经济（"增长"挂在宏观经济下），若按宏观优先处理，
+# 全部公司新闻都会被吃进宏观桶，行业热点永远空着。
+COMPANY_TOPICS = frozenset({"企业业绩", "企业动态"})
+
+# 注册表没覆盖但日报需要的补充词（降息/降准、财报类在注册表里没有或不够）
+EXTRA_MACRO_KEYWORDS = (
+    "降息", "降准", "贴现率", "国债", "非农", "cpi", "ppi", "gdp",
+    "财政", "赤字", "债务上限", "政府停摆", "地缘", "冲突", "谈判",
+    "外交", "外长", "会晤", "磋商", "封锁", "禁运", "反制", "峰会",
+    # 注册表的地缘政治词只有国名（乌克兰/俄罗斯…），军事事件命中不了，
+    # 「胡塞武装发射弹道导弹瞄准亚丁机场」会只因「机场」被判成交通运输行业。
+    "导弹", "空袭", "停火", "武装", "国防部", "军事", "战事", "袭击",
+)
+EXTRA_INDUSTRY_KEYWORDS = (
+    "财报", "业绩", "营收", "利润", "毛利率", "净利润", "预增", "预亏",
+    "超预期", "不及预期", "订单", "产能", "销量", "出货量", "中标",
+    "涨价", "提价", "降价", "裁员", "上市", "并购", "回购", "分红",
+)
+
+# 注册表里少数关键词过于宽泛，直接子串匹配会把无关新闻全吃进来：
+# 「数据」能命中金十**每一条**标题末尾的「金十数据X月X日讯」，
+# 结果「大数据/云计算」主题几乎覆盖全部新闻、行业桶被彻底污染。
+# 共享注册表认知系统也在用，不动它，这里换成更具体的词。
+WEAK_KEYWORD_OVERRIDES = {
+    "数据": ("大数据", "数据中心", "数据要素", "数据资产", "算力", "数据库"),
+    "增长": ("经济增长", "gdp增长", "增长放缓", "增长预期", "同比增长"),
+}
+
+# 金十标题里的媒体署名：署名之前是新闻本身，之后通常是正文摘要或播报模板
+_MEDIA_SIGN_RE = re.compile(r"金十(?:数据|期货|图示|数据整理|快讯|早餐|午评)")
+
+
+def _clean_title_for_classify(title: str) -> str:
+    """剥掉标题里的媒体署名，只留新闻本身
+
+    「【宁波建工：中标价11.58亿元】金十数据10月21日讯，宁波建工公告…」
+    → 「【宁波建工：中标价11.58亿元】」
+    """
+    text = (title or "").strip()
+    head = _MEDIA_SIGN_RE.split(text, maxsplit=1)[0].strip()
+    # 去掉切完残留的悬空标点
+    head = re.sub(r"[\s，,。；;：:、\-—]+$", "", head).strip()
+    # 署名就在开头时（「【金十期货图示】金十期货APP独家整理…」）会切出一个「【」，
+    # 整条新闻内容被切没了 —— 这种情况退回原文。
+    if len(re.findall(r"[\u4e00-\u9fff]", head)) < 2:
+        return text
+    return head or text
+
+
+def _cjk_ratio(text: str) -> float:
+    """汉字占「汉字+英文字母」的比例"""
+    cjk = len(re.findall(r"[\u4e00-\u9fff]", text or ""))
+    total = len(re.findall(r"[\u4e00-\u9fffA-Za-z]", text or ""))
+    return cjk / total if total else 0.0
+
+
+def _is_chinese_news(title: str) -> bool:
+    """是否中文新闻（英文版一律丢弃）
+
+    金十同一条快讯常同时推中英文两版、id 不同，去重拦不住，结果是
+    标题中英混排、count 翻倍。实测 47 条里 21 条纯英文（汉字占比 0.00）、
+    25 条纯中文（0.6+），0.3 是安全分界；「据匈牙利媒体Telex：…」这类
+    中文夹英文名占 0.49，仍算中文。
+    """
+    return _cjk_ratio(_clean_title_for_classify(title)) >= 0.3
+
+
+def _match_keyword(keyword: str, text: str) -> bool:
+    """关键词匹配
+
+    英文关键词必须整词匹配：`ai` 用子串匹配会命中 `Shanghai` / `said` /
+    `again`，把大量无关新闻误判成 AI 主题。
+    """
+    kw = keyword.lower()
+    if kw.isascii():
+        return re.search(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])", text) is not None
+    return kw in text
+
+
+def classify_news(title: str, content: str = "") -> Dict[str, Any]:
+    """给新闻打主题标签并判定宏观/行业归属
+
+    只按标题判定：金十的 content 是全文，常夹带「据数据显示」「拟上市」这类
+    套话，用全文匹配会让一条「数字人民币全面升级」因为正文提到「上市」
+    被归进企业动态，实测误判明显高于只看标题。
+
+    Returns:
+        {"topics": [主题名...], "macro": bool}
+    """
+    text = _clean_title_for_classify(title).lower()
+    topics: List[str] = []
+
+    for keyword, (_tid, topic_name) in NEWS_TOPIC_KEYWORDS.items():
+        if topic_name in topics:
+            continue
+        narrowed = WEAK_KEYWORD_OVERRIDES.get(keyword)
+        if narrowed is not None:
+            if any(alt in text for alt in narrowed):
+                topics.append(topic_name)
+        elif _match_keyword(keyword, text):
+            topics.append(topic_name)
+
+    # 公司层面主题优先，避免"营收增长30%"被「增长→宏观经济」吃进宏观桶
+    if any(t in COMPANY_TOPICS for t in topics):
+        return {"topics": topics, "macro": False}
+
+    is_macro = any(t in MACRO_TOPICS for t in topics)
+    if not is_macro and any(k in text for k in EXTRA_MACRO_KEYWORDS):
+        is_macro = True
+
+    return {"topics": topics, "macro": is_macro}
 
 
 def _extract_title_from_content(content: str, max_len: int = 60) -> str:
@@ -184,68 +307,210 @@ class RadarNewsProcessor:
 
     NEWS_TABLE = "naja_radar_news"
 
+    # 每日保留的宏观/行业标题条数上限（持久化累积，重启不丢）
+    MAX_TITLES_PER_DAY = 20
+
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         cfg = config or {}
         self._short_memory_size = int(cfg.get("short_memory_size", 100))
         self._short_memory: Deque[NewsItem] = deque(maxlen=self._short_memory_size)
         self._nb = None
+
+        # 去重：金十 flash_newest 每次返回滚动窗口（同一批新闻会被反复抓到），
+        # 不去重会让 count 每分钟把同一批重复计一遍、标题列表全是重复项。
+        self._seen_ids: set = set()
+        self._seen_date: str = datetime.now().strftime('%Y-%m-%d')
+
+        # 当日中文新闻条数：英文版不入库，count 不能再拿 _seen_ids 的长度
+        # （那里面中英文两版都算），单独计数并随 seen_ids 一起落库。
+        self._cn_count: int = 0
+        # 当日被丢弃的英文条数（去重后），用于观测金十中英文双发的实际比例
+        self._dropped_non_cn: int = 0
+
+        # 落库节流：原来每条新闻都触发一次「读全表→改→写回」，
+        # 一分钟 49 条就是 49 次全表重写，且并发下会互相覆盖。
+        self._persist_interval = float(cfg.get("persist_interval", 60))
+        self._last_persist_ts = 0.0
+
         self._load_from_persistence()
 
     def _load_from_persistence(self):
-        """从持久化存储加载新闻摘要"""
+        """从持久化存储加载新闻摘要与当日去重集合"""
         try:
             from deva import NB
             self._nb = NB(self.NEWS_TABLE)
 
             saved_summary = self._nb.get("daily_summary", {})
-            if saved_summary:
-                _radar_news_log(f"[RadarNewsProcessor] 从持久化恢复新闻摘要: {saved_summary.get('count', 0)} 条")
+            if isinstance(saved_summary, dict) and saved_summary:
+                today = datetime.now().strftime('%Y-%m-%d')
+                today_data = saved_summary.get(today, {})
+                _radar_news_log(
+                    f"[RadarNewsProcessor] 从持久化恢复新闻摘要: {today_data.get('count', 0)} 条"
+                )
+
+            # 恢复当日已见 id：进程重启后 count 不会归零、也不会重复计数
+            seen = self._nb.get("seen_ids", {})
+            if isinstance(seen, dict) and seen.get("date") == self._seen_date:
+                ids = seen.get("ids") or []
+                if isinstance(ids, (list, tuple, set)):
+                    self._seen_ids = {str(i) for i in ids}
+                    _radar_news_log(f"[RadarNewsProcessor] 恢复当日去重集合: {len(self._seen_ids)} 条")
+                try:
+                    self._cn_count = int(seen.get("cn_count") or 0)
+                except Exception:
+                    self._cn_count = 0
+                try:
+                    self._dropped_non_cn = int(seen.get("dropped_non_cn") or 0)
+                except Exception:
+                    self._dropped_non_cn = 0
         except Exception as e:
-            _radar_news_log(f"[RadarNewsProcessor] 加载持久化失败: {e}")
+            # 这里原来只写 debug 日志：NB 建不出来时整个持久化层直接失效却无人知晓
+            log.warning(f"[Radar-News] 加载持久化失败，新闻摘要将无法落库: {e}")
             self._nb = None
 
-    def _save_to_persistence(self):
-        """保存新闻摘要到持久化存储（只保存状态，不保存实体）"""
-        if not self._nb:
+    def _reset_if_new_day(self, today: str):
+        """跨天时重置去重集合与中文计数"""
+        if self._seen_date != today:
+            _radar_news_log(f"[RadarNewsProcessor] 跨天重置去重集合: {self._seen_date} -> {today}")
+            self._seen_date = today
+            self._seen_ids = set()
+            self._cn_count = 0
+            self._dropped_non_cn = 0
+            self._last_persist_ts = 0.0
+
+    def _record_seen(self, news: NewsItem) -> bool:
+        """记录已处理新闻 id，返回是否为新新闻（用于去重计数）
+
+        中文计数只累加中文新闻：英文版虽仍进 _seen_ids（避免每轮重复处理），
+        但不计入当日条数。
+        """
+        nid = str(getattr(news, "id", "") or "")
+        if not nid:
+            return True
+        if nid in self._seen_ids:
+            return False
+        self._seen_ids.add(nid)
+        if _is_chinese_news(getattr(news, "title", "") or ""):
+            self._cn_count += 1
+        return True
+
+    def note_non_chinese(self, news: NewsItem) -> None:
+        """记录被丢弃的英文新闻（按 id 去重，跨轮不重复计数）
+
+        金十同一批英文快讯每分钟都会重新返回，不去重会让这个计数虚高。
+        """
+        nid = str(getattr(news, "id", "") or "")
+        if nid:
+            if nid in self._seen_ids:
+                return
+            self._seen_ids.add(nid)
+        self._dropped_non_cn += 1
+
+    def is_new(self, news: NewsItem) -> bool:
+        """判断是否为本轮新新闻（只读，不改变状态）
+
+        金十 flash_newest 是滚动窗口，同一批新闻会被反复抓到；
+        抓取循环用它把重复项挡在认知引擎之外。
+        """
+        nid = str(getattr(news, "id", "") or "")
+        if not nid:
+            return True
+        self._reset_if_new_day(datetime.now().strftime('%Y-%m-%d'))
+        return nid not in self._seen_ids
+
+    def _save_to_persistence(self, force: bool = False):
+        """保存新闻摘要到持久化存储（只保存状态，不保存实体）
+
+        Args:
+            force: 忽略节流窗口立即落库（跨天、停止时使用）
+        """
+        # ❗必须用 `is None` 判断：DBStream 定义了 __len__，
+        # 空表时 bool(...) 为 False，`if not self._nb` 会让「表空」被当成
+        # 「对象不可用」直接 return —— 于是永远写不进第一条，表永远是空的。
+        if self._nb is None:
+            return
+
+        now = datetime.now()
+        if not force and self._last_persist_ts and (now.timestamp() - self._last_persist_ts) < self._persist_interval:
             return
 
         try:
-            now = datetime.now()
             today = now.strftime('%Y-%m-%d')
+            self._reset_if_new_day(today)
 
             saved_summary = self._nb.get("daily_summary", {})
-            existing_today = saved_summary.get(today, {})
+            if not isinstance(saved_summary, dict):
+                saved_summary = {}
+            existing_today = saved_summary.get(today) or {}
 
+            # 标题从 short_memory 取，但必须累加到已持久化的列表上：
+            # short_memory 只有 100 条且重启清空，只用它会丢掉当天早先的标题。
+            # 入库前先剥掉「金十数据X月X日讯」这类署名，日报直接拿这条标题展示。
+            # 英文版一律不进桶：金十中英文双发会让标题中英混排、count 翻倍。
             news_list = list(self._short_memory)
-            today_news = [
-                {"title": item.title, "source": item.source}
-                for item in news_list
+            today_items = [
+                item for item in news_list
                 if item.timestamp and item.timestamp.strftime('%Y-%m-%d') == today
             ]
+            cn_items = [item for item in today_items if _is_chinese_news(item.title)]
+            today_news = [
+                {"title": _clean_title_for_classify(item.title),
+                 "content": item.content or "",
+                 "source": item.source}
+                for item in cn_items
+            ]
 
-            macro_keywords = ["地缘政治", "宏观经济", "美联储", "通胀", "加息", "降息", "战争", "制裁", "经济"]
-            industry_keywords = ["财报", "业绩", "营收", "利润", "超预期", "不及预期"]
+            # 分类走统一关键词注册表（NEWS_TOPIC_KEYWORDS, ~80 个主题）。
+            # 原来手写的 9 个 macro / 6 个 industry 关键词实测 49 条新闻只命中 1 条，
+            # 舆情长期显示「暂无重要舆情」其实是分类器几乎不命中，不是真的没新闻。
+            macro_titles: List[str] = []
+            industry_titles: List[str] = []
+            for n in today_news:
+                title_l = n["title"].lower()
+                info = classify_news(n["title"])
+                if info["macro"]:
+                    macro_titles.append(n["title"])
+                elif info["topics"] or any(k in title_l for k in EXTRA_INDUSTRY_KEYWORDS):
+                    industry_titles.append(n["title"])
 
-            macro_titles = [n["title"] for n in today_news if any(kw in n["title"] for kw in macro_keywords)]
-            industry_titles = [n["title"] for n in today_news if any(kw in n["title"] for kw in industry_keywords)]
+            def _merge(old, new):
+                merged = []
+                for t in list(old or []) + list(new):
+                    if t and t not in merged:
+                        merged.append(t)
+                return merged[-self.MAX_TITLES_PER_DAY:]
+
+            merged_macro = _merge(existing_today.get("macro_titles"), macro_titles)
+            merged_industry = _merge(existing_today.get("industry_titles"), industry_titles)
 
             summary = {
-                "count": len(today_news),
-                "macro_count": len(macro_titles),
-                "macro_titles": macro_titles[-5:],
-                "industry_count": len(industry_titles),
-                "industry_titles": industry_titles[-5:],
+                # count = 当日去重后的**中文**新闻条数：重启后从持久化恢复，不会归零。
+                # 不能用 len(_seen_ids) —— 那里面中英文两版都算，会比真实条数高。
+                "count": self._cn_count,
+                "dropped_non_cn": self._dropped_non_cn,
+                "macro_count": len(merged_macro),
+                "macro_titles": merged_macro,
+                "industry_count": len(merged_industry),
+                "industry_titles": merged_industry,
                 "last_updated": now.isoformat(),
             }
 
             saved_summary[today] = summary
 
             recent_days = sorted(saved_summary.keys())[-7:]
-            trimmed_summary = {k: saved_summary[k] for k in recent_days}
+            trimmed_summary = {k: saved_summary[k] for k in recent_days if isinstance(saved_summary.get(k), dict)}
 
             self._nb["daily_summary"] = trimmed_summary
+            self._nb["seen_ids"] = {
+                "date": self._seen_date,
+                "ids": sorted(self._seen_ids),
+                "cn_count": self._cn_count,
+                "dropped_non_cn": self._dropped_non_cn,
+            }
+            self._last_persist_ts = now.timestamp()
         except Exception as e:
-            _radar_news_log(f"[RadarNewsProcessor] 保存持久化失败: {e}")
+            # 落库失败必须能看见，否则日报会把「写入坏了」显示成「今天没新闻」
+            log.warning(f"[Radar-News] 保存新闻摘要失败: {e}")
 
     def process(self, news: NewsItem) -> List[Dict]:
         """
@@ -253,12 +518,17 @@ class RadarNewsProcessor:
 
         1. 存入短期记忆（供雷达面板显示）
         2. 发送到认知系统进行深度处理
-        3. 持久化到 NB 存储
+        3. 持久化到 NB 存储（按 persist_interval 节流）
         """
         self._short_memory.append(news)
         self._send_to_cognition_simple(news)
-        self._save_to_persistence()
+        self._record_seen(news)
+        self._save_to_persistence(force=False)
         return []
+
+    def flush(self):
+        """立即落库（停止前调用，避免节流窗口内的最后一批新闻丢失）"""
+        self._save_to_persistence(force=True)
 
     def _send_to_cognition_simple(self, news: NewsItem) -> None:
         """发送原始新闻到认知系统进行深度处理"""
@@ -297,15 +567,22 @@ class RadarNewsProcessor:
             _radar_news_log(f"发送洞察池失败: {e}")
 
     def get_report(self) -> Dict:
-        """获取处理报告"""
+        """获取处理报告
+
+        只列中文新闻：金十中英文双发，直接取末 5 条会有一半是英文。
+        """
         recent_news = []
-        for item in list(self._short_memory)[-5:]:
+        for item in reversed(list(self._short_memory)):
+            if not _is_chinese_news(getattr(item, "title", "") or ""):
+                continue
             recent_news.append({
                 "id": item.id,
                 "title": item.title,
                 "source": item.source,
                 "timestamp": item.timestamp.isoformat(),
             })
+            if len(recent_news) >= 5:
+                break
 
         return {
             "short_memory_size": len(self._short_memory),
@@ -430,6 +707,12 @@ class RadarNewsFetcher:
 
         if self._fetch_thread:
             self._fetch_thread.join(timeout=5.0)
+
+        # 停止前强制落库，避免节流窗口内最后一批新闻丢失
+        try:
+            self.processor.flush()
+        except Exception as e:
+            log.warning(f"[Radar-News] 停止前落库失败: {e}")
 
         log.info("[Radar-News] 已停止")
 
@@ -607,6 +890,19 @@ class RadarNewsFetcher:
         news_list = self._fetch_news()
 
         for news in news_list:
+            # 金十 flash_newest 返回的是滚动窗口，同一批新闻每分钟会被重复抓到。
+            # 已在上一轮处理过的直接跳过，否则认知引擎 / 事件总线 / 摘要计数
+            # 都会被同一批新闻反复灌一遍。
+            if not self.processor.is_new(news):
+                continue
+
+            # 英文版直接丢弃：金十同一快讯常中英文双发（id 不同，去重拦不住），
+            # 英文进事件总线/认知/摘要只会让标题中英混排、条数翻倍。
+            if not _is_chinese_news(news.title):
+                self.processor.note_non_chinese(news)
+                _radar_news_log(f"跳过英文新闻: {(news.title or '')[:50]}")
+                continue
+
             self._fetch_count += 1
             _radar_news_log(f"获取新闻: {news.title[:50]}")
 

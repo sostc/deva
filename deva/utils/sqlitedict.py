@@ -448,6 +448,13 @@ class SqliteMultithread(Thread):
         self.daemon = True
         self.exception = None
         self._stop_requested = False  # 添加停止标志
+        # 2026-10-23：空闲自动提交。调用方（store.upsert / __setitem__ / _check_size_limit
+        # 删除等）合法地"先写后提交"，但只要有一条 commit 因异常/早退被跳过，写事务就
+        # 挂在连接上独占 WAL 写锁；其余连接要等满 busy_timeout(30s) 才报 database is locked，
+        # 而看门狗 60s 才回滚 —— 实测每次都会造成 1~2 分钟的全局写入失败风暴。
+        # 故：写入后 _idle_autocommit_after 秒内没有新请求，就主动提交，让写锁绝不久留。
+        self._idle_autocommit_after = 0.5
+        self._last_req_at = time.time()
         self.log = logging.getLogger('sqlitedict.SqliteMultithread')
         self.start()
 
@@ -457,8 +464,23 @@ class SqliteMultithread(Thread):
                 self.filename, isolation_level=None, check_same_thread=False, timeout=30.0)
         else:
             conn = sqlite3.connect(self.filename, check_same_thread=False, timeout=30.0)
-        conn.execute('PRAGMA journal_mode = %s' % self.journal_mode)
-        conn.execute('PRAGMA busy_timeout = 30000')
+        # PRAGMA 必须容错：此处位于主循环 try 之外，一旦因 database is locked 抛异常，
+        # 写入线程会直接死掉——该实例后续所有写请求静默丢失且不会触发惰性异常。
+        _pragma_err = None
+        for _attempt in range(3):
+            try:
+                conn.execute('PRAGMA journal_mode = %s' % self.journal_mode)
+                _pragma_err = None
+                break
+            except Exception as e:
+                _pragma_err = e
+                time.sleep(0.5 * (_attempt + 1))
+        if _pragma_err is not None:
+            self.log.warning(f'设置 journal_mode={self.journal_mode} 失败（沿用当前模式）: {_pragma_err}')
+        try:
+            conn.execute('PRAGMA busy_timeout = 30000')
+        except Exception as e:
+            self.log.warning(f'设置 busy_timeout 失败: {e}')
         conn.text_factory = str
         cursor = conn.cursor()
         conn.commit()
@@ -467,16 +489,42 @@ class SqliteMultithread(Thread):
         res = None
         max_consecutive_errors = 10
         error_count = 0
+        self._txn_since = None  # 悬挂事务看门狗起点（2026-10-22）
         
         while True:
             try:
-                req, arg, res, outer_stack = self.reqs.get(timeout=1.0)  # 添加超时
+                req, arg, res, outer_stack = self.reqs.get(timeout=0.3)  # 添加超时
                 error_count = 0  # 重置错误计数
+                self._last_req_at = time.time()
             except QueueEmpty:
                 # 检查是否应该继续运行
                 if getattr(self, '_stop_requested', False):
                     self.log.info('Stop requested, exiting thread loop')
                     break
+                # 空闲自动提交（2026-10-23）：见 __init__ 注释。写事务绝不久留。
+                try:
+                    if conn.in_transaction:
+                        now = time.time()
+                        if self._txn_since is None:
+                            self._txn_since = now
+                        idle = now - max(self._last_req_at, self._txn_since)
+                        if idle >= self._idle_autocommit_after:
+                            conn.commit()
+                            self._txn_since = None
+                        elif idle > 60:
+                            conn.rollback()
+                            self._txn_since = None
+                            self.log.warning('检测到悬挂超过 60s 的写事务，已回滚释放写锁')
+                    else:
+                        self._txn_since = None
+                except Exception as wd_err:
+                    # 提交失败（多半是别处持锁）：回滚释放，别把锁继续挂住
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    self._txn_since = None
+                    self.log.error(f'空闲自动提交失败，已回滚: {wd_err}')
                 continue
             except Exception as e:
                 error_count += 1
@@ -494,12 +542,36 @@ class SqliteMultithread(Thread):
                 self.log.info('Received stop signal, exiting gracefully')
                 break
             elif req == '--commit--':
-                conn.commit()
+                try:
+                    conn.commit()
+                finally:
+                    self._txn_since = None
                 if res:
                     res.put('--no more--')
             else:
                 try:
-                    cursor.execute(req, arg)
+                    # 2026-10-23：写/读语句遇 database is locked 时重试（0.1/0.3/0.9s）。
+                    # 上一次已回滚，重发同一条语句幂等（本项目只发 REPLACE/DELETE/CREATE/SELECT），
+                    # 可吃掉跨进程/跨连接的瞬时争锁，不再把异常攒到下一次调用引爆。
+                    _max_attempts = 3
+                    for _attempt in range(_max_attempts):
+                        try:
+                            cursor.execute(req, arg)
+                            break
+                        except sqlite3.OperationalError as _busy_err:
+                            _msg = str(_busy_err).lower()
+                            if 'locked' not in _msg and 'busy' not in _msg:
+                                raise
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                            self._txn_since = None
+                            if _attempt >= _max_attempts - 1:
+                                raise
+                            time.sleep(0.1 * (3 ** _attempt))
+                    if conn.in_transaction and self._txn_since is None:
+                        self._txn_since = time.time()
                 except Exception as err:
                     self.exception = (e_type, e_value, e_tb) = sys.exc_info()
                     inner_stack = traceback.extract_stack()
@@ -527,6 +599,14 @@ class SqliteMultithread(Thread):
                     for item in traceback.format_list(outer_stack):
                         self.log.error(item)
                     self.log.error('Exception will be re-raised at next call.')
+
+                    # 2026-10-22：语句失败后必须回滚，否则 Python 隐式开启的事务会一直
+                    # 挂着并长期占住 WAL 写锁（外层 commit 请求未必能入队），
+                    # 导致全库持续 database is locked。
+                    try:
+                        conn.rollback()
+                    except Exception as rb_err:
+                        self.log.error(f'rollback after error failed: {rb_err}')
 
                 if res:
                     for rec in cursor:
@@ -633,15 +713,25 @@ class SqliteMultithread(Thread):
             return None
 
     def commit(self, blocking=True):
+        """提交事务。
+
+        2026-10-22 事故修复：commit 请求必须**无条件入队**。
+        原实现走 `execute()`，而 `execute()` 开头会 `check_raise_error()`——只要该
+        SqliteDict 之前有一条语句失败（异常被惰性保存），commit 请求就抛异常、根本
+        没进队列；而此前 INSERT/REPLACE 已经隐式开了事务 → 写事务永久悬挂、
+        WAL 写锁永不释放，其余所有连接持续 `database is locked`（实测外部进程
+        25s 也抢不到写锁，而读一直正常）。故此处直接 put 队列，不再受惰性异常影响。
+        """
         if blocking:
-            # by default, we await completion of commit() unless
-            # blocking=False.  This ensures any available exceptions for any
-            # previous statement are thrown before returning, and that the
-            # data has actually persisted to disk!
-            self.select_one('--commit--')
+            res = Queue()
+            self.reqs.put(('--commit--', None, res, traceback.extract_stack()[:-1]))
+            try:
+                res.get(timeout=60.0)
+            except QueueEmpty:
+                self.log.warning('commit 等待超时(60s)，可能写入线程阻塞')
+            self.check_raise_error()
         else:
-            # otherwise, we fire and forget as usual.
-            self.execute('--commit--')
+            self.reqs.put(('--commit--', None, None, traceback.extract_stack()[:-1]))
 
     def close(self, force=False):
         if force:

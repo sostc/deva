@@ -23,6 +23,10 @@ _scheduler_manager = SchedulerManager()
 @dataclass
 class DataSourceMetadata(UnitMetadata):
     """数据源元数据"""
+    # ❗``enabled`` 以前只是个 UI 装饰：YAML 里写 ``enabled: false``、界面显示
+    # 「已停用」，但 ``restore_running_states()`` 只看 ``was_running``，
+    # 重启照样把它拉起来。停用一条数据源要么真的生效，要么别让人以为能停用。
+    enabled: bool = True
     source_type: str = "custom"
     config: Dict[str, Any] = field(default_factory=dict)
     interval: float = 5.0

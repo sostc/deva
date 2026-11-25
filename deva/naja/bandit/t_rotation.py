@@ -60,11 +60,13 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -179,6 +181,9 @@ class RotationRound:
     #: 持有期间的极值：正 T 记最高（判断回撤），倒 T 记最低（判断反弹）
     peak_price: float = 0.0
     trough_price: float = 0.0
+    #: 开仓那一刻的当日 VWAP。只用于事后复核「成交价折价了多少」，
+    #: 不参与任何判定（方案 B 观测项，2026-11-13）。
+    first_vwap: float = 0.0
 
     @property
     def is_open(self) -> bool:
@@ -211,6 +216,7 @@ class RotationRound:
             "effective_before": self.effective_before,
             "peak_price": self.peak_price,
             "trough_price": self.trough_price,
+            "first_vwap": self.first_vwap,
             "open": self.is_open,
         }
 
@@ -251,6 +257,14 @@ class TRotationEngine:
         self._lot_by_code: Dict[str, float] = {}
 
         self._on_round_event: List[Callable[[str, RotationRound], None]] = []
+
+        #: 方案 B（2026-11-13 用户批准）观测项：轮次了结后复核实现价差是否够
+        #: 覆盖「往返成本 + 0.05%」。**只记录，不阻断、不改任何下单行为**。
+        #: 进程内计数会被重启清零，长期统计以 naja.log 里的 EDGE_TOO_THIN
+        #: 行（整行 JSON，含轮次ID/标的/方向/价差/成本/VWAP/成交价/时间）为准。
+        self._edge_thin_count = 0
+        self._edge_ok_count = 0
+        self._edge_records: deque = deque(maxlen=200)
 
         errs = self._thresholds.validate()
         if errs:
@@ -678,6 +692,7 @@ class TRotationEngine:
             first_time=now,
             first_position_id=pos.position_id,
             effective_before=before,
+            first_vwap=snapshot.vwap,
             note=f"低吸 dev={snapshot.dev_vwap:.2f}%",
         )
         with self._lock:
@@ -763,6 +778,7 @@ class TRotationEngine:
             first_time=now,
             obligation_id=ob.obligation_id,
             effective_before=before,
+            first_vwap=snapshot.vwap,
             note=f"高抛 dev={snapshot.dev_vwap:+.2f}%",
         )
         with self._lock:
@@ -894,6 +910,7 @@ class TRotationEngine:
             f"兑现差价 {rnd.realized_edge:+.2f}（{(snapshot.last - rnd.first_price) / rnd.first_price * 100:+.2f}%）"
         )
         self._verify_conservation(rnd, now, session_open)
+        self._observe_edge(rnd, snapshot.vwap)
         return True, f"正T了结，兑现 {rnd.realized_edge:+.2f}"
 
     def _close_reverse_t(
@@ -939,7 +956,64 @@ class TRotationEngine:
             f"兑现差价 {rnd.realized_edge:+.2f}"
         )
         self._verify_conservation(rnd, now, None)
+        self._observe_edge(rnd, snapshot.vwap)
         return True, f"倒T买回，兑现 {rnd.realized_edge:+.2f}"
+
+    # ------------------------------------------------------------------
+    # 方案 B：成交后价差复核（纯观测，不参与任何判定）
+    # ------------------------------------------------------------------
+    #: 观测门槛的余量：往返成本 + 该值。低于门槛即记 EDGE_TOO_THIN。
+    EDGE_THIN_MARGIN_PCT = 0.05
+
+    def _observe_edge(self, rnd: RotationRound, exit_vwap: float = 0.0) -> None:
+        """轮次了结后复核实现价差 —— **只记录，不改变任何下单行为**。
+
+        2026-11-13 用户批准的方案 B：门槛 = 往返成本 + 0.05%。低于门槛时
+        留一条 ``EDGE_TOO_THIN`` 记录，用来回答「入场闸门的静态预估到底
+        和真实成交差多远」。这里绝不允许阻断、跳过或改判 —— 一旦动手就
+        变成新的判定逻辑，观测数据也就不干净了。
+
+        只对**已完成的配对轮次**（双腿都有成交价、状态为 CLOSED/FORCED）
+        生效；CARRIED（收盘转加仓）没有第二腿，不算配对，直接跳过。
+        """
+        if rnd.second_price <= 0 or rnd.status not in (ROUND_CLOSED, ROUND_FORCED):
+            return
+
+        cost_pct = self._thresholds_for(rnd.stock_code).round_trip_cost_pct()
+        threshold = cost_pct + self.EDGE_THIN_MARGIN_PCT
+        edge_pct = rnd.edge_pct
+
+        record = {
+            "round_id": rnd.round_id,
+            "stock_code": rnd.stock_code,
+            "kind": rnd.kind,
+            "status": rnd.status,
+            "forced": rnd.forced,
+            "qty": rnd.planned_qty,
+            "edge_pct": round(edge_pct, 4),
+            "realized_edge": round(rnd.realized_edge, 4),
+            "cost_pct": round(cost_pct, 4),
+            "threshold_pct": round(threshold, 4),
+            "gap_pct": round(edge_pct - threshold, 4),
+            "first_price": rnd.first_price,
+            "first_vwap": round(rnd.first_vwap, 4),
+            "second_price": rnd.second_price,
+            "second_vwap": round(exit_vwap, 4),
+            "first_time": int(rnd.first_time),
+            "second_time": int(rnd.second_time),
+        }
+        thin = edge_pct < threshold
+        with self._lock:
+            self._edge_records.append(record)
+            if thin:
+                self._edge_thin_count += 1
+            else:
+                self._edge_ok_count += 1
+        if thin:
+            log.warning(
+                "[TRotation] EDGE_TOO_THIN %s",
+                json.dumps(record, ensure_ascii=False),
+            )
 
     # ------------------------------------------------------------------
     # 减仓执行：按数量比例分摊，维持加权平均成本
@@ -1080,6 +1154,8 @@ class TRotationEngine:
                 rnd.forced = True
                 rnd.realized_edge = edge
                 self._verify_conservation(rnd, now, session_open_ts)
+                # 收工强平也是完整的配对轮次，一并纳入观测（无行情 VWAP，记 0）
+                self._observe_edge(rnd)
 
         # 正 T 只买未卖的：不追杀亏损平仓，把买入份额转为加仓
         # （标的本来就是长期持有，加仓不违背策略；但必须显式告知）
@@ -1157,7 +1233,13 @@ class TRotationEngine:
                 "rounds": len(self._rounds),
                 "open_rounds": sum(1 for r in self._rounds.values() if r.is_open),
                 "realized_edge": self.realized_edge_total(),
+                # 方案 B 观测项（纯记录，不影响任何判定）
+                "edge_ok": self._edge_ok_count,
+                "edge_too_thin": self._edge_thin_count,
+                "edge_thin_margin_pct": self.EDGE_THIN_MARGIN_PCT,
             },
+            #: 最近 10 条价差复核记录，供面板/巡检直接读
+            "edge_observations": list(self._edge_records)[-10:],
             "ledger": self._ledger.get_stats(),
             "thresholds": {
                 "round_trip_cost_pct": self._thresholds.round_trip_cost_pct(),

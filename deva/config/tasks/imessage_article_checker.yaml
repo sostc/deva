@@ -4,7 +4,7 @@ config:
   event_condition_type: contains
   event_source: log
   execution_mode: timer
-  interval_seconds: 60.0
+  interval_seconds: 300.0
   run_at: ''
   scheduler_trigger: interval
   task_type: interval

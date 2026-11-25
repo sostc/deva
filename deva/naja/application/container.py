@@ -120,6 +120,10 @@ class AppContainer:
         self.restore_runtime_state()
         StartupTimer.end("恢复运行状态")
 
+        StartupTimer.start("注册 geo_risk 定时任务")
+        self._register_geo_risk_jobs()
+        StartupTimer.end("注册 geo_risk 定时任务")
+
         duration = (time.time() - start) * 1000
         _record_boot_report({
             "success": True,
@@ -143,6 +147,16 @@ class AppContainer:
         sv.success(f"AppContainer 初始化完成，耗时 {duration:.0f}ms")
 
         log.info(StartupTimer.get_report())
+
+    def _register_geo_risk_jobs(self):
+        """NAJA_GEO_RISK_ENABLE=1 时才注册日更/周报；默认关闭，避免建生产库。"""
+        try:
+            from ..geo_risk.jobs import register_jobs
+            result = register_jobs()
+            if result.get("enabled"):
+                log.info("[GeoRisk] 已注册: %s", result.get("registered"))
+        except Exception as exc:  # noqa: BLE001 - 不能因可选模块拖垮启动
+            log.warning("[GeoRisk] 注册定时任务失败: %s", exc)
 
     def _register_singletons(self):
         """注册声明式单例（来自 register.py 的 SIMPLE_SINGLETONS + 自定义工厂）。

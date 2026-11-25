@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from deva import NB
 from deva.naja.register import SR
+from deva.llm.errors import LLMError
 
 log = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ class AutoTuner:
             self._llm_queue: deque = deque(maxlen=100)
             self._last_llm_call_ts = 0
             self._llm_cooldown = 300
+            self._llm_blocked_until = 0.0
             self._startup_grace_period = 86400
             self._startup_time = time.time()
             self._pending_llm_issues: List[Dict] = []
@@ -714,9 +716,21 @@ class AutoTuner:
             log.debug(f"[AutoTuner] 回放处理检查失败: {e}")
         return None
 
+    def _block_llm(self, reason: str):
+        """不可重试错误（402/鉴权/配置）→ 熔断 1 小时，避免每 5 分钟重试。"""
+        self._llm_blocked_until = time.time() + 3600
+        log.warning(f"[AutoTuner] LLM 熔断 1 小时: {reason}")
+
+    def _handle_llm_failure(self, result: Dict):
+        if result.get("retryable") is False:
+            self._block_llm(f"{result.get('error_type')}: {result.get('error')}")
+
     def _call_llm_for_tuning(self, issue: Dict):
         """调用 LLM 进行调优"""
         now = time.time()
+        if now < self._llm_blocked_until:
+            log.info("[AutoTuner] LLM 熔断中（不可重试错误），跳过")
+            return
         if now - self._last_llm_call_ts < self._llm_cooldown:
             log.info(f"[AutoTuner] LLM 调用冷却中，跳过")
             return
@@ -752,12 +766,15 @@ class AutoTuner:
                     issue['llm_action'] = decision.get('action', '无需操作')
                     issue['llm_success'] = True
                 else:
+                    self._handle_llm_failure(result)
                     log.warning(f"[AutoTuner] LLM 调优失败: {result.get('error')}")
                     issue['llm_suggestion'] = f"调优失败: {result.get('error')}"
                     issue['llm_success'] = False
 
             except Exception as e:
                 log.error(f"[AutoTuner] LLM 调优调用失败: {e}")
+                if isinstance(e, LLMError) and not e.retryable:
+                    self._block_llm(f"{e.kind}: {e}")
                 issue['llm_suggestion'] = f"调用失败: {str(e)}"
                 issue['llm_success'] = False
 
@@ -771,6 +788,10 @@ class AutoTuner:
     def _call_llm_for_tuning_batch(self, issues: List[Dict]):
         """批量调用 LLM 进行调优（合并多个问题一次提交）"""
         now = time.time()
+
+        if now < self._llm_blocked_until:
+            log.info("[AutoTuner] LLM 熔断中（不可重试错误），跳过批量调用")
+            return
 
         # 合并待处理的请求和新请求
         if self._pending_llm_issues:
@@ -818,6 +839,7 @@ class AutoTuner:
                         issue['llm_action'] = decision.get('action', '无需操作')
                         issue['llm_success'] = True
                 else:
+                    self._handle_llm_failure(result)
                     log.warning(f"[AutoTuner] LLM 批量调优失败: {result.get('error')}")
                     for issue in issues:
                         issue['llm_suggestion'] = f"调优失败: {result.get('error')}"
@@ -825,6 +847,8 @@ class AutoTuner:
 
             except Exception as e:
                 log.error(f"[AutoTuner] LLM 批量调优调用失败: {e}")
+                if isinstance(e, LLMError) and not e.retryable:
+                    self._block_llm(f"{e.kind}: {e}")
                 for issue in issues:
                     issue['llm_suggestion'] = f"调用失败: {str(e)}"
                     issue['llm_success'] = False

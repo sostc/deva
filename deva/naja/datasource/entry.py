@@ -847,7 +847,35 @@ class DataSourceEntry(RecoverableUnit):
                     if getattr(self, "_skip_reason_logged", "") != reason:
                         self._skip_reason_logged = reason
                         self._log("INFO", f"本次按设计跳过取数：{reason}")
-                elif data is not None:
+                elif isinstance(data, dict) and (
+                    data.get("success") is False
+                    or str(data.get("status", "")).strip().lower() in ("error", "failed")
+                ):
+                    # ❗与 _execute_scheduled_fetch 保持同一套语义。
+                    # 以前这条路径只看 ``data is not None``：数据源自己声明失败的
+                    # ``{"success": False, "error": "TimeoutError..."}`` 会被当成
+                    # 一条正常产出 emit 出去 —— total_emitted 涨、last_data_ts 刷新、
+                    # 页面显示「刚刚有数据」，实际最近一次成功可能是一天前。
+                    # 失败必须走失败路径：不 emit、不刷新 last_data_ts、不覆盖
+                    # latest_data（那是上一次成功的快照）。
+                    msg = data.get("message") or data.get("error") or data
+                    err = f"fetch_data 返回失败状态: {msg}"
+                    self._state.record_error(err)
+                    self._log("ERROR", "fetch_data failed", error=err)
+                elif data is None:
+                    # ❗另一条路径（_execute_scheduled_fetch）对 None 是按失败计的，
+                    # 这条路径以前完全静默：既不记 error 也不记 skip，
+                    # 于是「取数挂了」和「没跑」在台账上长得一模一样。
+                    self._state.record_error(
+                        "fetch_data 返回 None（未说明原因）；"
+                        "若属「按设计不取数」，请让它返回 {'skipped': 原因}"
+                    )
+                    self._log(
+                        "WARNING",
+                        "本次抓取返回 None 且未声明原因，按失败计；"
+                        "若属「按设计不取数」，请让 fetch_data 返回 {'skipped': 原因}",
+                    )
+                else:
                     # 支持批量数据发送
                     self._state.last_skip_reason = ""
                     self._skip_reason_logged = ""
@@ -1057,6 +1085,7 @@ class DataSourceEntry(RecoverableUnit):
                 "name": self._metadata.name,
                 "description": self._metadata.description,
                 "tags": self._metadata.tags,
+                "enabled": getattr(self._metadata, "enabled", True),
                 "source_type": getattr(self._metadata, "source_type", "custom"),
                 "config": getattr(self._metadata, "config", {}),
                 "interval": getattr(self._metadata, "interval", 5.0),
@@ -1083,6 +1112,7 @@ class DataSourceEntry(RecoverableUnit):
             name=metadata_data.get("name", "unnamed"),
             description=metadata_data.get("description", ""),
             tags=metadata_data.get("tags", []),
+            enabled=metadata_data.get("enabled", True),
             source_type=metadata_data.get("source_type", "custom"),
             config=metadata_data.get("config", {}),
             interval=metadata_data.get("interval", 5.0),

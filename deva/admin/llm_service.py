@@ -17,6 +17,8 @@ try:
 except Exception:
     submit_ai_coro = None
 
+from deva.llm.errors import friendly_message, from_api_status
+
 from ..llm.config_utils import (
     build_model_config_example,
     build_model_config_message,
@@ -25,29 +27,10 @@ from ..llm.config_utils import (
 
 
 def _get_friendly_api_error(error: Exception) -> str:
+    """按状态码给出提示；不解析错误文案。"""
     if APIStatusError and isinstance(error, APIStatusError):
-        status_code = getattr(error, 'status_code', None) or getattr(error, 'code', None)
-        error_message = ""
-        if hasattr(error, 'response'):
-            try:
-                body = error.response.json() if hasattr(error.response, 'json') else {}
-                error_message = body.get('error', {}).get('message', str(error))
-            except Exception:
-                error_message = str(error)
-        
-        if status_code == 402 or 'Insufficient Balance' in error_message or '余额' in error_message:
-            return "API 余额不足，请充值后重试"
-        elif status_code == 401:
-            return "API 密钥无效或已过期，请检查配置"
-        elif status_code == 429:
-            return "请求过于频繁，请稍后重试"
-        elif status_code == 500:
-            return "API 服务内部错误，请稍后重试"
-        elif status_code == 503:
-            return "API 服务暂时不可用，请稍后重试"
-        else:
-            return f"API 错误 ({status_code}): {error_message}"
-    return f"请求失败: {type(error).__name__}: {error}"
+        return friendly_message(from_api_status(getattr(error, "status_code", None)))
+    return friendly_message(error)
 
 
 async def get_gpt_response(ctx, prompt, session=None, scope=None, model_type="deepseek", flush_interval=3):

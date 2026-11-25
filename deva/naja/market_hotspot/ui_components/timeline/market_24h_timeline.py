@@ -57,10 +57,14 @@ except (TypeError, ValueError):
 
 _JIN10_CACHE_TTL: float = 180.0
 _JIN10_BACKOFF_AFTER_FAIL: float = 60.0
+# 浏览器未安装是环境缺失，不是可自愈的临时故障：每 3 分钟重试只会空烧 CPU
+# 并在日志里刷一整屏 Playwright 错误框。装好后需重启进程才会重新探测。
+_JIN10_BACKOFF_NO_BROWSER: float = 6 * 3600.0
 _jin10_lock = threading.Lock()
 _jin10_cache: Optional[List[Dict[str, Any]]] = None
 _jin10_cache_ts: float = 0.0
 _jin10_last_fail_ts: float = 0.0
+_jin10_browser_missing: bool = False
 
 
 def _jin10_cached_fresh() -> bool:
@@ -71,7 +75,11 @@ def _jin10_cached_fresh() -> bool:
 
 
 def _jin10_in_backoff() -> bool:
-    return (time.time() - _jin10_last_fail_ts) < _JIN10_BACKOFF_AFTER_FAIL
+    backoff = (
+        _JIN10_BACKOFF_NO_BROWSER if _jin10_browser_missing
+        else _JIN10_BACKOFF_AFTER_FAIL
+    )
+    return (time.time() - _jin10_last_fail_ts) < backoff
 
 
 def _jin10_force_fresh_news(items: List[Dict[str, Any]]) -> None:
@@ -627,15 +635,29 @@ def _fetch_jin10_via_playwright(today_start: float) -> List[Dict[str, Any]]:
             extra_wait=3.0,
         )
 
+    global _jin10_browser_missing
+
     try:
         log.info("[Timeline] 启动 Playwright 抓取金十要闻（全进程互斥）")
         live_news = asyncio.run(fetch_live())
     except Exception as e:
-        log.warning(f"[Timeline] Playwright 抓取失败: {e}")
+        err_text = str(e)
+        if "Executable doesn't exist" in err_text or "playwright install" in err_text:
+            # 浏览器缺失是确定性故障：拉长退避 + 只记一行，不再打印整屏安装指引
+            _jin10_browser_missing = True
+            log.warning(
+                "[Timeline] Playwright 浏览器未安装，抓取跳过（退避 6h）: %s",
+                err_text.splitlines()[0] if err_text else type(e).__name__,
+            )
+        else:
+            log.warning(f"[Timeline] Playwright 抓取失败: {e}")
         return []
 
     if not live_news:
         return []
+
+    # 浏览器恢复可用：清除缺失标记，后续失败走普通 60s 退避
+    _jin10_browser_missing = False
 
     for news in live_news:
         try:

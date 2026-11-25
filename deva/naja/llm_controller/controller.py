@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from deva import NB
+from deva.llm.errors import LLMError
 
 from ..radar import get_radar_engine
 from ..strategy import get_strategy_manager
@@ -112,8 +113,12 @@ class LLMController:
 
         try:
             decision = await self._request_llm(radar_summary, memory_summary, metrics, strategy_list, cfg)
+        except LLMError as e:
+            return {"success": False, "error": str(e), "error_type": e.kind,
+                    "retryable": e.retryable}
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": str(e), "error_type": type(e).__name__,
+                    "retryable": False}
 
         actions = decision.actions
         apply_result = self._apply_actions(actions, metrics_index, cfg, dry_run=dry_run)
@@ -170,13 +175,10 @@ class LLMController:
     ) -> LLMDecision:
         prompt = self._build_prompt(radar_summary, memory_summary, metrics, strategy_list, cfg)
 
-        try:
-            from deva.llm import GPT
-            model_type = cfg.get("model_type", "deepseek")
-            gpt = GPT(model_type=model_type)
-            response = await gpt.async_query(prompt)
-        except Exception as e:
-            raise RuntimeError(f"LLM 调节失败: {e}") from e
+        from deva.llm import GPT
+        model_type = cfg.get("model_type", "deepseek")
+        gpt = GPT(model_type=model_type)
+        response = await gpt.async_query(prompt)
 
         data = self._safe_parse_json(response)
         actions = data.get("actions", [])

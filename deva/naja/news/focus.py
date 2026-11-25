@@ -35,7 +35,9 @@ manas 只负责提供它的注意力状态（关注主题 / 自选股 / 叙事�
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -51,6 +53,71 @@ _focus_cache_lock = threading.Lock()
 
 # 太短的标识符（1 字符）做子串匹配会大量误命中，直接忽略
 _MIN_IDENTIFIER_LEN = 2
+
+# ── 忽略名单（2026-11-02）────────────────────────────────────────────
+# 有些标的**在券商账户里确实有**（模拟盘、历史遗留、忘了平的仓），但用户不把
+# 它当「我的持仓」—— 新闻不该因此被归进「持仓相关」那一组。
+#
+# 为什么不直接删持仓：``futu_portfolio_syncer`` **启动即同步**，模拟盘每次
+# 都把富途那边的持仓原样拉回来（实测：删完重启，同一条又出现了）。删本地
+# 数据是徒劳的，只在读取这一层挡才成立。
+# 为什么不做成「排除整个模拟盘」：本次用户只点了这一只，剩下的模拟仓
+# （平安银行、科创芯片 ETF）他还要看。所以名单是**按标的**的，不是按账户。
+#
+# 生效范围只有新闻焦点（匹配 + 展示）：不动持仓、不动报表、不动交易。
+# 文件：``~/.deva/news_focus_ignore.json``
+#     {"symbols": ["300750"], "names": ["宁德时代"]}
+# 文件不在 = 空名单（不是错误）；写坏了按空处理并留 warning。
+_IGNORE_FILE = os.path.expanduser("~/.deva/news_focus_ignore.json")
+_ignore_cache: Dict[str, Any] = {"sig": None, "codes": frozenset(), "names": frozenset()}
+
+
+def _norm_symbol(value: Any) -> str:
+    """代码归一：``SZ.300750`` / ``HK:00700`` / ``US:NVDA`` → ``300750`` / ``00700`` / ``nvda``。
+
+    持仓镜像里的代码常带市场前缀（``SZ_...``、``HK:00700``），而新闻里
+    写的是裸代码或名字 —— 不归一就永远匹配不上，名单看着像没生效。
+    """
+    s = str(value or "").strip().lower()
+    for sep in ("sz.", "sh.", "hk:", "us:", "hk.", "us.", "sz_", "sh_", "hk_", "us_"):
+        if s.startswith(sep):
+            return s[len(sep):]
+    return s
+
+
+def _load_ignored() -> Tuple[frozenset, frozenset]:
+    """读忽略名单（按文件 mtime 缓存，改完不必重启）。"""
+    try:
+        st = os.stat(_IGNORE_FILE)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        sig = None
+    if _ignore_cache["sig"] == sig:
+        return _ignore_cache["codes"], _ignore_cache["names"]
+
+    codes: set = set()
+    names: set = set()
+    if sig is not None:
+        try:
+            with open(_IGNORE_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f) or {}
+            for x in raw.get("symbols") or []:
+                if str(x).strip():
+                    codes.add(_norm_symbol(x))
+            for x in raw.get("names") or []:
+                if str(x).strip():
+                    names.add(str(x).strip())
+        except Exception as e:                       # 写坏了按空处理，但要说一声
+            log.warning("[NewsFocus] 忽略名单读取失败（按空处理）: %s", e)
+
+    _ignore_cache.update(sig=sig, codes=frozenset(codes), names=frozenset(names))
+    return _ignore_cache["codes"], _ignore_cache["names"]
+
+
+def _is_ignored(codes: frozenset, names: frozenset, code: Any, name: Any) -> bool:
+    if code is not None and _norm_symbol(code) in codes:
+        return True
+    return name is not None and str(name).strip() in names
 
 
 @dataclass(frozen=True)
@@ -446,17 +513,30 @@ def _collect_identifiers(
     if items is None:
         degraded.append(f"{label}：读取失败")
         return (), ()
+    # 忽略名单在这一层过（见文件头「忽略名单」）：ids 与 labels 同时收不到，
+    # 于是匹配不命中、抽屉里也不显示。名单读失败只警告，绝不影响其它链路。
+    try:
+        ig_codes, ig_names = _load_ignored()
+    except Exception as e:                           # pragma: no cover - 防御
+        log.warning("[NewsFocus] 忽略名单不可用（继续）: %s", e)
+        ig_codes, ig_names = frozenset(), frozenset()
     ids: List[str] = []
     labels: List[str] = []
+    dropped = 0
     for it in items:
         code = getattr(it, "code", None)
         name = getattr(it, "name", None)
+        if _is_ignored(ig_codes, ig_names, code, name):
+            dropped += 1
+            continue
         for value in (code, name):
             if value and str(value) not in ids:
                 ids.append(str(value))
         display = str(name or code or "").strip()
         if display and display not in labels:
             labels.append(display)
+    if dropped:
+        log.debug("[NewsFocus] %s 忽略名单挡掉 %d 个标的", label, dropped)
     return tuple(ids), tuple(labels)
 
 

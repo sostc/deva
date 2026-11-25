@@ -1819,49 +1819,99 @@ class NarrativeTracker:
 
         return result
 
+    #: A 股横截面「够不够代表全市场」的下限。正常全量帧有 4000+ 只；
+    #: 低于此值说明当帧只是某一档位的分批数据（历史上只落 LOW 档，一帧仅几十只）。
+    _MIN_ASHARE_SAMPLE = 100
+
+    @staticmethod
+    def _bare_ashare_code(code: str) -> str:
+        """剥掉 sh/sz 前缀，返回裸代码"""
+        bare = str(code or "").strip()
+        for prefix in ("sh", "sz", "SH", "SZ"):
+            if bare.startswith(prefix):
+                bare = bare[len(prefix):]
+                break
+        return bare.lstrip(".")
+
     def _fetch_ashare_data(self) -> Dict[str, Dict]:
-        """获取A股数据 - 使用历史快照数据库（已过滤噪音股票）"""
+        """获取A股数据 - 使用历史快照数据库（已过滤噪音股票）
+
+        快照表按「取数档位」分批落库，单帧往往只含当时那一批股票。早先这里固定
+        只读最后一帧，于是几十只股票就被当成「A 股全市场」，均值严重失真
+        （2026-10-21 复盘曾用 3 只股票报出 +6.7%）。
+
+        现在：末帧 A 股样本足够就直接用（常态，开销不变）；不足则回退合并当日
+        更多帧，直到样本达标或回溯上限用完。
+        """
         try:
             from deva import NB
+            from datetime import datetime
 
             snapshot_db = NB('quant_snapshot_5min_window', key_mode='time')
             keys = list(snapshot_db.keys())
             if not keys:
                 return {}
 
-            latest_key = keys[-1]
-            data_list = snapshot_db.get(latest_key)
-
-            if not data_list or not isinstance(data_list, list):
-                return {}
-
-            result = {}
-            for item in data_list:
-                code = str(item.get("code", ""))
-                if not code:
-                    continue
-
+            today = datetime.now().strftime('%Y-%m-%d')
+            day_keys = []
+            for k in keys:
                 try:
-                    now = item.get("now", 0)
-                    close = item.get("close", 0)
-                    if close > 0:
-                        p_change = (now - close) / close
-                    else:
-                        p_change = 0
-                    result[code] = {
-                        "code": code,
-                        "name": item.get("name", code),
-                        "price": now,
-                        "change_pct": p_change,
-                        "volume": int(item.get("volume", 0)),
-                        "high": item.get("high", 0),
-                        "low": item.get("low", 0),
-                        "prev_close": close,
-                        "open": item.get("open", 0),
-                        "market": "A",
-                    }
+                    ts = float(k)
                 except Exception:
                     continue
+                if datetime.fromtimestamp(ts).strftime('%Y-%m-%d') == today:
+                    day_keys.append((ts, k))
+            day_keys.sort(key=lambda x: x[0])
+
+            # 末帧优先；当日无快照时退回全表最后一帧（保持原有降级行为）
+            frames = [k for _, k in day_keys] or [keys[-1]]
+            frames.reverse()  # 从新到旧
+
+            result: Dict[str, Dict] = {}
+            max_lookback = 60  # 回溯上限，避免极端情况反序列化上百帧
+            for idx, key in enumerate(frames[:max_lookback]):
+                data_list = snapshot_db.get(key)
+                if not data_list or not isinstance(data_list, list):
+                    continue
+                for item in data_list:
+                    code = str(item.get("code", "")).strip()
+                    if not code:
+                        continue
+                    # 快照里混有美股（atvi/ea/...），必须按代码格式排除，
+                    # 否则会被无条件标成 A 股污染横截面。
+                    bare = self._bare_ashare_code(code)
+                    if not (bare.isdigit() and len(bare) == 6):
+                        continue
+                    if code in result:
+                        continue  # 从新到旧遍历，先命中的就是最新值
+                    try:
+                        now = float(item.get("now", 0) or 0)
+                        close = float(item.get("close", 0) or 0)
+                        p_change = (now - close) / close if close > 0 else 0
+                        result[code] = {
+                            "code": code,
+                            "name": item.get("name", code),
+                            "price": now,
+                            "change_pct": p_change,
+                            "volume": int(item.get("volume", 0) or 0),
+                            "high": item.get("high", 0),
+                            "low": item.get("low", 0),
+                            "prev_close": close,
+                            "open": item.get("open", 0),
+                            "market": "A",
+                        }
+                    except Exception:
+                        continue
+
+                if len(result) >= self._MIN_ASHARE_SAMPLE:
+                    break  # 样本已够代表全市场，停止回溯
+
+            if len(result) < self._MIN_ASHARE_SAMPLE:
+                log.warning(
+                    f"[NarrativeTracker] A股快照样本不足: 仅 {len(result)} 只"
+                    f"（回溯 {min(len(frames), max_lookback)} 帧），"
+                    f"横截面不具代表性，请检查快照落库是否只覆盖了单一批次"
+                )
 
             return result
         except Exception:
@@ -1888,9 +1938,11 @@ class NarrativeTracker:
             result = {}
             for code, market_data in data.items():
                 if market_data and hasattr(market_data, 'code'):
+                    # 保持源口径（百分数），不要在这里按 abs>1 做归一：
+                    # 那样会让「+0.52%」保持 0.52、「+3.22%」变成 0.0322，
+                    # 混合量纲流到下游互相矛盾。单位换算只在
+                    # DailyReviewAnalyzer._normalize_change_pct 一处做。
                     change_pct = market_data.change_pct
-                    if abs(change_pct) > 1:
-                        change_pct = change_pct / 100
                     result[code.upper()] = {
                         "code": market_data.code.upper(),
                         "name": market_data.name,

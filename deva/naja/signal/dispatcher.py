@@ -94,7 +94,7 @@ class SignalDispatcher:
         should_bandit = False
 
         try:
-            from .output_controller import get_output_controller
+            from ..strategy.output_controller import get_output_controller
             controller = get_output_controller()
             should_radar = controller.should_send_to(result.strategy_id, "radar")
             should_memory = controller.should_send_to(result.strategy_id, "memory")
@@ -113,7 +113,7 @@ class SignalDispatcher:
 
         normalized = {}
         try:
-            from .output_schema import normalize_output
+            from ..strategy.output_schema import normalize_output
             normalized = normalize_output(result, targets)
         except Exception as e:
             self._dispatch_errors["normalize"] += 1

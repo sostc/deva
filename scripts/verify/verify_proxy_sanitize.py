@@ -190,11 +190,16 @@ def main() -> int:
     check("「一键总结」带代理兜底重试（启动后才失效的代理在此自愈）",
           "sanitize_proxy_env" in tray_src and "清除后重试" in tray_src, "")
     try:
+        from deva.llm.errors import LLMAuthError, LLMServiceError
         from deva.naja.infra.ui.menu_bar_tray import MenuBarTray
-        hint = MenuBarTray._summarize_error_hint(Exception("Connection error."))
+        # ❗必须传真实的 LLMError 子类：client.py 把连接失败/401 分类成
+        #   LLMServiceError / LLMAuthError，_summarize_error_hint 按类型判断，
+        #   不再匹配错误文案。传裸 Exception 是在测一个早已废弃的行为。
+        hint = MenuBarTray._summarize_error_hint(LLMServiceError("LLM 连接失败"))
         check("连接错误 → 提示指向网络/代理", "代理" in hint, f"hint={hint!r}")
         check("401 → 提示 API Key",
-              "Key" in MenuBarTray._summarize_error_hint(Exception("401 Unauthorized")), "")
+              "Key" in MenuBarTray._summarize_error_hint(
+                  LLMAuthError("LLM 鉴权失败：密钥无效")), "")
     except Exception as e:  # 环境缺 rumps/AppKit 时如实跳过
         print(f"  ⏭️  运行期提示检查跳过（{type(e).__name__}: {e}）")
 

@@ -98,6 +98,14 @@ class StrategyEntry(RecoverableUnit):
             return False
         return True
 
+    def _describe_unit(self) -> str:
+        """给日志用的可读标识：name(id)，方便从 ERROR/WARNING 直接定位到策略"""
+        name = str(getattr(self._metadata, "name", "") or "").strip()
+        sid = str(getattr(self._metadata, "id", "") or getattr(self, "id", "") or "").strip()
+        if name and sid:
+            return f"{name}({sid})"
+        return name or sid or "unknown"
+
     def _get_strategy_config(self) -> Dict[str, Any]:
         config = dict(getattr(self._metadata, "strategy_config", {}) or {})
         params = dict(getattr(self._metadata, "strategy_params", {}) or {})
@@ -162,7 +170,27 @@ class StrategyEntry(RecoverableUnit):
             runtime = StrategyRegistry.create(strategy_type, config=config, entry=self)
         except Exception as e:
             self._runtime_build_error = str(e)
-            self._log("ERROR", "Build runtime failed", error=str(e), strategy_type=strategy_type)
+            label = self._describe_unit()
+            # ❗空壳占位策略（func_code 只有 `return None` 且没配 class_path）
+            # 每次启动都会抛一次「缺少 class_path」，但它根本没有真实逻辑，
+            # 补了 class_path 也只会空转。这类不是故障，按 WARNING 记一次，
+            # 别再污染 ERROR 统计把真错误淹掉。
+            if self._is_placeholder_code():
+                self._log(
+                    "WARNING",
+                    "Skip runtime build (placeholder, no impl)",
+                    unit=label,
+                    strategy_type=strategy_type,
+                    hint="func_code 是空壳且未配 class_path，补 class_path 前先确认它有真实逻辑",
+                )
+            else:
+                self._log(
+                    "ERROR",
+                    "Build runtime failed",
+                    error=str(e),
+                    strategy_type=strategy_type,
+                    unit=label,
+                )
             return None
 
         self._runtime = runtime

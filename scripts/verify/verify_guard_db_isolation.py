@@ -45,6 +45,7 @@ import os
 import re
 import subprocess
 import sys
+import types
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 VERIFY_DIR = os.path.join(ROOT, "scripts", "verify")
@@ -185,14 +186,27 @@ def _restore(accounts):
 
 
 def check_runtime_production_db_untouched():
-    """③ 真跑一遍做 T 守卫，生产库 accounts 必须逐字节不变。"""
+    """③ 真跑一遍做 T 守卫，生产库 accounts **账户集合**不许变。
+
+    ❗2026-10-21 修：原来比对整个 accounts 的 md5。但 Naja 服务在跑的时候
+    会自己刷新账户现金/市值，指纹在两次快照之间就漂了 —— 于是这条守卫
+    在盘中随机报「生产库被污染」，而新增账户其实是空的（现场证据：
+    ``指纹 ee6de231f613 → f3abbcde991b；新增账户 []``）。
+    把服务自己的写入算成守卫污染，等于用假红掩盖真问题：真红的时候没人信。
+
+    守卫真正要防的是「测试数据写进生产库」，那必然体现为**账户集合变了**
+    （多出测试账户 / 少了真实账户）。所以判据改成账户 key 集合；
+    内容指纹只做提示，不一致时明确说清是数值漂移而非污染。
+    """
     print()
-    print("③ 运行期：跑一遍做 T 守卫，生产库 accounts 指纹不变")
+    print("③ 运行期：跑一遍做 T 守卫，生产库 accounts 账户集合不变")
     before_accounts, before_md5 = _snapshot()
-    print(f"      跑前指纹 {before_md5[:12]}  账户 {len(before_accounts)} 个")
+    before_keys = sorted(before_accounts)
+    print(f"      跑前指纹 {before_md5[:12]}  账户 {len(before_keys)} 个")
 
     for rel in TARGETS:
         mid_before, mid_md5 = _snapshot()
+        mid_keys = sorted(mid_before)
         proc = subprocess.run(
             ["env", "-u", "PYTHONPATH", f"TMPDIR={os.environ.get('TMPDIR') or '/tmp'}",
              PY, rel],
@@ -204,12 +218,16 @@ def check_runtime_production_db_untouched():
         # ★ 每个目标跑完立刻比对，而不是最后统一比：
         #   有的守卫结尾会 clear_history 把痕迹抹平，
         #   只在最后看一次的话，中间的污染就被它自己打扫干净了。
-        _, mid_after_md5 = _snapshot()
-        if mid_after_md5 != mid_md5:
-            print(f"      ⚠️ 检测到生产库被写：{mid_md5[:12]} → {mid_after_md5[:12]}")
+        mid_after, mid_after_md5 = _snapshot()
+        if sorted(mid_after) != mid_keys:
+            print(f"      ⚠️ 检测到生产库账户集合被写：{mid_keys} → {sorted(mid_after)}")
+        elif mid_after_md5 != mid_md5:
+            print(f"      · 数值有漂移（{mid_md5[:12]} → {mid_after_md5[:12]}），"
+                  f"账户集合未变 —— 是服务/行情在写，不是守卫污染")
 
     after_accounts, after_md5 = _snapshot()
-    same = before_md5 == after_md5
+    after_keys = sorted(after_accounts)
+    same = after_keys == before_keys
     if not same:
         # 当场还原：守卫漏隔离导致污染，不能就这么留下
         try:
@@ -217,17 +235,70 @@ def check_runtime_production_db_untouched():
         except Exception as e:  # pragma: no cover
             print(f"      ⚠️ 还原失败，需人工介入: {e}")
         new_keys = set(after_accounts) - set(before_accounts)
+        gone_keys = set(before_accounts) - set(after_accounts)
         _check(
             "生产库 accounts 未被污染（已尝试还原）",
             False,
-            f"指纹 {before_md5[:12]} → {after_md5[:12]}；"
-            f"新增账户 {sorted(new_keys)}",
+            f"账户集合 {before_keys} → {after_keys}；"
+            f"新增 {sorted(new_keys)}，丢失 {sorted(gone_keys)}",
         )
     else:
-        _check("生产库 accounts 未被污染", True, f"指纹 {after_md5[:12]} 一致")
+        note = f"账户集合一致（{len(after_keys)} 个）"
+        if after_md5 != before_md5:
+            note += (f"；内容指纹 {before_md5[:12]} → {after_md5[:12]} 有漂移"
+                     f"—— 服务在刷新现金/市值，不是守卫污染")
+        _check("生产库 accounts 未被污染", True, note)
+
+
+def _injections() -> int:
+    """负向注入：判据放宽到「账户集合」之后，真污染必须还红。
+
+    ❗只放宽了「数值漂移不算污染」，没放宽「多出账户不算污染」。
+    这条注入就是把后者破坏一次，确认守卫没变成摆设。
+    """
+    print("=" * 68)
+    print("负向注入 —— 坏版本必须被抓到")
+    print("=" * 68)
+
+    from unittest import mock
+
+    orig_snapshot = globals()["_snapshot"]
+    calls = {"n": 0}
+
+    def _polluted_snapshot():
+        """第 2 次起多出一个测试账户 —— 典型的生产库污染。"""
+        calls["n"] += 1
+        acc, md5 = orig_snapshot()
+        if calls["n"] >= 2:
+            acc = dict(acc)
+            acc["guard_polluted_account"] = {"cash": 1}
+        return acc, md5
+
+    results = []
+    _failures.clear()
+    globals()["_snapshot"] = _polluted_snapshot
+    try:
+        # 不真跑 T 守卫（慢），也不真还原（避免写生产库）
+        with mock.patch.object(subprocess, "run",
+                               return_value=types.SimpleNamespace(returncode=0, stdout="✅ ok")), \
+             mock.patch.object(sys.modules[__name__], "_restore", lambda accounts: None):
+            check_runtime_production_db_untouched()
+    finally:
+        globals()["_snapshot"] = orig_snapshot
+
+    caught = any("未被污染" in name for name, _ in _failures)
+    results.append(("生产库多出测试账户（真污染）", caught))
+    for label, ok in results:
+        print(f"  {'✅ 抓到' if ok else '❌ 漏了'}  {label}")
+    bad = sum(1 for _, ok in results if not ok)
+    print(f"\n注入检出 {len(results) - bad}/{len(results)}")
+    return 1 if bad else 0
 
 
 def main():
+    if "--exercise-injections" in sys.argv:
+        return _injections()
+
     print("=" * 68)
     print("守卫 hygiene —— 测试数据不许写进 ~/.deva/nb.sqlite")
     print("=" * 68)

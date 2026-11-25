@@ -85,6 +85,22 @@ def _get_today_str() -> str:
     return datetime.now().strftime('%Y-%m-%d')
 
 
+def _is_ashare_code(code: str) -> bool:
+    """判断是否为 A 股代码（6 位数字，可带 sh/sz 前缀）。
+
+    行情快照与行情总线里 A 股、美股混存，且 market 字段不可信（实测同时存在
+    「A 股被标 US」和「美股被标 A」两种污染），只能按代码格式判定：
+    A 股 = 6 位数字（可带 sh/sz 前缀），美股 = 1~5 位纯字母。
+    """
+    bare = str(code or "").strip()
+    for prefix in ("sh", "sz", "SH", "SZ"):
+        if bare.startswith(prefix):
+            bare = bare[len(prefix):]
+            break
+    bare = bare.lstrip(".")
+    return bare.isdigit() and len(bare) == 6
+
+
 def _is_cache_valid() -> bool:
     """检查缓存是否有效（当天）"""
     return _MARKET_DATA_CACHE_DATE == _get_today_str() and bool(_MARKET_DATA_CACHE)
@@ -704,7 +720,10 @@ class DailyReviewAnalyzer:
                 change_pct = 0.0
 
             if market == "US":
-                # 美股数据默认是百分比，统一转为小数
+                # 美股源的 change_pct 是**百分数**（0.52 表示 0.52%），这里统一转小数。
+                # 注意：上游 _fetch_us_stock_data 曾按 `abs>1` 做二次归一，导致
+                # 「0.52 保持百分数、3.22 变小数」的混合量纲——那个判断已移除，
+                # 全链路约定：源=百分数 → 本函数=小数 → analyzer ×100=百分数。
                 change_pct = change_pct / 100.0
 
             item["change_pct"] = change_pct
@@ -790,11 +809,18 @@ class DailyReviewAnalyzer:
         return records
 
     def _normalize_ashare_records(self, data_list: List[Dict]) -> List[Dict]:
-        """标准化A股快照记录"""
+        """标准化A股快照记录
+
+        快照表（quant_snapshot_5min_window）里同时存了 A 股和美股，早先这里无条件
+        写 ``market: "A"``，把 atvi/ea/li 这类美股也标成 A 股混进横截面。
+        现按代码格式判定：A 股是 6 位数字（可带 sh/sz 前缀），1~5 位纯字母是美股。
+        """
         records = []
         for item in data_list:
             code = str(item.get("code", "")).strip()
             if not code:
+                continue
+            if not _is_ashare_code(code):
                 continue
             now = float(item.get("now", 0) or 0)
             close = float(item.get("close", 0) or 0)
@@ -879,6 +905,10 @@ class DailyReviewAnalyzer:
                 records = self._normalize_ashare_records(data_list)
                 records = self._filter_ashare_snapshot(records)
                 records = self._attach_ashare_block(records)
+                # 空帧（当日快照全被美股/非 A 股占位时会出现）不能记进 snapshots：
+                # 它会让调用方误以为「有快照」，从而跳过实时兜底，把缺失伪装成 0.0%。
+                if not records:
+                    continue
                 snapshots.append({
                     "ts": ts,
                     "time_str": datetime.fromtimestamp(ts).strftime('%H:%M'),
@@ -901,6 +931,23 @@ class DailyReviewAnalyzer:
             return [], data_date, "", True
         except Exception:
             return [], "", "", True
+
+    def _merge_latest_ashare_records(self, snapshots: List[Dict]) -> List[Dict]:
+        """合并当日所有快照，按 code 保留最后一次出现的记录。
+
+        每个快照点只覆盖「当时那一批」股票（HIGH 档一批只有几十只），直接取最后
+        一帧会把全市场横截面缩成几十只，均值随即失真。整日合并后每只股票取当日
+        最新值，才接近收盘时的真实横截面。
+
+        注意：这里给的是「当日所见最新值」，不是严格收盘价（快照有采样间隔）。
+        """
+        latest: Dict[str, Dict] = {}
+        for snap in snapshots:
+            for rec in snap.get("records") or []:
+                code = rec.get("code")
+                if code:
+                    latest[code] = rec
+        return list(latest.values())
 
     def _analyze_ashare_intraday(
         self,
@@ -995,12 +1042,14 @@ class DailyReviewAnalyzer:
 
         snapshots, data_date, last_time_str, data_stale = self._load_ashare_snapshots_for_day()
         if snapshots:
-            ashare_effective = snapshots[-1].get("records", [])
+            # 合并整日快照（每只取当日最新），而不是只取最后一帧——
+            # 单帧只含当时那一批几十只股票，直接当全市场用会让均值大幅失真。
+            ashare_effective = self._merge_latest_ashare_records(snapshots)
         else:
             ashare_effective = self._filter_ashare_effective(ashare_data)
             data_date = datetime.now().strftime('%Y-%m-%d')
             last_time_str = ""
-            data_stale = True
+            data_stale = False
 
         ashare_count = len(ashare_data)
         ashare_effective_count = len(ashare_effective)
@@ -1951,7 +2000,16 @@ def _build_change_driven_report(
 
 
 def _format_market_focus(market_focus: Dict, report: "ReviewReport") -> List[str]:
-    """格式化市场焦点"""
+    """格式化市场焦点
+
+    量纲约定（这里历史上混用过两种，导致美股 0.37% 被显示成 0.0%）：
+    - ashare_avg_change / usstock_avg_change 来自 analyzer._cross_sectional_analysis，
+      那一层已经 `avg_change * 100`，到这里就是**百分数**（0.37 = 0.37%），直接格式化。
+    - top_narratives.avg_change 同样是百分数（0.47 = 0.47%）。
+    两者都不要在这里再 ×100。
+    - 样本数为 0 时必须显式写「数据缺失」，绝不能渲染成 +0.0%——
+      那会把「没取到数」伪装成「市场没动」。
+    """
     lines = []
 
     mo = report.market_overview
@@ -1960,11 +2018,35 @@ def _format_market_focus(market_focus: Dict, report: "ReviewReport") -> List[str
         return lines
 
     lines.append("  📈 整体状态：")
-    ashare_change = getattr(mo, "ashare_avg_change", 0)
-    us_change = getattr(mo, "usstock_avg_change", 0)
     sentiment = getattr(mo, "combined_sentiment", "未知")
-    lines.append(f"     A股：{'+' if ashare_change >= 0 else ''}{ashare_change:.1f}%（情绪：{sentiment}）")
-    lines.append(f"     美股：{'+' if us_change >= 0 else ''}{us_change:.1f}%")
+
+    a_count = getattr(mo, "ashare_effective_count", 0) or 0
+    ashare_change = getattr(mo, "ashare_avg_change", 0) or 0
+    if a_count >= 100:
+        a_text = f"{ashare_change:+.1f}%（情绪：{sentiment}，样本 {a_count} 只）"
+    elif a_count > 0:
+        # 3 只股票的均值比「0.0%」更危险：它看起来像结论，其实只是噪声。
+        a_text = (
+            f"{ashare_change:+.1f}%（⚠️ 样本仅 {a_count} 只，"
+            f"不足以代表全市场，请勿据此判断方向）"
+        )
+    else:
+        a_text = "数据缺失（快照与实时源均无有效样本）"
+    lines.append(f"     A股：{a_text}")
+
+    us_count = (
+        (getattr(mo, "usstock_advancing", 0) or 0)
+        + (getattr(mo, "usstock_declining", 0) or 0)
+        + (getattr(mo, "usstock_unchanged", 0) or 0)
+    )
+    us_change = getattr(mo, "usstock_avg_change", 0) or 0
+    if us_count >= 10:
+        us_text = f"{us_change:+.1f}%（样本 {us_count} 只）"
+    elif us_count > 0:
+        us_text = f"{us_change:+.1f}%（⚠️ 样本仅 {us_count} 只，代表性不足）"
+    else:
+        us_text = "数据缺失（无有效样本）"
+    lines.append(f"     美股：{us_text}")
     lines.append("")
 
     narratives = getattr(report, "top_narratives", []) or []
@@ -1972,6 +2054,7 @@ def _format_market_focus(market_focus: Dict, report: "ReviewReport") -> List[str
         lines.append("  🏭 行业热点：")
         for n in narratives[:3]:
             name = getattr(n, "narrative", str(n))
+            # narrative 的 avg_change 已经是百分数，不要再 ×100
             change = getattr(n, "avg_change", 0)
             lines.append(f"     · {name}：{'+' if change >= 0 else ''}{change:.1f}%")
         lines.append("")
@@ -1980,11 +2063,24 @@ def _format_market_focus(market_focus: Dict, report: "ReviewReport") -> List[str
 
 
 def _format_news_focus(news_focus: Dict) -> List[str]:
-    """格式化舆情焦点"""
+    """格式化舆情焦点
+
+    「源没数据」和「今天没新闻」必须分开显示：
+    前者是故障（要修），后者是行情结论（可以据此判断市场平静）。
+    早先把两者都渲染成「暂无重要舆情」，等于把断链伪装成平静。
+    """
     lines = []
 
-    if news_focus.get("status") != "ok":
-        lines.append("  暂无数据")
+    status = news_focus.get("status")
+    if status != "ok":
+        reason = (
+            news_focus.get("reason")
+            or news_focus.get("error")
+            or "舆情数据未采集（collector 未返回）"
+        )
+        label = "获取失败" if status == "error" else "数据缺失"
+        lines.append(f"  ⚠️ {label}：{reason}")
+        lines.append("")
         return lines
 
     macro_news = news_focus.get("macro_news", [])
@@ -2004,7 +2100,7 @@ def _format_news_focus(news_focus: Dict) -> List[str]:
         lines.append("")
 
     if not macro_news and not industry_news:
-        lines.append("  暂无重要舆情")
+        lines.append("  今日新闻源正常，未命中宏观/行业分类")
         lines.append("")
 
     return lines

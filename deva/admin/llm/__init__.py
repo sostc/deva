@@ -1,6 +1,6 @@
-"""LLM implementation and public API."""
+"""LLM public API —— 唯一实现在 deva.llm，本包不再保留副本。"""
 
-from .client import (
+from deva.llm import (
     GPT,
     get_gpt,
     sync_gpt,

@@ -335,6 +335,9 @@ class DataSourceManager(SingletonLazyManager, CatalogManagerMixin[DataSourceEntr
             name=getattr(file_metadata, 'name', '') or file_item.name,
             description=file_metadata.description or '',
             tags=file_metadata.tags or [],
+            # ❗文件里的 enabled 必须落到运行时元数据上，否则「停用」只是
+            # UI 上的一行字：恢复流程读不到它，重启照样拉起。
+            enabled=bool(getattr(file_metadata, 'enabled', True)),
             source_type=file_config.get('source_type', 'timer'),
             config=_nested,
             interval=interval,
@@ -397,6 +400,28 @@ class DataSourceManager(SingletonLazyManager, CatalogManagerMixin[DataSourceEntr
 
         for entry in entries_to_check:
             try:
+                # ❗「已停用」必须真的不跑，而不是只在 UI 上灰一下：
+                # 以前 enabled 只是个展示字段，restore 只看 was_running，
+                # 于是 YAML 写 enabled: false 的数据源每次重启照样被拉起。
+                if not getattr(entry._metadata, "enabled", True):
+                    if entry._state.status != UnitStatus.STOPPED.value:
+                        # 顺带把上次遗留的 running 状态抹掉：否则页面永远显示
+                        # 一条「在跑」的数据源，实际一个请求都没发（假绿）。
+                        entry._state.status = UnitStatus.STOPPED.value
+                        entry._state.pid = 0
+                    # ❗无条件回写：NB 里的 metadata 还是上一版（没有 enabled 字段），
+                    # 只改内存不落盘的话，台账上这条看着像「启用中却停了」，
+                    # 与 YAML 说的「已停用」又一次对不上。一次启动写一次，代价可忽略。
+                    entry.save()
+                    skipped_count += 1
+                    results.append({
+                        "entry_id": entry.id,
+                        "entry_name": entry.name,
+                        "success": False,
+                        "reason": "disabled_by_config",
+                    })
+                    continue
+
                 prep = entry.prepare_for_recovery()
 
                 if not prep.get("can_recover"):

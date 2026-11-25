@@ -1248,7 +1248,7 @@ class RadarEngine:
     def _get_strategy_output_targets(self, strategy_id: str) -> Dict[str, bool]:
         """获取策略的输出目标配置"""
         try:
-            from deva.naja.signal.output_controller import get_output_controller
+            from deva.naja.strategy.output_controller import get_output_controller
             controller = get_output_controller()
             return {
                 'radar': controller.should_send_to(strategy_id, "radar"),

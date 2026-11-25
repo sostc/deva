@@ -94,14 +94,17 @@ def test_idempotent():
 
 def test_error_hint_classifies_connection_error():
     tray = pytest.importorskip("deva.naja.infra.ui.menu_bar_tray")
-    hint = tray.MenuBarTray._summarize_error_hint(
-        Exception("Connection error."))
+    from deva.llm.errors import LLMTimeoutError
+    hint = tray.MenuBarTray._summarize_error_hint(LLMTimeoutError("timeout"))
     assert "代理" in hint
 
 
 def test_error_hint_classifies_auth_and_quota():
     tray = pytest.importorskip("deva.naja.infra.ui.menu_bar_tray")
+    from deva.llm.errors import LLMAuthError, LLMQuotaError
     hint = tray.MenuBarTray._summarize_error_hint
-    assert "Key" in hint(Exception("Error code: 401 - Unauthorized"))
-    assert "额度" in hint(Exception("402 Insufficient Balance"))
+    assert "Key" in hint(LLMAuthError("auth"))
+    assert "额度" in hint(LLMQuotaError("quota"))
+    # 只有异常类型能决定提示；裸 Exception 即使文案写着 402 也不得被识别
+    assert hint(Exception("402 Insufficient Balance")) == "发生错误"
     assert hint(Exception("something totally unexpected")) == "发生错误"

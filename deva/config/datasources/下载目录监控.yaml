@@ -54,8 +54,8 @@ func_code: "import time\nimport os\n\ndef fetch_data(event):\n    \"\"\"\n    �
 metadata:
   category: ''
   created_at: 1772478473.564977
-  description: 监控 macOS 下载目录变化
-  enabled: true
+  description: 监控 macOS 下载目录变化（2026-10-21 已停用：无下游消费者，仅空转且经 print(event) 把下载文件名写进日志）
+  enabled: false
   enabled_types: []
   func_code_file: ''
   id: 02bf46dfb976
@@ -64,8 +64,8 @@ metadata:
   source: file
   source_type: directory
   tags: []
-  updated_at: 1774627416.058225
+  updated_at: 1792566584.0
 parameters:
-  enabled: true
+  enabled: false
   interval_seconds: 5
   timeout: 30

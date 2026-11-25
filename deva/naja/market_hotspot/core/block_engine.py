@@ -98,6 +98,8 @@ class BlockHotspotEngine:
         self._last_summary_log_time: float = 0.0
         self._summary_log_interval: float = 60.0
         self._last_logged_block_count: int = -1
+        #: 上一 tick 的 stale 数量。只在数量变化时打印清理日志（-1 = 尚未清理过）
+        self._last_stale_count: int = -1
 
         # 嵌入技术增强
         self.feature_encoder = MarketFeatureEncoder(embedding_dim=128)
@@ -684,6 +686,13 @@ class BlockHotspotEngine:
                 del self._leader_counts[block_id]
             if block_id in self._volume_concentration:
                 del self._volume_concentration[block_id]
+            # ❗必须同时清掉活跃时间：否则这些 id 永远留在 _block_last_activity 里，
+            # 下一 tick 还是被判定为 stale，同一批题材（实测 187 个）被每 2 秒
+            # 重复「清理」一次 —— 19.9 小时里刷了 25,044 条同样的日志。
+            self._block_last_activity.pop(block_id, None)
 
-        if stale_blocks and len(stale_blocks) > 0:
+        # 只在清理数量变化时打印。修复后稳定状态下这里恒为 0，不再出声；
+        # 确有新一轮清理（数量变化）时才留一条。
+        if stale_blocks and len(stale_blocks) != self._last_stale_count:
             log.info(f"[BlockHotspot] 清理了 {len(stale_blocks)} 个不活跃题材的状态数据")
+        self._last_stale_count = len(stale_blocks)

@@ -1521,7 +1521,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             response = await gpt.async_query(prompt)
         except Exception as e:
             log.error(f"[LLMReflection] LLM调用异常: {e}")
-            raise RuntimeError(f"LLM 调用失败: {e}") from e
+            raise
 
         return self._parse_llm_response(response)
 
