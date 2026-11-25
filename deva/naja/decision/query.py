@@ -103,6 +103,7 @@ def _empty_summary(reason: str) -> Dict[str, Any]:
         "latest": None,
         "recent": [],
         "recent_approved": [],
+        "recent_rejected": [],
         "stats": {
             "total": 0,
             "shown": 0,

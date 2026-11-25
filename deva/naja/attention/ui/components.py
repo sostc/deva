@@ -54,8 +54,13 @@ def _esc(value) -> str:
     return escape(str(value if value is not None else ""))
 
 
-def _render_plan_row(plan: dict) -> str:
-    """渲染"最近决策"里的一行。"""
+def _render_plan_row(plan: dict, *, show_reason: bool = False) -> str:
+    """渲染"最近决策"里的一行。
+
+    ``show_reason=True`` 用于折叠的否决日志：展开后每条要能"细看"——
+    除了标的/档位，还要带行动门理由（为什么被否），否则点开也是一堆
+    看不出差别的「已否决」，等于没给日志。
+    """
     action = str(plan.get("action_type", "hold"))
     action_text, action_color = _ACTION_LABELS.get(action, (action, "#64748b"))
     side = str(plan.get("side", "none"))
@@ -72,19 +77,30 @@ def _render_plan_row(plan: dict) -> str:
     else:
         badge, badge_color = "—", "#64748b"
 
+    reason_html = ""
+    if show_reason:
+        reason = str(plan.get("gate_reason") or "（未记录理由）")
+        reason_html = (
+            f'<div style="font-size:10px;color:#64748b;line-height:1.4;margin-top:2px;">'
+            f'🚦 {_esc(reason)}</div>'
+        )
+
     return f"""
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    <div style="display: flex; flex-direction: column; gap: 2px;
                 padding: 6px 8px; border-radius: 6px; background: #f8fafc; margin-bottom: 4px;">
-        <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
-            <span style="font-size: 12px; font-weight: 600; color: #0f172a;">{symbol}</span>
-            <span style="font-size: 11px; color: {side_color};">{side_text}</span>
-            <span style="font-size: 11px; color: {action_color}; font-weight: 600;">{action_text}</span>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                <span style="font-size: 12px; font-weight: 600; color: #0f172a;">{symbol}</span>
+                <span style="font-size: 11px; color: {side_color};">{side_text}</span>
+                <span style="font-size: 11px; color: {action_color}; font-weight: 600;">{action_text}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
+                <span style="font-size: 10px; color: #64748b;">仓位 {size_hint:.0%}</span>
+                <span style="font-size: 10px; color: #64748b;">置信 {confidence:.2f}</span>
+                <span style="font-size: 10px; color: {badge_color}; font-weight: 600;">{badge}</span>
+            </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 10px; white-space: nowrap;">
-            <span style="font-size: 10px; color: #64748b;">仓位 {size_hint:.0%}</span>
-            <span style="font-size: 10px; color: #64748b;">置信 {confidence:.2f}</span>
-            <span style="font-size: 10px; color: {badge_color}; font-weight: 600;">{badge}</span>
-        </div>
+        {reason_html}
     </div>
     """
 
@@ -188,8 +204,19 @@ def render_decision_plan_panel(summary: dict = None) -> str:
             '✅ 批准记录：历史窗口内无批准（不是被否决淹没，是确实没有）</div>'
         )
 
-    recent_html = "".join(_render_plan_row(p) for p in recent[1:6]) or (
-        '<div style="font-size: 11px; color: #94a3b8;">（暂无更早记录）</div>'
+    # ❗否决日志默认收起：拒绝是常态，不该摆满一屏挤掉「批准」。
+    # 展开后每条带行动门理由，可细看；条数取完整历史窗口分流的前 20 条。
+    rejected_log = summary.get("recent_rejected") or []
+    rejected_html = "".join(_render_plan_row(p, show_reason=True) for p in rejected_log[:20])
+    if not rejected_html:
+        rejected_html = '<div style="font-size:11px;color:#94a3b8;">（窗口内无否决记录）</div>'
+    rejected_block = (
+        '<details style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;'
+        'padding:8px 10px;margin-bottom:4px;">'
+        f'<summary style="font-size:11px;font-weight:600;color:#475569;cursor:pointer;">'
+        f'🕘 否决日志（近 {min(len(rejected_log), 20)} 条 · 点开细看理由）</summary>'
+        f'<div style="margin-top:8px;max-height:320px;overflow-y:auto;">{rejected_html}</div>'
+        '</details>'
     )
 
     return f"""
@@ -255,10 +282,7 @@ def render_decision_plan_panel(summary: dict = None) -> str:
         </div>
 
         <div>
-            <div style="font-size: 11px; font-weight: 600; color: #0f172a; margin-bottom: 6px;">
-                🕘 最近决策
-            </div>
-            {recent_html}
+            {rejected_block}
         </div>
     </div>
     """

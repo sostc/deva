@@ -327,6 +327,7 @@ def _get_empty_monitor_data() -> Dict[str, Any]:
         "manas_engine": {"available": False, "timing_engine": {}, "regime_engine": {}, "output": {}},
         "manas_gate_audit": {"available": False, "stats": {}, "recent": [], "recent_approved": []},
         "decision_plan": {"available": False, "latest": None, "recent": [], "recent_approved": [],
+                          "recent_rejected": [],
                           "stats": {"total": 0, "shown": 0, "approved": 0, "rejected": 0,
                                     "actionable": 0, "persisted": False}},
         "strategy_learning": {"available": False, "market_state": {}, "selected_strategies": []},

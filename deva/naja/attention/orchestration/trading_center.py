@@ -491,8 +491,9 @@ class TradingCenter:
         # 窗口上限与 journal 容量一致（2000），保证「历史上有过通过」不会被漏掉。
         window = self.get_recent_decisions(limit=2000)
         approved_items = [item for item in window if item.get("approved") is True]
+        rejected_items = [item for item in window if item.get("approved") is False]
         approved = len(approved_items)
-        rejected = sum(1 for item in window if item.get("approved") is False)
+        rejected = len(rejected_items)
         actionable = sum(1 for item in recent if self._plan_entry_actionable(item))
         persisted_total = journal.count()
         return {
@@ -500,6 +501,8 @@ class TradingCenter:
             "latest": recent[0] if recent else None,
             "recent": recent,
             "recent_approved": approved_items[:10],
+            # ❗拒绝日志单列：默认不在 UI 平铺，但点开能细看最近若干条（含理由）
+            "recent_rejected": rejected_items[:20],
             "stats": {
                 # 落盘总条数（跨重启累计）；落盘不可用时退回本进程队列长度
                 "total": persisted_total if persisted_total else len(self._recent_plans_deque()),

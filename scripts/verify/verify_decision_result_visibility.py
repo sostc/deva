@@ -103,6 +103,12 @@ def check_ui_renders_approved() -> list:
             {"symbol": "NVDA", "side": "buy", "action_type": "act_minimally",
              "size_hint": 0.1, "confidence": 0.8, "approved": True}
         ],
+        "recent_rejected": [
+            {"symbol": "00700", "side": "hold", "action_type": "hold", "size_hint": 0,
+             "confidence": 0.2, "approved": False,
+             "gate_reason": "环境阻力 | 主因=地势(风险温度1.63极高)"}
+            for _ in range(9)
+        ],
         "stats": {"total": 2000, "shown": 10, "approved": 7, "rejected": 1993,
                   "actionable": 7, "persisted": True},
     }
@@ -117,6 +123,15 @@ def check_ui_renders_approved() -> list:
         failures.append("UI 没显示否决计数「否决 1993」——平衡视图缺失")
     if "NVDA" not in html or "批准记录" not in html:
         failures.append("UI 没把批准记录置顶显示 —— 通过又被否决淹没了")
+    # 否决日志必须默认收起（details 无 open 属性），不能平铺满屏
+    if "<details" not in html or "否决日志" not in html:
+        failures.append("否决日志没做成可折叠 details —— 拒绝又会摆满一屏")
+    elif 'details style=' in html and ' open>' in html.split("<details")[1][:40]:
+        failures.append("否决日志 details 默认 open —— 展开状态占满屏")
+    if "🕘 最近决策" in html:
+        failures.append("旧的平铺「最近决策」块还在 —— 折叠日志没真正替换它")
+    if "环境阻力" not in html or "🚦" not in html:
+        failures.append("否决日志展开后没有行动门理由 —— 点开也无法细看")
     return failures
 
 
@@ -207,6 +222,18 @@ INJECTIONS = [
         "file": COMPONENTS_PY,
         "old": 'f\'<span style="font-size:11px;font-weight:600;color:#16a34a;">✅ 批准 {approved_n}</span>\'\n',
         "new": "'<span>✅ 批准 0</span>'\n",
+    },
+    {
+        "name": "否决日志改回平铺（details 换掉 → 又摆满一屏）",
+        "file": COMPONENTS_PY,
+        "old": "        '<details style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;'\n",
+        "new": "        '<div style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;'\n",
+    },
+    {
+        "name": "否决日志展开丢掉理由（点开也无法细看）",
+        "file": COMPONENTS_PY,
+        "old": '    reason_html = ""\n    if show_reason:\n',
+        "new": '    reason_html = ""\n    if False:\n',
     },
     {
         "name": "折叠键不归一化（regime 数值漂移又拆成多行）",
