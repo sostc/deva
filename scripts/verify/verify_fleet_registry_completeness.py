@@ -66,10 +66,6 @@ ALLOWLIST = {
         "是数据源体系内 OpenRouter_TOKEN_消耗 的实现体，且首页另有「算力消耗」卡单独呈现"
     ),
     "deva/naja/datasource/plugins/jin10_fetcher.py": "数据源体系内的插件，随体系条目一起统计",
-    "deva/naja/geo_risk/collectors/base.py": (
-        "采集层公共 HTTP 工具（http_get_json/http_get_text），被具体 collector 调用，"
-        "非独立取数点；实际取数由 collectors/*.py 经 geo_risk/jobs 的 @probe 登记"
-    ),
     "deva/naja/infra/ui/menu_bar_tray.py": "托盘图标的连通性探测，非业务取数",
     "deva/naja/market_hotspot/data/sina_parser.py": "纯解析器，不发请求",
     "deva/naja/market_hotspot/integration/market_hotspot_system.py": "编排层，取数由下层 fetcher 完成",

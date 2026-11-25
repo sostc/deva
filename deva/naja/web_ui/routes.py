@@ -20,7 +20,7 @@ from .pages import (
     learningadmin, learning_list_page, learning_history_page,
     learning_detail_page, supplychain_page, api_explorer, devtools_page,
     investment_sandbox_page, alab_investment_sandbox_page,
-    structural_growth_page, focusadmin, georisk,
+    structural_growth_page, focusadmin,
     KnowledgeActionHandler,
     _get_log_stream_page, _get_loop_audit_page,
 )
@@ -958,7 +958,6 @@ def create_handlers(cdn: str = None):
         (r'/logstream', webio_handler(lambda: _get_log_stream_page()(), cdn=cdn_url)),
         (r'/tuningadmin', webio_handler(tuningadmin, cdn=cdn_url)),
         (r'/supplychain', webio_handler(supplychain_page, cdn=cdn_url)),
-        (r'/georisk', webio_handler(georisk, cdn=cdn_url)),
         (r'/narrative', webio_handler(narrative_page, cdn=cdn_url)),
         (r'/narrative_lifecycle', webio_handler(narrative_lifecycle_page, cdn=cdn_url)),
         (r'/merrill_clock', webio_handler(merrill_clock_page, cdn=cdn_url)),
