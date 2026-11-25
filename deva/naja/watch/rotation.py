@@ -101,8 +101,18 @@ T_SIDE_OPPORTUNITY: Dict[str, Dict[str, Any]] = {
     "repay": {"kind": "price_deviation", "direction": "below"},
 }
 
-#: 偏离锚多少个百分点算一个机会。做 T 吃的是小价差，默认 1%。
-DEFAULT_ROTATION_PCT = 1.0
+#: 偏离锚多少个百分点算一个机会。做 T 吃的是小价差。
+#: ❗不再写死魔数：权威源是引擎的 RotationThresholds.screening_pct()
+#: （= min(buy_dev_close, sell_dev_close)）。守望台只做「值不值得问一次」
+#: 的粗筛，引擎用完整判据决定下单；两边口径同源，改阈值只改引擎一处。
+#: 导入失败（守卫替身场景）才回落到本常量值，保证本模块永远可导入。
+_FALLBACK_ROTATION_PCT = 1.0
+try:
+    from ..bandit.intraday_deviation import RotationThresholds as _RotationThresholds
+
+    DEFAULT_ROTATION_PCT = float(_RotationThresholds().screening_pct())
+except Exception:  # noqa: BLE001
+    DEFAULT_ROTATION_PCT = _FALLBACK_ROTATION_PCT
 
 #: 一期观察窗口。
 #: ❗常驻不等于无限期 —— 它只是「每一期都很短且永不停止」。

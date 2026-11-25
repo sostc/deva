@@ -130,6 +130,20 @@ class RotationThresholds:
     no_new_sell_before_close_min: int = 30  # 收盘前 N 分钟不新开倒 T
     min_bars_between_actions: int = 3       # 两次动作之间的最小间隔（bar 数）
 
+    def screening_pct(self) -> float:
+        """做 T「值不值得问一次」的粗筛偏离阈值（%），返回买/卖两侧中较严者。
+
+        ❗这是偏离阈值的**唯一权威源**。守望台 rotation_t 观测面用它决定
+        「要不要问决策中心」，引擎 :meth:`evaluate_deviation` 用完整的
+        buy/sell_dev_close + VWAP + 振幅 + 成本 + 企稳决定「要不要真下单」。
+
+        两者职责不同但口径必须同源：粗筛取 ``min`` —— 保守的一侧先触发问询，
+        保证引擎任一方向真有机会时，守望台至少已经问过一次；若反过来让粗筛
+        比精判更严，就会出现「引擎明明动手了、守望台却从没问过」的口径打架。
+        改阈值只需改这里，两边同时跟着变。
+        """
+        return min(float(self.buy_dev_close), float(self.sell_dev_close))
+
     def round_trip_cost_pct(self, amount: Optional[float] = None) -> float:
         """一次完整做 T（买+卖）的往返摩擦成本百分比。
 

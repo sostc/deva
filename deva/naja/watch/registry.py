@@ -65,8 +65,12 @@ class WatchRegistry:
         *,
         heartbeat_sec: Optional[float] = None,
         clock: Optional[MarketClock] = None,
+        ask_sink: Optional[Callable] = None,
     ) -> None:
         self._clock = clock
+        #: 问询落盘钩子，declare 时透传给每个 Watch。None = 纯内存（默认，
+        #: 保持内核可测试）；由 IntentRunner 装配时注入 NB 实现。
+        self.ask_sink: Optional[Callable] = ask_sink
         self._watches: Dict[str, Watch] = {}
         self._beat_sec = (
             _env_float(_HEARTBEAT_ENV, 600.0)
@@ -123,6 +127,7 @@ class WatchRegistry:
             recurring=recurring,
             standing=standing,
             clock=self._clock,
+            ask_sink=self.ask_sink,
         )
         self._watches[watch.watch_id] = watch
         log.info(

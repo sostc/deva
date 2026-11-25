@@ -164,6 +164,14 @@ class WatchDesk:
         #: 而每轮记成「本轮取不到观测」—— 不触发、不报错、日志里只留一行
         #: 警告，和「这个想法从来没挂上过」长得一模一样。
         self._observers["allocation"] = self._intent_context
+        # ❗派生守望（做 T / 补底仓）由 IntentRunner._ensure_watch 直接
+        # registry.declare 挂台，不走 declare_intent，所以不会自动带上观测面。
+        # 少了这两行，它们每轮都走 _note_missing_observer → ctx=None → 判据全
+        # unclear → 只能靠 600s 沉默兜底空问：日志里只留一行 WARNING，看起来
+        # 跟「机会还没到」一模一样。两类判据要的观测与意向类相同
+        # （price/anchor 给 price_deviation，manas_reading 给 manas_window）。
+        self._observers["rotation_t"] = self._intent_context
+        self._observers["establish_core"] = self._intent_context
 
         # -- 自证计数 ------------------------------------------------
         self.polls = 0
@@ -183,6 +191,10 @@ class WatchDesk:
         self.wake_counts: Dict[str, int] = {}
         self._warned_missing: set = set()
         self._warned_no_asker: set = set()
+        #: 观测面缺失的**已挂守望种类**。❗按 kind 去重（不是 watch_id）：
+        #: 同一种 kind 挂十个守望，缺一次观测面就是一类系统性断链，不是十条
+        #: 独立小问题。UI / 守卫读它就能一眼看出「有哪种守望从没看过行情」。
+        self.missing_observer_kinds: set = set()
         self._last_sync_fetch: Dict[str, float] = {}
         #: 开票流水（全局，含已撤下的守望留下的痕迹）
         self._ticket_log: deque = deque(maxlen=TICKET_LOG_MAXLEN)
@@ -305,6 +317,9 @@ class WatchDesk:
             self.wake_counts[wake_reason] = (
                 self.wake_counts.get(wake_reason, 0) + 1
             )
+        # -- 观测面覆盖自检：断链要显式红灯，不能只留一行一次性 WARNING --
+        self._check_observer_coverage()
+
         tickets: List[DeskTicket] = []
         for watch in list(self.registry.watches()):
             if watch.state == WatchState.SETTLED:
@@ -472,6 +487,31 @@ class WatchDesk:
                 "reason": tk.reason,
             }
         )
+
+    def _check_observer_coverage(self) -> None:
+        """每轮自检：已挂守望的 kind 若没有观测面工厂，显式报错并留痕。
+
+        ❗与 ``_note_missing_observer`` 的区别：那个按 watch_id 只报一次、
+        level 是 WARNING，报完就彻底静默 —— 正是「rotation_t 判据空转一整天
+        却没人发现」的成因。这里按 **kind** 去重、用 ERROR，并把缺的种类
+        留在 ``missing_observer_kinds`` 上供 UI / 守卫读取。补回 observer 后
+        自动从集合里移除（自愈），不靠手动清状态。
+        """
+        present = {
+            str(w.objective.kind) for w in self.registry.watches()
+            if w.state != WatchState.SETTLED
+        }
+        missing = {k for k in present if k not in self._observers}
+        if missing:
+            for kind in sorted(missing - self.missing_observer_kinds):
+                log.error(
+                    "[WatchDesk] 观测面断链：kind=%r 已挂台但没有观测面工厂，"
+                    "判据会全部记 unclear、只能靠沉默兜底空问 —— 请补 register_observer",
+                    kind,
+                )
+            self.missing_observer_kinds = missing
+        else:
+            self.missing_observer_kinds = set()
 
     def _note_missing_observer(self, watch: Watch) -> None:
         if watch.watch_id in self._warned_missing:

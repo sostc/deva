@@ -84,6 +84,17 @@ ENV_INTENT_CONFIDENCE = "NAJA_INTENT_CONFIDENCE"
 ENV_INTENT_FILE = "NAJA_INTENT_FILE"
 DEFAULT_INTENT_FILE = "~/.naja/intents.json"
 
+#: 问询记录落盘开关（默认开，设 0 回滚为纯内存）。ask_log 原本重启即清零，
+#: 「这个意向问过几次、被否几次」跨重启查不到 —— 与决策日志可回放的口径
+#: 不一致。落盘失败只降级为内存，绝不影响决策。
+ENV_WATCH_ASK_PERSIST = "NAJA_WATCH_ASK_PERSIST"
+WATCH_ASK_TABLE = "naja_watch_ask_log"
+
+#: ❗执行腿总开关：**默认关闭**。守望台历史上只「等」和「问」，从不碰账户；
+#: 要不要让「批准」真的变成落单，是产品风控决策，必须显式打开
+#: ``NAJA_WATCH_EXEC_ENABLED=1``。关闭时本 runner 的行为与接执行腿之前完全一致。
+ENV_WATCH_EXEC_ENABLED = "NAJA_WATCH_EXEC_ENABLED"
+
 _runner: Optional["IntentRunner"] = None
 _runner_lock = threading.Lock()
 
@@ -574,6 +585,11 @@ class IntentRunner:
             "granted": 0,
             "denied": 0,
             "unanswered": 0,
+            # 执行腿（默认关闭，见 ENV_WATCH_EXEC_ENABLED）
+            "exec_attempted": 0,
+            "executed": 0,
+            "exec_skipped": 0,
+            "exec_failed": 0,
         }
         #: 派生守望同步的节流时刻。持仓不会每秒变，没必要每轮都去读。
         self._last_sync: float = 0.0
@@ -592,15 +608,52 @@ class IntentRunner:
     def running(self) -> bool:
         return bool(self._thread is not None and self._thread.is_alive())
 
+    def _ask_log_sink(self) -> Callable:
+        """造一个 ``(watch_id, entry) -> None`` 的问询落盘钩子。
+
+        ❗DBStream 判可用性必须 ``is None``，绝不能用真值 —— 它定义了
+        ``__len__``，空表 ``bool()`` 为 False，用 ``if not db`` 会把「表空」
+        当成「对象不可用」，永远写不进第一条。
+        ❗NB 句柄放闭包变量，不挂 self：bound method 每次访问都是新对象，
+        挂在它上面的属性下次访问就没了（实测 sink._db 永远 None）。
+        """
+        state: Dict[str, Any] = {"db": None}
+
+        def _sink(watch_id: str, entry: Dict[str, Any]) -> None:
+            try:
+                if state["db"] is None:
+                    from deva import NB
+                    state["db"] = NB(WATCH_ASK_TABLE)
+                db = state["db"]
+                if db is None:
+                    return
+                key = str(watch_id or "unknown")
+                rows = db.get(key)
+                buf = list(rows) if rows is not None else []
+                buf.append(dict(entry))
+                db[key] = buf[-200:]  # 每个守望留最近 200 条，防无限增长
+            except Exception as e:  # noqa: BLE001
+                log.debug("[IntentRunner] 问询落盘失败（降级为仅内存）: %s", e)
+
+        return _sink
+
     @property
     def desk(self) -> WatchDesk:
         """取桌面，没有就现场装一个。要不要跑起来交给 start()。"""
         with self._desk_lock:
             if self._desk is None:
-                self._desk = WatchDesk(
+                desk = WatchDesk(
                     asker=self._asker or decision_center_asker,
                     heartbeat_sec=self._beat_sec,
                 )
+                # ❗问询记录落 NB：ask_log 原本是进程内 deque，重启即清零，
+                # 「这个意向到底问过几次、被否几次」跨重启查不到。注入 sink
+                # 让每条问询留痕；失败只降级为内存，不影响决策。
+                if not env_flag(ENV_WATCH_ASK_PERSIST, True):
+                    desk.registry.ask_sink = None
+                else:
+                    desk.registry.ask_sink = self._ask_log_sink()
+                self._desk = desk
             elif self._asker is not None and self._desk.asker is None:
                 # ❗外部注入的桌面可能没接执行器。运行器自己的执行器必须补上去，
                 # 否则「接了执行器」这件事被静默丢掉 —— 票照样开、照样没人消费，
@@ -957,6 +1010,123 @@ class IntentRunner:
             return tickets
         return tickets + list(self.desk.poll(t, wake_reason="timer"))
 
+    @staticmethod
+    def _exec_enabled() -> bool:
+        """执行腿是否开启。❗默认关闭 —— 只有显式 =1 才真落单。"""
+        return str(os.environ.get(ENV_WATCH_EXEC_ENABLED, "0")).strip() in (
+            "1", "true", "True", "TRUE", "yes", "on",
+        )
+
+    def _execute_granted_ticket(self, tk: Any, now: float) -> bool:
+        """把一张已放行的票交给**既有**执行链（TradeDecisionEvent → Bandit）。
+
+        ❗设计边界：
+        * **默认关闭**，开关见 :data:`ENV_WATCH_EXEC_ENABLED`；
+        * 这里**不另写下单逻辑**，只发一条「已批准」的 TradeDecisionEvent
+          到 trading_bus —— 复用 SignalListener → Bandit 的既有执行链，
+          避免两处下单代码漂移；
+        * 守望台已在 asker 里过了一次 TradingCenter，这里**不二次审批**
+          （再判一次会把它自己刚放行的票又否掉）；
+        * 二次校验：价格有效 / 方向合法 / 代码非空 / 已有在飞单不重复发。
+        返回 True 表示事件已发出（不等于已成交，成交由执行链落账）。
+        """
+        if not self._exec_enabled():
+            return False
+        self.stats["exec_attempted"] += 1
+        try:
+            ctx = tk.context
+            price = float(getattr(ctx, "price", 0.0) or 0.0)
+            code = str(getattr(tk.objective, "subject", "") or "").strip()
+            side = str(tk.objective.params.get("side", "") or "").strip().lower()
+            if price <= 0:
+                self.stats["exec_skipped"] += 1
+                log.warning("[IntentRunner] 执行腿跳过 %s：无有效现价（price=%s）",
+                            tk.watch_id, price)
+                return False
+            if not code or side not in ("buy", "sell"):
+                self.stats["exec_skipped"] += 1
+                log.warning("[IntentRunner] 执行腿跳过 %s：代码/方向不合法（%s/%s）",
+                            tk.watch_id, code, side)
+                return False
+            if self._has_inflight_order(code):
+                self.stats["exec_skipped"] += 1
+                log.info("[IntentRunner] 执行腿跳过 %s：%s 已有在飞单", tk.watch_id, code)
+                return False
+
+            from deva.naja.events import (
+                DecisionResult, SignalDirection, StrategySignalEvent, TradeDecisionEvent,
+                get_trading_bus,
+            )
+            sig = StrategySignalEvent(
+                symbol=code,
+                direction=SignalDirection.BUY if side == "buy" else SignalDirection.SELL,
+                confidence=float(tk.objective.params.get("confidence") or 0.65),
+                strategy_name=f"watch:{tk.watch_id}",
+                signal_type="watch_intent",
+                current_price=price,
+                price_change_pct=0.0,
+                market=str(getattr(tk.objective, "market", "CN") or "CN"),
+                metadata={
+                    "watch_id": tk.watch_id,
+                    "granted_reason": tk.reason,
+                    "source": "watch_exec_leg",
+                },
+            )
+            # ❗approval_score 表「决策中心已批准」这个事实，不是用户意愿强度：
+            # SignalListener 用它过 min_confidence(0.6) 闸门。若这里填意愿强度
+            # （可能只有 0.5），批准过的票会被执行链二次挡掉 —— 又是一次
+            # 「批了却没执行」。给足够高的固定值，意愿强度放在 signal.confidence
+            # 供留痕，二者语义不同，别混。
+            evt = TradeDecisionEvent(
+                signal_event=sig,
+                decision=DecisionResult.APPROVED,
+                approval_score=0.9,
+                approved_symbol=code,
+                approved_direction=sig.direction,
+                reason=tk.reason,
+                metadata={"source": "watch_exec_leg", "watch_id": tk.watch_id},
+            )
+            get_trading_bus().publish(evt)
+            self.stats["executed"] += 1
+            log.info("[IntentRunner] ✅ 执行腿已发出批准事件 %s %s @ %.3f（开关已开）",
+                     side, code, price)
+            return True
+        except Exception as e:  # noqa: BLE001
+            self.stats["exec_failed"] += 1
+            log.error("[IntentRunner] 执行腿失败 %s: %s:%s",
+                      tk.watch_id, type(e).__name__, e)
+            return False
+
+    def _has_inflight_order(self, code: str) -> bool:
+        """已有在飞单、或**查不清**，都返回 True（不重复发）。
+
+        ❗在飞单查询的真身在 portfolio（futu_sim_portfolio.in_flight_buy_orders），
+        其契约是 ``None`` = **查询本身失败**、``[]`` = 确认没有、``[{...}]`` = 有。
+        按项目铁律「None ≠ []」：拿不到时绝不能当成「可以放心下单」——
+        所以这里拿不到/查不清一律保守返回 True（跳过执行）。
+
+        没有 portfolio 的环境（虚拟盘/单测）没有在飞单概念 → 返回 False（可继续）。
+        """
+        try:
+            from deva.naja.application.container import get_app_container
+            container = get_app_container()
+            pf = None
+            if container is not None:
+                pf = getattr(container, "portfolio", None) or getattr(
+                    container, "virtual_portfolio", None
+                )
+            if pf is None:
+                return False  # 虚拟盘：下单即成交，无在飞单概念
+            probe = getattr(pf, "in_flight_buy_orders", None)
+            if not callable(probe):
+                return False  # 该 portfolio 不支持在飞单查询
+            result = probe(code)
+            if result is None:
+                return True  # ❗查询失败 = 不能再下，绝不当成没有
+            return bool(result)
+        except Exception:  # noqa: BLE001
+            return True  # 查不清就保守跳过
+
     def tick(self, now: Optional[float] = None) -> List[Any]:
         """跑一轮。与心跳分离是为了便于测试与手工推动。"""
         t = now if now is not None else time.time()
@@ -983,6 +1153,8 @@ class IntentRunner:
                     "[IntentRunner] 🚦 %s 机会成立且决策中心放行：%s（%s）",
                     tk.watch_id, tk.objective.describe(), tk.reason,
                 )
+                # ❗执行腿：默认关闭；开启后才把批准交给既有执行链
+                self._execute_granted_ticket(tk, t)
             else:
                 self.stats["denied"] += 1
                 log.info(

@@ -18,7 +18,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from .clock import MarketClock
 from .objective import Objective, WatchContext
@@ -157,6 +157,10 @@ class Watch:
     #: ❗认不出的市场由时钟自己退回墙上差，守望不猜 —— 把「市场不认识」
     #: 当「市场关着」会让一个拼错 market 的守望永远安静。
     clock: Optional[MarketClock] = None
+    #: ❗问询记录的落盘钩子（可选）。默认 None = 纯内存（保持 watch 内核
+    #: 不依赖 DB、可测试）。由 IntentRunner 装配时注入 NB 实现；落盘失败
+    #: 只降级为内存，绝不影响决策。签名 ``(watch_id, entry) -> None``。
+    ask_sink: Optional[Callable] = None
 
     def __post_init__(self) -> None:
         if self.recurring and self.standing:
@@ -427,6 +431,12 @@ class Watch:
             "fired": list(fired_kinds or ()),
         }
         self.ask_log.append(entry)
+        # ❗落盘是旁路：失败只降级为「仅内存」，绝不影响决策与计数。
+        if self.ask_sink is not None:
+            try:
+                self.ask_sink(str(getattr(self, "watch_id", "")), dict(entry))
+            except Exception as e:  # noqa: BLE001
+                log.debug("[Watch] 问询落盘失败（降级为仅内存）: %s", e)
         self.last_ask_at = t
         self.last_granted = verdict
         self.asked += 1
