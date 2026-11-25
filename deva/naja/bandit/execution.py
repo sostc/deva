@@ -82,14 +82,46 @@ BACKENDS = (BACKEND_VIRTUAL, BACKEND_FUTU_SIM)
 DEFAULT_SIM_MARKETS = "HK,US,CN"
 
 
+#: 「真实交易」的别名。**故意不支持** —— 列出来只是为了给出一句人话报错，
+#: 而不是让它混在「未知后端」里被当成拼写错误。
+REAL_ALIASES = frozenset({"real", "live", "prod", "实盘", "真实"})
+
+
 def selected_backend_name() -> str:
-    """读出本次要用的执行后端名。**认不出的一律回落 ``virtual``**。"""
+    """读出本次要用的执行后端名。**认不出的一律回落 ``virtual``**。
+
+    ❗``real`` / ``live`` 之类**不是**合法值：本系统没有真实下单实现，
+    唯一 ``place_order`` 调用点硬编码 ``TrdEnv.SIMULATE``。这里显式报
+    ERROR 并回落虚拟仓，是为了让「以为打开了实盘」当场暴露，而不是
+    把它当成拼写错误悄悄降级。
+    """
     raw = (os.environ.get(ENV_BACKEND) or "").strip().lower()
     if raw in BACKENDS:
         return raw
+    if raw in REAL_ALIASES:
+        log.error(
+            "[Execution] ❗请求真实交易（%s=%r）被拒绝：本系统没有真实下单实现，"
+            "强制回落 %s。要跑交易请用 futu_sim（富途模拟账户）。",
+            ENV_BACKEND, raw, BACKEND_VIRTUAL,
+        )
+        return BACKEND_VIRTUAL
     if raw:
         log.warning("[Execution] 未知的执行后端 %r，回落 %s", raw, BACKEND_VIRTUAL)
     return BACKEND_VIRTUAL
+
+
+def trading_mode_summary() -> str:
+    """当前交易模式的一句话说明（启动横幅 / 排查用）。"""
+    name = selected_backend_name()
+    if name == BACKEND_FUTU_SIM:
+        return (
+            "交易模式 = 模拟交易（富途模拟账户 TrdEnv.SIMULATE）"
+            "｜真实交易 = 未实现（代码中无真实下单路径，设 real 会被拒绝）"
+        )
+    return (
+        "交易模式 = 虚拟仓（不触达任何券商账户）"
+        "｜真实交易 = 未实现（代码中无真实下单路径，设 real 会被拒绝）"
+    )
 
 
 def futu_sim_enabled() -> bool:
@@ -955,12 +987,14 @@ __all__ = [
     "order_slot_key",
     "quote_market",
     "read_journal",
+    "REAL_ALIASES",
     "release_order_slot",
     "resolve_backend",
     "round_to_tick",
     "selected_backend_name",
     "sim_markets",
     "slot_taken",
+    "trading_mode_summary",
     "trd_market",
     "us_symbols",
 ]

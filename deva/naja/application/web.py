@@ -104,6 +104,14 @@ def run_web_application(config: AppRuntimeConfig):
         error_info = ", ".join([f"{k}: {v}" for k, v in restore_errors.items()])
         print(f"⚠️ 部分状态恢复失败: {error_info}")
 
+    # 交易模式横幅：模拟 / 虚拟 / 真实是否启用，启动时一次说清。
+    # 不打印的话，「以为在跑模拟盘、其实一笔都没成交」只能事后翻订单流水才发现。
+    try:
+        from deva.naja.bandit.execution import trading_mode_summary
+        print(f"💰 {trading_mode_summary()}")
+    except Exception as e:
+        print(f"⚠️ 交易模式读取失败: {e}")
+
     try:
         print(container.attention_config_summary())
     except Exception as e:
