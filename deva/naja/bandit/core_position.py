@@ -68,6 +68,36 @@ DEFAULT_FALLBACK_DEADLINE = 3600.0
 DEFAULT_SESSION_WINDOW = 8 * 3600.0
 
 
+def _round_trip_cost_amount(stock_code: str, sell_price: float, buyback_price: float,
+                            quantity: float) -> float:
+    """按标的市场费率算一次倒T的账单硬成本（佣金+印花税，本币金额）。
+
+    ❗延迟导入 core_holdings/execution：它们是配置与行情模块，不该在 core_position
+    顶层引入（core_holdings 已 import t_rotation，顶层互导会成环）。
+    费率取不到时返回 0.0 并在 cost 里留痕，绝不伪造。
+    """
+    if sell_price <= 0 or buyback_price <= 0 or quantity <= 0:
+        return 0.0
+    try:
+        from .core_holdings import MARKET_PROFILES
+        from .execution import infer_market
+
+        market, _ = infer_market(stock_code)
+        prof = MARKET_PROFILES.get(market)
+        if prof is None:
+            return 0.0
+        th = prof.thresholds
+        sell_amt = sell_price * quantity
+        buy_amt = buyback_price * quantity
+        commission = max(sell_amt * th.commission_pct / 100.0, th.min_commission) + \
+            max(buy_amt * th.commission_pct / 100.0, th.min_commission)
+        # 印花税：A股ETF 0，港股 0.1% 卖出单边，美股 0
+        stamp = sell_amt * th.stamp_duty_pct / 100.0
+        return commission + stamp
+    except Exception:  # noqa: BLE001 - 记账成本算不出不能拖垮义务履行
+        return 0.0
+
+
 @dataclass
 class CorePlan:
     """某个标的的长期持有目标份额。"""
@@ -111,6 +141,12 @@ class BuybackObligation:
     fulfilled_time: float = 0.0
     forced: bool = False
     note: str = ""
+    #: ❗扣真实交易费用后的净收益（本币金额）。realized_edge 是毛差价，
+    #: 实盘要付佣金+印花税；2026-11-25 回测 65 笔真实倒T，毛差价 +560 但按
+    #: 券商费率账单成本 1387 → 实为亏损。0.0 表示尚未结算或未能计算。
+    net_edge: float = 0.0
+    #: 记账用的往返成本金额（佣金+印花税，不含滑点——滑点已在成交价里）
+    cost_amount: float = 0.0
 
     @property
     def is_open(self) -> bool:
@@ -151,6 +187,8 @@ class BuybackObligation:
             "note": self.note,
             "realized_edge": self.realized_edge,
             "edge_pct": self.edge_pct,
+            "cost_amount": self.cost_amount,
+            "net_edge": self.net_edge,
             "open": self.is_open,
         }
 
@@ -629,6 +667,12 @@ class CorePositionLedger:
                 return None
 
             edge = (ob.sell_price - buyback_price) * target_qty
+            # 账单净收益：毛差价扣佣金+印花税。滑点已体现在成交价里，不重复计。
+            cost = _round_trip_cost_amount(
+                ob.stock_code, ob.sell_price, buyback_price, target_qty
+            )
+            ob.cost_amount = round(cost, 4)
+            ob.net_edge = round(edge - cost, 4)
             if target_qty >= ob.quantity - 1e-9:
                 ob.buyback_price = float(buyback_price)
                 ob.fulfilled_time = now
@@ -658,10 +702,12 @@ class CorePositionLedger:
 
             self._save()
             verb = "买回" if edge >= 0 else "追高买回"
+            net_flag = "⚠️实盘亏" if ob.net_edge < 0 <= edge else ""
             log.info(
                 f"[CorePosition] ✅ 回购已履行: {ob.stock_code} "
                 f"{target_qty:.0f} 份 @{buyback_price:.3f}，"
-                f"{verb}兑现 {edge:+.2f}"
+                f"{verb}毛差价 {edge:+.2f} / 费用 {cost:.2f} / 净 {ob.net_edge:+.2f}"
+                f"{net_flag}"
                 + (f"，剩余待买回 {remaining:.0f} 份" if remaining else "")
             )
             return ob
@@ -698,11 +744,16 @@ class CorePositionLedger:
             ob.fulfilled_time = now
             ob.status = OBLIGATION_FULFILLED
             ob.forced = True
+            cost = _round_trip_cost_amount(
+                ob.stock_code, ob.sell_price, price, ob.quantity
+            )
+            ob.cost_amount = round(cost, 4)
+            ob.net_edge = round(ob.realized_edge - cost, 4)
             self._save()
         log.error(
             f"[CorePosition] 🚨 已强制补回: {ob.stock_code} "
             f"{ob.quantity:.0f} 份 @{price:.3f}（原卖出 @{ob.sell_price:.3f}，"
-            f"差价 {(ob.sell_price - price) * ob.quantity:+.2f}）"
+            f"毛差价 {ob.realized_edge:+.2f} / 费用 {cost:.2f} / 净 {ob.net_edge:+.2f}）"
         )
         return ob
 
@@ -718,9 +769,20 @@ class CorePositionLedger:
             and (stock_code is None or ob.stock_code == stock_code)
         )
 
+    def net_edge_total(self, stock_code: Optional[str] = None) -> float:
+        """累计净收益（扣费用后）。老义务在补记前 net_edge=0，无法回溯。"""
+        return sum(
+            ob.net_edge
+            for ob in self._obligations.values()
+            if ob.status == OBLIGATION_FULFILLED
+            and (stock_code is None or ob.stock_code == stock_code)
+        )
+
     def get_stats(self) -> Dict[str, Any]:
         now = time.time()
         open_obs = [o for o in self._obligations.values() if o.is_open]
+        fulfilled = [o for o in self._obligations.values()
+                     if o.status == OBLIGATION_FULFILLED]
         return {
             "plans": len(self._plans),
             "obligations_total": len(self._obligations),
@@ -728,6 +790,10 @@ class CorePositionLedger:
             "obligations_open_qty": sum(o.quantity for o in open_obs),
             "obligations_overdue": sum(1 for o in open_obs if now > o.deadline),
             "realized_edge": sum(o.realized_edge for o in self._obligations.values()),
+            # 毛差价 vs 净收益并列，避免"看着赚实则亏"
+            "net_edge": sum(o.net_edge for o in fulfilled),
+            "cost_amount": sum(o.cost_amount for o in fulfilled),
+            "net_recorded_count": sum(1 for o in fulfilled if o.cost_amount > 0),
             "degraded": self._degraded,
             "persisted": self._db is not None,
         }
@@ -748,6 +814,7 @@ class CorePositionLedger:
             "session_quota": self.session_quota(stock_code, portfolio, **kw),
             "outstanding_qty": self.outstanding_qty(stock_code),
             "realized_edge": self.realized_edge_total(stock_code),
+            "net_edge": self.net_edge_total(stock_code),
         }
 
 

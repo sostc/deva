@@ -116,10 +116,17 @@ class MarketProfile:
 
     market: str
     #: 本币代码。用户拍板（2026-10-14）：**各市场独立本币记账，不做汇率换算**。
-    #: 所以 ``max_round_amount`` 的单位就是这里的币种。
+    #: 所以 ``max_round_amount`` / ``min_round_amount`` 的单位就是这里的币种。
     currency: str
     round_lot: float
     max_round_amount: float
+    #: ❗单次倒T最小成交额（本币）。低于此额，双边最低佣金占成交额比例过高，
+    #: 价差再准也覆盖不了。2026-11-25 用 65 笔真实模拟盘倒T回测定标：
+    #: 成本占比 >0.1% 的小额单有 40/65 笔，最夸张一笔成交额 172 元、佣金 10 元（5.8%）。
+    #: 门槛按"最低佣金占比 ≤ ~0.1%"反推：CN 5元×2/0.001=10000 → 取 8000；
+    #: HK 20元×2/0.001=40000，但港股单价高、实务上取 15000（占比 0.27%，配合高振幅）；
+    #: US 1元×2/0.001=2000 → 取 3000。
+    min_round_amount: float = 0.0
     thresholds: RotationThresholds = field(default_factory=RotationThresholds)
     #: 引擎级参数档（了结/买回的回撤容忍度）。
     #: ❗这两个数**同样必须按市场标定**，道理与 thresholds 完全一致：
@@ -134,6 +141,7 @@ class MarketProfile:
 MARKET_PROFILES: Dict[str, MarketProfile] = {
     "CN": MarketProfile(
         market="CN", currency="CNY", round_lot=100.0, max_round_amount=200000.0,
+        min_round_amount=8000.0,
         # 场内 ETF：免印花税。振幅大（~6%），闸门可以放宽
         thresholds=RotationThresholds(
             commission_pct=0.025, slippage_pct=0.05, stamp_duty_pct=0.0,
@@ -150,6 +158,7 @@ MARKET_PROFILES: Dict[str, MarketProfile] = {
     ),
     "HK": MarketProfile(
         market="HK", currency="HKD", round_lot=100.0, max_round_amount=200000.0,
+        min_round_amount=15000.0,
         # 港股：印花税 0.1% 单边，佣金也高于 A 股 → 往返成本约 0.30%
         thresholds=RotationThresholds(
             commission_pct=0.05, slippage_pct=0.05, stamp_duty_pct=0.1,
@@ -170,6 +179,7 @@ MARKET_PROFILES: Dict[str, MarketProfile] = {
     ),
     "US": MarketProfile(
         market="US", currency="USD", round_lot=1.0, max_round_amount=30000.0,
+        min_round_amount=3000.0,
         # 美股：无印花税、可 1 股起。ETF 振幅小（~0.7%），闸门必须放低，
         # 否则按 A 股那套永远不会触发
         thresholds=RotationThresholds(

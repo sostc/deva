@@ -126,6 +126,10 @@ class TRotationConfig:
     round_lot: float = 100.0
     #: 单次最少份额，低于此不值得做（摩擦成本占比过高）
     min_round_shares: float = 100.0
+    #: ❗单次最少**成交额**（本币）。份额门槛挡不住小额单被最低佣金吞掉：
+    #: A股 100 份 × 0.17 元 = 17 元，佣金却收 10 元（占 58%）。必须按金额再卡一道。
+    #: 0 = 不启用（向后兼容旧测试/裸配置）；生产由市场档标定。
+    min_round_amount: float = 0.0
 
     enable_forward_t: bool = True
     enable_reverse_t: bool = True
@@ -659,6 +663,24 @@ class TRotationEngine:
                 f"（资金上限 {cap_by_cash:.0f} / 持仓上限 {cap_by_pos:.0f}"
                 f" / 环境缩放 {size_scale:.2f}）"
             ), None
+        # 金额门槛：份额够但成交额太小，最低佣金会吃掉全部价差
+        amount = qty * snapshot.last
+        if cfg.min_round_amount > 0 and amount < cfg.min_round_amount:
+            return False, (
+                f"拟成交额 {amount:.0f} < 最小 {cfg.min_round_amount:.0f} "
+                f"（{qty:.0f} 份 × {snapshot.last:.3f}），低于此额最低佣金占比过高"
+            ), None
+        # 二次校验：把最低佣金摊进成本后，净空间若变负就不做。
+        # evaluate_deviation 触发时还不知道金额，用的是纯百分比成本；这里补上。
+        thr = self._thresholds_for(code)
+        real_cost = thr.round_trip_cost_pct(amount=amount)
+        real_edge = abs(signal.ret) * thr.reversion_ratio - real_cost
+        if real_edge < thr.min_net_edge:
+            return False, (
+                f"计入最低佣金后预期净空间 {real_edge:.3f}% < 门槛 "
+                f"{thr.min_net_edge:.3f}%（成交额 {amount:.0f}，"
+                f"往返成本 {real_cost:.3f}%）"
+            ), None
 
         before = self._ledger.effective_shares(
             code, self._portfolio, now=now, session_open_ts=session_open
@@ -740,6 +762,23 @@ class TRotationEngine:
                 f"可做T份额 {qty:.0f} < 最小 {cfg.min_round_shares:.0f} 份"
                 f"（今日额度 {quota:.0f}，单次上限 {cfg.max_round_pct:.0%}"
                 f"，环境缩放 {size_scale:.2f}）"
+            ), None
+        # 金额门槛：倒T卖腿同样要够大，否则买回时双向最低佣金吃掉价差
+        amount = qty * snapshot.last
+        if cfg.min_round_amount > 0 and amount < cfg.min_round_amount:
+            return False, (
+                f"拟成交额 {amount:.0f} < 最小 {cfg.min_round_amount:.0f} "
+                f"（{qty:.0f} 份 × {snapshot.last:.3f}），低于此额最低佣金占比过高"
+            ), None
+        # 二次校验：把最低佣金摊进成本后，净空间若变负就不做
+        thr = self._thresholds_for(code)
+        real_cost = thr.round_trip_cost_pct(amount=amount)
+        real_edge = abs(signal.ret) * thr.reversion_ratio - real_cost
+        if real_edge < thr.min_net_edge:
+            return False, (
+                f"计入最低佣金后预期净空间 {real_edge:.3f}% < 门槛 "
+                f"{thr.min_net_edge:.3f}%（成交额 {amount:.0f}，"
+                f"往返成本 {real_cost:.3f}%）"
             ), None
 
         allowed, why = self._ledger.can_sell(

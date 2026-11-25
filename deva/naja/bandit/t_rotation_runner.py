@@ -407,6 +407,8 @@ class TRotationRunner:
                     # 最少做**一手**：A股/港股 100 份，美股 1 股。
                     # 沿用 100 会让美股「一手」变成 7 万多美元。
                     min_round_shares=spec.round_lot,
+                    # 金额门槛：挡住最低佣金占比过高的小额单（2026-11-25 回测定标）
+                    min_round_amount=prof.min_round_amount,
                 ),
                 round_lot=spec.round_lot,
             )

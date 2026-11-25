@@ -130,11 +130,25 @@ class RotationThresholds:
     no_new_sell_before_close_min: int = 30  # 收盘前 N 分钟不新开倒 T
     min_bars_between_actions: int = 3       # 两次动作之间的最小间隔（bar 数）
 
-    def round_trip_cost_pct(self) -> float:
-        """一次完整做 T（买+卖）的往返摩擦成本百分比。"""
-        return (
-            2 * (self.commission_pct + self.slippage_pct) + self.stamp_duty_pct
-        )
+    def round_trip_cost_pct(self, amount: Optional[float] = None) -> float:
+        """一次完整做 T（买+卖）的往返摩擦成本百分比。
+
+        ❗``min_commission`` 曾长期只是个"声明了却没用"的字段：本方法只算比例
+        佣金，小额单实际被最低佣金吞掉却看不出来（2026-11-25 回测 65 笔真实
+        模拟盘倒T，40 笔佣金占比>0.1%，最高 5.8%）。
+
+        ``amount`` 传入本次拟成交额（本币）时，把双边最低佣金中"比例佣金覆盖
+        不到的部分"摊成百分比补进去。不传则行为与旧版完全一致（向后兼容
+        ``validate()`` 和 ``evaluate_deviation()`` 的调用）。
+        """
+        pct_cost = 2 * (self.commission_pct + self.slippage_pct) + self.stamp_duty_pct
+        if not amount or amount <= 0:
+            return pct_cost
+        # 每腿佣金 = max(比例佣金, 最低佣金)；两腿金额用同一近似值
+        per_leg = max(amount * self.commission_pct / 100.0, self.min_commission)
+        # 只在最低佣金高于比例佣金时补差，避免重复计比例部分
+        extra_pct = max(0.0, 2 * per_leg - 2 * amount * self.commission_pct / 100.0)
+        return pct_cost + extra_pct / amount * 100.0
 
     def validate(self) -> List[str]:
         """返回非法项。坏值要在启动时就暴露，不要等到实盘。"""
