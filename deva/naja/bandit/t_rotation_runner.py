@@ -1245,6 +1245,30 @@ class TRotationRunner:
             f"累计 {carried + qty:.0f}/{target:.0f}（T+1，今日不可卖）{batch_note}"
         )
 
+        # ❗兜底放行留痕：决策中心否决后、由收盘兜底放行的这一笔，
+        # 在 DecisionJournal 里仍是 approved=False（判定没变），面板的
+        # 「批准 0」因此解释不了这类真实成交。记到独立留痕表，按
+        # (标的, 交易日) 去重，只记确认成交的这一笔，避免收盘前每 30 秒
+        # 轮询把计数刷成几十条。留痕失败绝不反过来影响已成交的单。
+        if getattr(verdict, "source", "") == "deadline":
+            try:
+                from deva.naja.decision.fallback_ledger import (
+                    record_deadline_fallback,
+                )
+                record_deadline_fallback(
+                    code=spec.code,
+                    name=spec.name,
+                    trade_date=date,
+                    qty=qty,
+                    price=price,
+                    reason=getattr(verdict, "reason", ""),
+                    size_hint=float(getattr(verdict, "size_hint", 0.0) or 0.0),
+                )
+            except Exception as e:  # 留痕是旁路
+                log.debug(
+                    f"[TRotationRunner] 兜底放行留痕失败（不影响已成交单）: {e}"
+                )
+
     # ------------------------------------------------------------------
     # 在飞单闸门（建仓幂等的判据）
     # ------------------------------------------------------------------

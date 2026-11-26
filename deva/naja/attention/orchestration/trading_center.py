@@ -496,6 +496,17 @@ class TradingCenter:
         rejected = len(rejected_items)
         actionable = sum(1 for item in recent if self._plan_entry_actionable(item))
         persisted_total = journal.count()
+        # ❗兜底放行是「判定被否、临近收盘按预案真实买入」的执行事件，
+        # 在 DecisionJournal 里仍是 approved=False。单独计数，避免面板的
+        # 「已批准 0」解释不了确实发生的成交。惰性导入避免包初始化成环。
+        try:
+            from deva.naja.decision.fallback_ledger import (
+                get_deadline_fallback_count,
+            )
+            deadline_fallback = get_deadline_fallback_count()
+        except Exception as e:  # 留痕不可用时如实报 0，不合成假数字
+            log.debug(f"[TradingCenter] 读取兜底放行留痕失败: {e}")
+            deadline_fallback = 0
         return {
             "available": bool(recent),
             "latest": recent[0] if recent else None,
@@ -509,6 +520,7 @@ class TradingCenter:
                 "shown": len(recent),
                 "approved": approved,
                 "rejected": rejected,
+                "deadline_fallback": deadline_fallback,
                 "actionable": actionable,
                 "persisted": journal.stats().get("available", False),
             },

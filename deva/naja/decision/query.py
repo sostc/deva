@@ -109,6 +109,7 @@ def _empty_summary(reason: str) -> Dict[str, Any]:
             "shown": 0,
             "approved": 0,
             "rejected": 0,
+            "deadline_fallback": 0,
             "actionable": 0,
             "persisted": False,
         },

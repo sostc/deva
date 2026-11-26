@@ -151,6 +151,9 @@ def render_decision_plan_panel(summary: dict = None) -> str:
     recent_approved = summary.get("recent_approved") or []
     approved_n = int(stats.get("approved", 0) or 0)
     rejected_n = int(stats.get("rejected", 0) or 0)
+    # ❗兜底放行是第三类计数：判定被否、但临近收盘按预案真实买入。
+    # 它不计入 approved（判定没变），单独显示才能解释「批准 0 但有成交」。
+    fallback_n = int(stats.get("deadline_fallback", 0) or 0)
 
     persisted = bool(stats.get("persisted"))
     persisted_text = "已落盘" if persisted else "仅内存"
@@ -180,11 +183,22 @@ def render_decision_plan_panel(summary: dict = None) -> str:
         approved_text, approved_color = "—", "#64748b"
 
     # 平衡条：批准/否决计数（来自更大历史窗口，不是只看最近几条）
+    # 兜底放行单列：它不是「批准」，是「问过、被否、按预案真实买入」，
+    # 与上面两个数不同口径，所以用不同颜色 + title 说明，避免被读成批准数。
+    fallback_html = ""
+    if fallback_n > 0:
+        fallback_html = (
+            f'<span style="font-size:11px;font-weight:600;color:#d97706;" '
+            f'title="决策否决后，距收盘≤30分钟按最小档真实买入；'
+            f'按标的+交易日去重，不计入批准数">'
+            f'🔁 兜底放行 {fallback_n}</span>'
+        )
     balance_html = (
-        f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">'
+        f'<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">'
         f'<span style="font-size:11px;color:#64748b;">历史判定</span>'
         f'<span style="font-size:11px;font-weight:600;color:#16a34a;">✅ 批准 {approved_n}</span>'
         f'<span style="font-size:11px;font-weight:600;color:#dc2626;">⛔ 否决 {rejected_n}</span>'
+        f'{fallback_html}'
         f'</div>'
     )
 
