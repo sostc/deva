@@ -75,6 +75,15 @@ deva/naja/config/*.yml
 *.sqlite
 *.sqlite3
 deva/naja/state/**/*.db
+# SQLite 的 WAL / 共享内存是**进程运行时**的伴随文件，不是数据本身：
+# 入库它们等于把「某次崩溃瞬间的内存页」提交进公开仓库。
+*.sqlite-shm
+*.sqlite-wal
+
+# 本地备份（*.bak / *.bak-YYYYMMDD-HHMM）。全库 0 个已入库文件，
+# 入库只会把别人正在改的旧版本塞进公开历史。
+*.bak
+*.bak-*
 
 # NotebookDB 数据
 deva/naja/state/notebook/
