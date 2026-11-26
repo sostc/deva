@@ -110,6 +110,54 @@ class DeadlineFallbackLedger:
                 return None
         return ts
 
+    def record_backfill(
+        self,
+        *,
+        code: str,
+        trade_date: str,
+        trade_at: float,
+        name: str = "",
+        qty: float = 0.0,
+        price: float = 0.0,
+        reason: str = "",
+        size_hint: float = 0.0,
+    ) -> Optional[float]:
+        """补记历史兜底放行（运维用）。
+
+        ❗时间键用**当前时间**，真实成交时间只放在 payload 的 ``trade_at``。
+        原因：``DBStream`` 的 maxsize 淘汰按时间**升序**删最旧记录，若把 10 月的
+        旧时间戳当 key 写进去，这条记录会被立刻挤掉（见 decision/journal.py
+        的同类坑）。去重仍按 ``(code, trade_date)``，所以重复执行是幂等的。
+        """
+        if self._db is None:
+            return None
+        payload: Dict[str, Any] = dict(
+            code=code,
+            name=name,
+            trade_date=trade_date,
+            trade_at=float(trade_at),
+            qty=qty,
+            price=price,
+            reason=reason,
+            size_hint=size_hint,
+            source="deadline",
+            backfilled=True,
+        )
+        with self._lock:
+            for prior in self._sorted_entries_unlocked():
+                if (prior.get("code") == code
+                        and prior.get("trade_date") == trade_date):
+                    return None
+            # key 用当前单调时间，不用 trade_at —— 避免被 maxsize 立即淘汰。
+            ts = self._next_ts(time.time())
+            payload["recorded_at"] = ts
+            try:
+                self._db.append(payload, key=ts)
+            except Exception as e:
+                log.warning(f"[DeadlineFallbackLedger] 补记落盘失败: {e}")
+                return None
+        return ts
+
     def _next_ts(self, raw: Any) -> float:
         try:
             ts = float(raw)
@@ -203,6 +251,15 @@ def record_deadline_fallback(**kwargs) -> Optional[float]:
         return None
 
 
+def record_deadline_fallback_backfill(**kwargs) -> Optional[float]:
+    """补记一条历史兜底放行；重复执行按 (code, trade_date) 幂等。"""
+    try:
+        return get_deadline_fallback_ledger().record_backfill(**kwargs)
+    except Exception as e:
+        log.warning(f"[DeadlineFallbackLedger] 补记失败: {e}")
+        return None
+
+
 def get_deadline_fallback_count() -> int:
     """面板用：历史兜底放行次数；读不到返回 0。"""
     try:
@@ -217,5 +274,6 @@ __all__ = [
     "DeadlineFallbackLedger",
     "get_deadline_fallback_ledger",
     "record_deadline_fallback",
+    "record_deadline_fallback_backfill",
     "get_deadline_fallback_count",
 ]
