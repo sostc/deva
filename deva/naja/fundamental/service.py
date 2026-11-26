@@ -156,31 +156,67 @@ class FundamentalService:
 
         return re.sub(r"^(sh|sz)\.?", "", str(symbol).strip(), flags=re.IGNORECASE)
 
-    def _points(self, symbol: str, force: bool = False):
-        """取时点基本面序列。A 股走东财累计差分，美股走 SEC 季度滚动。"""
+    def series_with_status(self, symbol: str, force: bool = False):
+        """取时点基本面序列 + **三态状态**：``(points, status, why)``。
+
+        ``status`` ∈ ``ok`` / ``empty`` / ``error``。
+
+        ❗空列表有**两种**含义，绝不许合并（这正是本项目反复踩的「静默失效」）：
+        - ``empty``：这类标的确实没有企业财报（ETF / 基金），或源确认无覆盖；
+        - ``error``：我们没取到（网络 / HTTP / 解析）。它是**可恢复**的，
+          按 empty 处理就等于把一只其实有财报的票永久跳过，而且日志看起来一切正常。
+        """
         from ..structural_growth.financial_data_fetcher import _is_us_stock
         from . import points as points_mod
 
-        if _is_us_stock(symbol):
-            return points_mod.us_series(symbol)
+        key = str(symbol or "").strip()
+        if not key:
+            return [], "error", "空代码"
 
-        bare = self._bare(symbol)
-        rows = []
+        # 美股：SEC 季度滚动 TTM。约 20 期，季度间隔 —— 分类器要的正是这个密度。
+        if _is_us_stock(key):
+            try:
+                pts = points_mod.us_series(key)
+            except Exception as e:  # noqa: BLE001
+                log.warning("[Fundamental] %s SEC 财报拉取失败: %s", key, e)
+                return [], "error", f"{type(e).__name__}: {e}"
+            if not pts:
+                return [], "empty", "SEC 无该公司财报（ETF/基金或标签缺失）"
+            return pts, "ok", ""
+
+        # A 股：东财累计口径 → 差分出 TTM（累计值直接当 TTM 会差出 4 倍）
+        bare = self._bare(key)
         try:
-            rows = self.fetcher.fetch(bare, force_refresh=force) or []
+            rows, status, why = self.fetcher.fetch_detail(bare, force_refresh=force)
         except Exception as e:  # noqa: BLE001
-            log.warning("[Fundamental] %s 财报拉取失败: %s", symbol, e)
-        if rows:
-            # 顺手落库：估值路径本身就在取财报，没有理由再跑一遍刷新
-            for row in rows:
-                try:
-                    payload = _payload(row)
-                    self.store.upsert(bare, payload["period"], payload)
-                except Exception:
-                    continue
-        else:
-            rows = self._rows_from_store(bare)
-        return points_mod.a_share_series(rows) if rows else []
+            log.warning("[Fundamental] %s 财报拉取失败: %s", bare, e)
+            return [], "error", f"{type(e).__name__}: {e}"
+        if status == "error":
+            stale = self._rows_from_store(bare)
+            if stale:
+                pts = points_mod.a_share_series(stale)
+                if pts:
+                    return pts, "ok", f"本次未取到（{why}），用的是本地落库序列"
+            return [], "error", why
+        if not rows:
+            stale = self._rows_from_store(bare)
+            if stale:
+                pts = points_mod.a_share_series(stale)
+                if pts:
+                    return pts, "ok", f"源无新数据（{why}），用的是本地落库序列"
+            return [], "empty", why
+        # 顺手落库：估值路径本身就在取财报，没有理由再跑一遍刷新
+        for row in rows:
+            try:
+                payload = _payload(row)
+                self.store.upsert(bare, payload["period"], payload)
+            except Exception:
+                continue
+        return points_mod.a_share_series(rows), "ok", ""
+
+    def _points(self, symbol: str, force: bool = False):
+        """取时点基本面序列（只要数据、不要状态）。"""
+        return self.series_with_status(symbol, force=force)[0]
 
     def _rows_from_store(self, symbol: str) -> List[Any]:
         """离线兜底：把落库的 payload 还原成 ``StockFinancial``，字段缺失即为 None。"""

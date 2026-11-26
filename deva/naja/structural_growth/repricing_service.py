@@ -22,12 +22,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Sequence
 
 from .pe_bands import PeerPe, build_bands
-from .pe_classifier import ClassificationResult, build_input_from_financials, classify
+from .pe_classifier import ClassificationResult, build_input_from_points, classify
 from .repricing import evaluate_repricing
 
 log = logging.getLogger(__name__)
 
-# 分类结果缓存（财报是年度数据，半小时足够）
+# 分类结果缓存（季频财报一天最多变一次，半小时足够）
 CLASSIFY_TTL = 1800.0
 # ❗PE 样本缓存：evaluate_all 会对每只票重算一遍尺子，若每只票都重新拉 36 次
 #   行情，36 只就是 1296 次网络调用（实测 83.8s）。行情 5 分钟内足够新鲜。
@@ -73,23 +73,31 @@ class RepricingService:
                 if c in {x.upper() for x in codes}]
 
     def _classify(self, code: str) -> Optional[ClassificationResult]:
+        """分类输入走**季频基本面层**（约 20 期 TTM），不再用年度 4 期。
+
+        ❗年度 4 期只够看到一个周期片段：AMD(174x) / TSLA(306x) 就是因为
+        「4 期里出现过负增长」被判成周期股。季频序列让分类器第一次有足够
+        期数去看「利润的时间行为」，而不是「某一年的一个片段」。
+        """
         now = time.time()
         hit = self._classify_cache.get(code)
         if hit and (now - hit[0]) < CLASSIFY_TTL:
             return hit[1]
         try:
-            from .financial_data_fetcher import get_financial_data_fetcher
-            fins, status, why = get_financial_data_fetcher().fetch_detail(code)
+            from ..fundamental.service import get_fundamental_service
+            points, status, why = get_fundamental_service().series_with_status(code)
         except Exception as e:  # noqa: BLE001
             log.warning("[RepricingService] %s 财报获取失败: %s", code, e)
             self._fetch_status[code] = ("error", f"{type(e).__name__}: {e}")
             self._classify_cache[code] = (now, None)
             return None
+        # ❗状态照原样落下来：``error``（我们没取到）与 ``empty``（这类标的没有财报）
+        #   在 UI 上是两句话，合并就是「静默失效」。
         self._fetch_status[code] = (status, why)
-        if not fins:
+        if not points:
             self._classify_cache[code] = (now, None)
             return None
-        res = classify(build_input_from_financials(code, fins))
+        res = classify(build_input_from_points(code, points))
         self._classify_cache[code] = (now, res)
         return res
 

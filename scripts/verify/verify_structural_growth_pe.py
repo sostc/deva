@@ -539,48 +539,88 @@ def check_confidence_is_net_margin() -> list:
 
 
 def check_missing_flagged_samples_excluded() -> list:
-    """上游把「取不到」填成 0.0，但同时在 ``missing`` 里写了名字。
+    """上游把「取不到」填成 ``None``，不许当成真值收进来。
 
-    只判 ``is not None`` 会把假 0 当真值收进来：
-    - 毛利率假 0（AMZN/GOOGL/KLAC/EQIX 实测全是 0，真实值 50%/58%/60%/49%）
-      → 极差 0、升降 0，被读成「毛利率纹丝不动」，C3/S2 两条判据直接失效
-    - 净利同比假 0 → 拉低标准差、破坏「持续为正」判据
+    只判「字段存在」会把缺失当数据：
+    - 毛利率缺失 → 极差 0、升降 0，被读成「毛利率纹丝不动」，C3/S2 直接失效
+    - 净利缺失   → 同比会被算成 −100%，凭空造出一次「由盈转亏」（强周期证据）
 
-    ❗剔除还必须**可见**：悄悄丢样本会让"4 期"看起来是完整的 4 期。
+    ❗剔除还必须**可见**：悄悄丢样本会让"20 期"看起来是完整的 20 期。
     """
     mod = _load(CLASSIFIER_PY, "_vf_cls_excl")
     if mod is None:
         return ["pe_classifier.py 加载失败"]
 
-    class _Fin:
-        def __init__(self, yoy, gm, missing, np_v=100.0, cf=150.0):
-            self.net_profit_yoy = yoy
-            self.gross_margin = gm
-            self.missing = missing
-            self.net_profit = np_v
-            self.cashflow = cf
-            self.report_date = "2025"
+    class _Pt:
+        """时点基本面替身：缺失 = ``None``（本层不填 0）。"""
 
-    fins = [
-        _Fin(10.0, 0.0, ["gross_margin"]),        # 毛利率缺失（填了 0）
-        _Fin(20.0, 45.0, []),
-        _Fin(30.0, 0.0, ["gross_margin"]),        # 毛利率缺失（填了 0）
-        _Fin(40.0, 47.0, []),
+        def __init__(self, period_end, np_ttm, gm, cash):
+            self.period_end = period_end
+            self.net_profit_ttm = np_ttm
+            self.gross_margin = gm
+            self.cashflow_ttm = cash
+
+    # 8 个季度（旧→新）；毛利率有 2 期缺失，净利有 1 期缺失
+    ends = ["2023-03-31", "2023-06-30", "2023-09-30", "2023-12-31",
+            "2024-03-31", "2024-06-30", "2024-09-30", "2024-12-31"]
+    pts = [
+        _Pt(ends[0], 100.0, 40.0, 120.0),
+        _Pt(ends[1], 110.0, None, 130.0),      # 毛利率缺失
+        _Pt(ends[2], 120.0, 44.0, 150.0),
+        _Pt(ends[3], 130.0, None, 160.0),      # 毛利率缺失
+        _Pt(ends[4], 140.0, 45.0, 170.0),
+        _Pt(ends[5], None, 46.0, 180.0),       # 净利缺失（同比算不出来）
+        _Pt(ends[6], 160.0, 47.0, 200.0),
+        _Pt(ends[7], 175.0, 48.0, 210.0),
     ]
-    inp = mod.build_input_from_financials("TEST", fins)
+    inp = mod.build_input_from_points("TEST", pts)
     bad = []
-    if len(inp.gross_margin) != 2:
+    if len(inp.gross_margin) != 6:
         bad.append(
-            f"4 期里 2 期毛利率被标缺失，却收进了 {len(inp.gross_margin)} 期 "
-            "—— 缺失填充的 0.0 被当成了真实毛利率"
+            f"8 期里 2 期毛利率缺失，却收进了 {len(inp.gross_margin)} 期 "
+            "—— 缺失被当成了真实毛利率"
         )
     if inp.excluded.get("gross_margin") != 2:
         bad.append(
-            f"剔除了样本但 excluded 记的是 {inp.excluded}，应为 {{'gross_margin': 2}} "
+            f"剔除了样本但 excluded 记的是 {inp.excluded}，应为 gross_margin=2 "
             "—— 剔除必须可见"
         )
-    if len(inp.net_profit_yoy) != 4:
-        bad.append("正常样本被误剔除")
+    if inp.excluded.get("net_profit_yoy") != 1:
+        bad.append(
+            f"净利缺失那期没被记入 excluded（{inp.excluded}）—— 会伪造出 −100% 假同比"
+        )
+    # 8 期里只有后 4 期能找到「一年前」的基数；其中一期净利缺失，故 3 条同比
+    if len(inp.net_profit_yoy) != 3:
+        bad.append(
+            f"同比期数 {len(inp.net_profit_yoy)}，应为 3（8 期 − 首年 4 期 − 缺失 1 期）"
+        )
+    return bad
+
+
+def check_classifier_input_is_quarterly() -> list:
+    """分类输入必须来自**季频基本面层**，不许回到年度 4 期。
+
+    实测代价：年度序列只有 4 期，AMD（174x）/ TSLA（306x）因为「4 期里出现过
+    负增长」被判成周期股 —— 于是它们的 PE 被拿去和周期带比，结论正好反了。
+    季频 TTM 约 20 期，才谈得上「看过一个周期」。
+
+    这条守卫看的是**接线**，不是数值：编排层引谁、旧适配器有没有被删干净。
+    """
+    svc = SG_DIR / "repricing_service.py"
+    cls = SG_DIR / "pe_classifier.py"
+    bad = []
+    if not svc.exists() or not cls.exists():
+        return ["repricing_service.py / pe_classifier.py 不存在"]
+    svc_src = svc.read_text(encoding="utf-8")
+    cls_src = cls.read_text(encoding="utf-8")
+    if "build_input_from_points" not in svc_src:
+        bad.append("编排层没有用 build_input_from_points —— 季频序列没接上")
+    if "get_fundamental_service" not in svc_src:
+        bad.append("编排层没有走 fundamental 层 —— 分类又回到年度财报了")
+    if "financial_data_fetcher" in svc_src:
+        bad.append("编排层仍在引用年度财报抓取器（只有 4 期）—— 两个口径并存")
+    if "build_input_from_financials" in cls_src:
+        bad.append("旧的年度输入适配器还在 —— 一刀切没切干净")
     return bad
 
 
@@ -982,6 +1022,7 @@ _ALL = [
     check_unprofitable_negative_is_weak,
     check_confidence_is_net_margin,
     check_missing_flagged_samples_excluded,
+    check_classifier_input_is_quarterly,
     check_missing_net_profit_not_forged,
     check_volatility_metric_is_scale_robust,
     check_bands_measured_when_enough_samples,

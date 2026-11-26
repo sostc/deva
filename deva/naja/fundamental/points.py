@@ -20,6 +20,7 @@ TTM 的两种算法
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -29,6 +30,41 @@ from deva.naja.infra.observability.fleet_registry import KIND_DATASOURCE, probe
 log = logging.getLogger(__name__)
 
 _SEC_HEADERS = {"User-Agent": "Naja Research Agent naja@example.com"}
+
+
+class SecFetchError(RuntimeError):
+    """SEC 抓取失败（网络 / HTTP / 限流）。
+
+    ❗必须与「这家公司确实没财报」分开：前者是我们没取到（可恢复），后者是事实。
+    两者都表现为「没有数据」，合并成一句「无财报」＝把故障伪装成结论。
+    """
+
+
+#: 退避秒数（429/5xx 才退，4xx 直接放弃 —— 重试不会让 404 变成 200）
+_SEC_BACKOFF = (0.8, 2.0)
+
+
+def _sec_get(url: str, timeout: float = 20.0):
+    """带退避的 SEC 请求。失败抛 :class:`SecFetchError`，不返回空。"""
+    import requests
+
+    last = "未知错误"
+    for delay in _SEC_BACKOFF + (0,):
+        try:
+            resp = requests.get(url, headers=_SEC_HEADERS, timeout=timeout)
+        except requests.RequestException as e:
+            last = f"{type(e).__name__}: {e}"
+            if delay:
+                time.sleep(delay)
+                continue
+            break
+        if resp.status_code == 200:
+            return resp
+        last = f"HTTP {resp.status_code}"
+        if resp.status_code not in (429, 500, 502, 503, 504) or not delay:
+            break
+        time.sleep(delay)
+    raise SecFetchError(last)
 
 
 @dataclass
@@ -351,10 +387,33 @@ def _rolling_sum(quarters: Sequence[Dict[str, Any]]) -> Dict[str, Dict[str, Any]
 
 
 @probe(KIND_DATASOURCE, "ds:points_sec", "时点基本面：SEC companyfacts", cadence="按需/缓存")
+def _best_quarterly(gaap: Dict[str, Any], tags: Sequence[str],
+                    unit: str = "USD") -> List[Dict[str, Any]]:
+    """从多个候选标签里取**覆盖最新期、样本最多**的那条。
+
+    ❗不许「第一个非空就用」。实测 AMD：``Revenues`` 只有 4 行（早年数据），
+    而 ``RevenueFromContractWithCustomerExcludingAssessedTax`` 覆盖全部 39 个季度。
+    选了前者，最近几期的营收 / TTM 全是 ``None`` —— 毛利率跟着一起消失，
+    于是 C3（毛利摆动）与 S2（毛利扩张）两条判据整只票都失效。
+    """
+    best: List[Dict[str, Any]] = []
+    best_key = None
+    for tag in tags:
+        q = _quarterly(gaap, tag, unit)
+        if not q:
+            continue
+        key = (str(q[-1].get("end") or ""), len(q))
+        if best_key is None or key > best_key:
+            best, best_key = q, key
+    return best
+
+
 def us_series(symbol: str, companyfacts: Optional[Dict[str, Any]] = None) -> List[FundamentalPoint]:
     """美股时点序列：季度 EPS/净利/现金流滚动 12 个月 + 每股净资产。
 
     ``companyfacts`` 可注入（测试用），不给则按 CIK 拉 SEC。
+    ❗抓取失败抛 :class:`SecFetchError`，**不返回空列表** —— 空列表只表示
+    「这家确实没有可用财报」（无 CIK / 无 us-gaap / 无 EPS 标签）。
     """
     if companyfacts is None:
         from ..structural_growth.financial_data_fetcher import _get_cik
@@ -362,34 +421,23 @@ def us_series(symbol: str, companyfacts: Optional[Dict[str, Any]] = None) -> Lis
         cik = _get_cik(symbol.upper())
         if cik is None:
             return []
-        import requests
-
         url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{str(cik).zfill(10)}.json"
-        resp = requests.get(url, headers=_SEC_HEADERS, timeout=20)
-        if resp.status_code != 200:
-            return []
-        companyfacts = resp.json()
+        companyfacts = _sec_get(url).json()
 
     gaap = (companyfacts.get("facts", {}) or {}).get("us-gaap", {}) or {}
     dei = (companyfacts.get("facts", {}) or {}).get("dei", {}) or {}
     if not gaap:
         return []
 
-    # EPS 有多套口径，优先稀释后（更保守）
-    eps_q: List[Dict[str, Any]] = []
-    for tag in ("EarningsPerShareDiluted", "EarningsPerShareBasic"):
-        eps_q = _quarterly(gaap, tag, "USD/shares")
-        if eps_q:
-            break
+    # EPS 有多套口径：取覆盖最新的那条（稀释/basic 的覆盖期不一定一致）
+    eps_q = _best_quarterly(
+        gaap, ("EarningsPerShareDiluted", "EarningsPerShareBasic"), "USD/shares")
     if not eps_q:
         return []
 
     ni_q = _quarterly(gaap, "NetIncomeLoss", "USD")
-    rev_q: List[Dict[str, Any]] = []
-    for tag in ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax"):
-        rev_q = _quarterly(gaap, tag, "USD")
-        if rev_q:
-            break
+    rev_q = _best_quarterly(
+        gaap, ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues"))
     cf_q = _quarterly(gaap, "NetCashProvidedByUsedInOperatingActivities", "USD")
 
     eps_ttm = _rolling_sum(eps_q)
@@ -414,6 +462,39 @@ def us_series(symbol: str, companyfacts: Optional[Dict[str, Any]] = None) -> Lis
         key=lambda x: x["end"],
     )
 
+    # 毛利率：GrossProfit 优先，缺则用 Revenue − Cost 反推。
+    # ❗只认 GrossProfit 一个标签会让一批票毛利率恒为 None：AMZN 只报
+    #   CostOfGoodsAndServicesSold、GOOGL / AMD 只有 CostOfRevenue。而毛利率是
+    #   C3（周期摆动）与 S2（结构改善）两条判据的唯一输入 —— 缺了就少两条证据。
+    gp_q = _best_quarterly(gaap, ("GrossProfit",))
+    cost_q = _best_quarterly(
+        gaap, ("CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold",
+               "CostOfSales", "CostOfServices"))
+    if cost_q and rev_q:
+        rev_by_end = {r["end"]: r for r in rev_q}
+        cost_by_end = {c["end"]: c["val"] for c in cost_q}
+        derived = sorted(
+            (
+                {
+                    "end": e,
+                    # ❗必须带 start：``_rolling_sum`` 靠「上一季 end → 本季 start」判断
+                    #   是否连续四季，缺了它直接 KeyError（AMZN / GOOGL 实测踩到）。
+                    "start": rev_by_end[e].get("start", ""),
+                    "val": float(rev_by_end[e]["val"]) - float(cost_by_end[e]),
+                    "filed": rev_by_end[e].get("filed", ""),
+                }
+                for e in rev_by_end
+                if e in cost_by_end and rev_by_end[e].get("val") and cost_by_end[e]
+            ),
+            key=lambda x: x["end"],
+        )
+        # ❗取**覆盖更新**的那条：AMZN 的 GrossProfit 只有 2009 年几行，
+        #   用它会让近年的毛利率全部缺失；反过来 NVDA 直接报 GrossProfit，
+        #   反推值反而可能因成本口径不一而失真。按「最后一期谁更新」选，不按标签优先级。
+        if derived and (not gp_q or str(derived[-1]["end"]) > str(gp_q[-1]["end"])):
+            gp_q = derived
+    gp_ttm = _rolling_sum(gp_q) if gp_q else {}
+
     points: List[FundamentalPoint] = []
     for end, eps_info in sorted(eps_ttm.items()):
         as_of = str(eps_info.get("filed") or "")[:10]
@@ -427,10 +508,9 @@ def us_series(symbol: str, companyfacts: Optional[Dict[str, Any]] = None) -> Lis
         cf = (cf_ttm.get(end) or {}).get("val")
         gm = None
         if rev and rev > 0:
-            gp_q = _quarterly(gaap, "GrossProfit", "USD")
-            gp_ttm = _rolling_sum(gp_q).get(end) if gp_q else None
-            if gp_ttm:
-                gm = gp_ttm["val"] / rev * 100.0
+            gp = (gp_ttm.get(end) or {}).get("val")
+            if gp:
+                gm = gp / rev * 100.0
         points.append(
             FundamentalPoint(
                 as_of=as_of,

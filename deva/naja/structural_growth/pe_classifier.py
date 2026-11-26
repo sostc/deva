@@ -204,57 +204,94 @@ class ClassificationResult:
         }
 
 
-def build_input_from_financials(code: str, fins, price_series=None,
-                                pe_history=None) -> ClassificationInput:
-    """把财报序列转成分类输入。
+#: 同比基数的日期匹配容差（天）。
+#: 52/53 周财年、缺报、A 股改报告期都会让「一年前那期」不是精确的 4 期之前，
+#: 按索引 −4 硬取会配到错的期间 —— 而配错不会报错，只会让「同比」一直是错的。
+YOY_MATCH_DAYS = 45
 
-    ❗``fins`` 是**最新在前**（``financial_data_fetcher.fetch`` 的既有约定），
-    而分类器要的是**旧 → 新**。不反转的话，"趋势"和"加速度"全是反的 ——
-    这种错不会报错，只是结论一直反着来。
 
-    另外：净利为负时**不生成**现金流质量样本（比值没有意义），
-    而不是填 0 —— 填 0 会把"巨亏"算成"现金流质量 0"（即极差），
-    反而把周期股误判得更像周期股。
+def _as_date(value):
+    """``YYYY-MM-DD`` → ``date``；解析不了返回 ``None``（不猜）。"""
+    try:
+        from datetime import date
+        return date.fromisoformat(str(value)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _yoy_from_ttm(points: Sequence) -> tuple:
+    """用 TTM 净利序列自算同比，返回 ``(yoy列表, 被剔除期数)``。
+
+    ❗基数按**报告期日期**找（±``YOY_MATCH_DAYS`` 天），不按索引 −4：
+    季度序列会因为缺报 / 财年漂移而不等距。
+    ❗首年没有可比基数属于**结构性缺失**（本来就不该有），不计入剔除数 ——
+    否则每只票都会背着 4 条假「缺失」，剔除就失去了告警意义。
     """
-    ordered = list(reversed(list(fins or [])))
+    out: List[float] = []
+    excluded = 0
+    for cur in points:
+        cur_end = _as_date(getattr(cur, "period_end", ""))
+        if cur_end is None:
+            continue
+        base = None
+        for prev in points:
+            prev_end = _as_date(getattr(prev, "period_end", ""))
+            if prev_end is None or prev_end >= cur_end:
+                continue
+            if abs((cur_end - prev_end).days - 365) <= YOY_MATCH_DAYS:
+                base = prev
+                break
+        if base is None:
+            continue
+        cur_np = getattr(cur, "net_profit_ttm", None)
+        base_np = getattr(base, "net_profit_ttm", None)
+        if cur_np is None or base_np is None or abs(float(base_np)) < 1e-9:
+            excluded += 1
+            continue
+        # 分母取绝对值：基数亏损时同比仍有方向意义（−100% 表示由盈转亏），
+        # 直接除以负数会把方向翻过来。
+        out.append((float(cur_np) - float(base_np)) / abs(float(base_np)) * 100.0)
+    return out, excluded
 
-    yoy: List[float] = []
+
+def build_input_from_points(code: str, points: Sequence,
+                            price_series=None, pe_history=None) -> ClassificationInput:
+    """把**季频时点序列**（``fundamental.points.FundamentalPoint``）转成分类输入。
+
+    ❗为什么不再用年度财报（2026-11-26）：
+        年度序列只有 4 期，而半导体一轮下行就要 2 年 —— 4 期只够看到一个片段，
+        于是「出现过一次负增长」在 2022-23 普遍命中，AMD（174x）/ TSLA（306x）
+        被保守地判成周期股。季频 TTM 约 20 期，``IDEAL_PERIODS`` 才第一次可达。
+
+    ❗缺失用 ``None`` 表达（本层不填 0）：填 0 会把「没数据」算成
+    「毛利率 0% / 现金流质量 0 / 净利零增长」，方向一致地偏向「不像成长股」。
+    """
+    pts = sorted(list(points or []), key=lambda p: str(getattr(p, "period_end", "")))
+
+    yoy, yoy_excluded = _yoy_from_ttm(pts)
+
     gm: List[float] = []
     cf_ratio: List[float] = []
     excluded: Dict[str, int] = {}
-    latest_net: Optional[float] = None
+    if yoy_excluded:
+        excluded["net_profit_yoy"] = yoy_excluded
 
-    def _missing(f, key: str) -> bool:
-        return key in (getattr(f, "missing", None) or [])
-
-    for f in ordered:
-        # ❗上游把「取不到」填成 0.0 塞进字段（净利同比 0、毛利率 0、现金流 0），
-        #   但它同时在 ``missing`` 里写了名字。只判 ``is not None`` 会把假 0 当真值：
-        #   - 净利同比假 0 → 拉低标准差、破坏「全为正增长」判据
-        #   - 毛利率假 0   → 极差 0、升降 0，被读成「毛利率纹丝不动」
-        #   - 现金流假 0   → 现金流/净利=0，被读成「利润质量极差」
-        #   三者全是「没数据」被读成「坏数据」，方向一致地偏向"不像成长股"。
-        y = getattr(f, "net_profit_yoy", None)
-        if y is None or _missing(f, "net_profit_yoy"):
-            excluded["net_profit_yoy"] = excluded.get("net_profit_yoy", 0) + 1
-        else:
-            yoy.append(float(y))
-
-        m = getattr(f, "gross_margin", None)
-        if m is None or _missing(f, "gross_margin"):
+    for p in pts:
+        m = getattr(p, "gross_margin", None)
+        if m is None:
             excluded["gross_margin"] = excluded.get("gross_margin", 0) + 1
         else:
             gm.append(float(m))
 
-        net = getattr(f, "net_profit", None)
-        cf = getattr(f, "cashflow", None)
-        if net is None or cf is None or float(net) <= 0 or _missing(f, "cashflow"):
+        net = getattr(p, "net_profit_ttm", None)
+        cash = getattr(p, "cashflow_ttm", None)
+        if net is None or cash is None or float(net) <= 0:
             excluded["cashflow_to_profit"] = excluded.get("cashflow_to_profit", 0) + 1
         else:
-            cf_ratio.append(float(cf) / float(net))
+            cf_ratio.append(float(cash) / float(net))
 
-        if net is not None:
-            latest_net = float(net)  # ordered 是旧→新，最后一个即最近一期
+    latest = pts[-1] if pts else None
+    latest_net = None if latest is None else getattr(latest, "net_profit_ttm", None)
 
     return ClassificationInput(
         code=code,
@@ -264,7 +301,7 @@ def build_input_from_financials(code: str, fins, price_series=None,
         price_series=list(price_series or []),
         pe_history=list(pe_history or []),
         excluded=excluded,
-        latest_net_profit=latest_net,
+        latest_net_profit=None if latest_net is None else float(latest_net),
     )
 
 
