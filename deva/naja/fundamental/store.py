@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -55,7 +56,9 @@ class FundamentalStore:
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             conn.executescript(_SCHEMA)
 
     def _conn(self) -> sqlite3.Connection:
@@ -69,7 +72,9 @@ class FundamentalStore:
         同一 (symbol, period) 再次写入会覆盖并刷新 ``fetched_at`` ——
         财报修订（重述）本就该覆盖旧值，历史价值在于「最新一次的口径」。
         """
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO financials"
                 " (symbol, period, period_end, source, fetched_at, payload)"
@@ -83,13 +88,16 @@ class FundamentalStore:
                     json.dumps(payload, ensure_ascii=False, default=str),
                 ),
             )
+            conn.commit()
 
     def latest(self, symbol: str) -> Optional[Dict[str, Any]]:
         rows = self.history(symbol, limit=1)
         return rows[0] if rows else None
 
     def history(self, symbol: str, limit: int = 8) -> List[Dict[str, Any]]:
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             cur = conn.execute(
                 "SELECT payload, fetched_at FROM financials WHERE symbol = ?"
                 " ORDER BY period_end DESC, period DESC LIMIT ?",
@@ -108,7 +116,9 @@ class FundamentalStore:
     # ------------------------------------------------------------ 估值缓存
 
     def put_evaluation(self, symbol: str, as_of: str, payload: Dict[str, Any]) -> None:
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO evaluations (symbol, as_of, computed_at, payload)"
                 " VALUES (?, ?, ?, ?)",
@@ -119,9 +129,12 @@ class FundamentalStore:
                     json.dumps(payload, ensure_ascii=False, default=str),
                 ),
             )
+            conn.commit()
 
     def get_evaluation(self, symbol: str, as_of: str) -> Optional[Dict[str, Any]]:
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             row = conn.execute(
                 "SELECT payload FROM evaluations WHERE symbol = ? AND as_of = ?",
                 (str(symbol).upper(), str(as_of)),
@@ -139,7 +152,9 @@ class FundamentalStore:
         用途是**重启预热**：新进程启动后 1~2 分钟内基本面线程还没跑完，
         这段时间不该让挡位凭空消失（消失会被环境门当成「不知道」而打折）。
         """
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             row = conn.execute(
                 "SELECT payload, computed_at FROM evaluations WHERE symbol = ?"
                 " ORDER BY computed_at DESC LIMIT 1",
@@ -155,7 +170,9 @@ class FundamentalStore:
         return payload
 
     def stats(self) -> Dict[str, Any]:
-        with self._conn() as conn:
+        # ❗sqlite3 的 ``with conn`` 只 commit/rollback、不关闭连接；改 closing
+        # 确保退出即释放。写路径需显式 commit（closing 不再自动提交）。
+        with closing(self._conn()) as conn:
             total = conn.execute("SELECT COUNT(*) FROM financials").fetchone()[0]
             symbols = [
                 r[0] for r in conn.execute(
