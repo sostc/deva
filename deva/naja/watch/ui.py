@@ -777,7 +777,10 @@ def _on_history(watch) -> None:
             put_html(head),
             put_table(rows, header=["时间", "结论", "成立的机会", "决策中心怎么说"])
             if rows else put_text("还没问过 —— 一次都没去问，和「问了被否」是两回事"),
-            put_buttons(["关闭"], onclick=lambda: close_popup(), small=True),
+            # ❗必须用 list 形式：PyWebIO 的 onclick 传单个 callable 时签名为
+            # fn(btn_value)，零参数 lambda 会在点击时抛 TypeError（"应用错误"）。
+            # onclick 传 list 时元素才不接收参数（与本文件其他按钮用法一致）。
+            put_buttons(["关闭"], onclick=[lambda: close_popup()], small=True),
         ],
     )
 
