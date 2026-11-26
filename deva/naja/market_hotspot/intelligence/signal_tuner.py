@@ -102,7 +102,12 @@ class SignalTuner:
         self._lock = threading.RLock()
 
         self._signal_records: deque = deque(maxlen=10000)
-        self._trade_records: List[TradeRecord] = []
+        # ❗原为无界 list，长跑进程只 append 不裁剪，内存持续增长；
+        # 与 _signal_records 一致改为有界 deque（访问只有 append/reversed/迭代/len，兼容）。
+        self._trade_records: deque = deque(maxlen=10000)
+        # 累计计数与有界窗口解耦：stats 的 total_trades 保持「历史累计」语义，
+        # 不随窗口裁剪而回落。
+        self._total_trades: int = 0
         self._param_adjustments: deque = deque(maxlen=500)
 
         self._last_adjustment_time: Dict[str, float] = {}
@@ -257,6 +262,7 @@ class SignalTuner:
                 params_snapshot=params_snapshot or {}
             )
             self._trade_records.append(trade)
+            self._total_trades += 1
             self._update_daily_stats('trades')
             log.debug(f"[SignalTuner] 记录买入: {symbol} @{entry_price:.2f}")
 
@@ -649,7 +655,7 @@ class SignalTuner:
                 'today_buy_signals': len(today_buy_signals),
                 'target_daily_signals': self.target_daily_signals,
                 'today_trades': len(today_trades),
-                'total_trades': len(self._trade_records),
+                'total_trades': self._total_trades,
                 'completed_trades': len(completed_trades),
                 'recent_adjustments': list(self._param_adjustments)[-3:] if self._param_adjustments else [],
                 'current_params': {k: v.copy() for k, v in self._current_params.items()}

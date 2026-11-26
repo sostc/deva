@@ -3,6 +3,7 @@
 import time
 import json
 import sqlite3
+from contextlib import closing
 from typing import Dict, Any, List, Optional
 import logging
 
@@ -24,38 +25,37 @@ class CognitiveStatePersistence:
     def _init_db(self):
         """初始化数据库"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            # 创建认知状态表
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS cognitive_states (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                state_type TEXT NOT NULL,
-                state_data TEXT NOT NULL,
-                importance REAL DEFAULT 0.5
-            )
-            ''')
+                # 创建认知状态表
+                cursor.execute('''
+                CREATE TABLE IF NOT EXISTS cognitive_states (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    state_type TEXT NOT NULL,
+                    state_data TEXT NOT NULL,
+                    importance REAL DEFAULT 0.5
+                )
+                ''')
             
-            # 创建状态变化历史表
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS state_changes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp REAL NOT NULL,
-                state_type TEXT NOT NULL,
-                old_state TEXT,
-                new_state TEXT,
-                change_score REAL DEFAULT 0.0
-            )
-            ''')
+                # 创建状态变化历史表
+                cursor.execute('''
+                CREATE TABLE IF NOT EXISTS state_changes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    state_type TEXT NOT NULL,
+                    old_state TEXT,
+                    new_state TEXT,
+                    change_score REAL DEFAULT 0.0
+                )
+                ''')
             
-            # 创建索引
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_state_type ON cognitive_states(state_type)')
-            cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON cognitive_states(timestamp)')
+                # 创建索引
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_state_type ON cognitive_states(state_type)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp ON cognitive_states(timestamp)')
             
-            conn.commit()
-            conn.close()
+                conn.commit()
         except Exception as e:
             log.warning(f"[CognitiveStatePersistence] 初始化数据库失败: {e}")
     
@@ -68,33 +68,32 @@ class CognitiveStatePersistence:
             importance: 重要性
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            # 获取最新状态
-            cursor.execute(
-                'SELECT state_data FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT 1',
-                (state_type,)
-            )
-            old_state_row = cursor.fetchone()
-            old_state = json.loads(old_state_row[0]) if old_state_row else None
-            
-            # 保存新状态
-            cursor.execute(
-                'INSERT INTO cognitive_states (timestamp, state_type, state_data, importance) VALUES (?, ?, ?, ?)',
-                (time.time(), state_type, json.dumps(state_data), importance)
-            )
-            
-            # 记录状态变化
-            if old_state:
-                change_score = self._calculate_change_score(old_state, state_data)
+                # 获取最新状态
                 cursor.execute(
-                    'INSERT INTO state_changes (timestamp, state_type, old_state, new_state, change_score) VALUES (?, ?, ?, ?, ?)',
-                    (time.time(), state_type, json.dumps(old_state), json.dumps(state_data), change_score)
+                    'SELECT state_data FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT 1',
+                    (state_type,)
+                )
+                old_state_row = cursor.fetchone()
+                old_state = json.loads(old_state_row[0]) if old_state_row else None
+            
+                # 保存新状态
+                cursor.execute(
+                    'INSERT INTO cognitive_states (timestamp, state_type, state_data, importance) VALUES (?, ?, ?, ?)',
+                    (time.time(), state_type, json.dumps(state_data), importance)
                 )
             
-            conn.commit()
-            conn.close()
+                # 记录状态变化
+                if old_state:
+                    change_score = self._calculate_change_score(old_state, state_data)
+                    cursor.execute(
+                        'INSERT INTO state_changes (timestamp, state_type, old_state, new_state, change_score) VALUES (?, ?, ?, ?, ?)',
+                        (time.time(), state_type, json.dumps(old_state), json.dumps(state_data), change_score)
+                    )
+
+                conn.commit()
         except Exception as e:
             log.warning(f"[CognitiveStatePersistence] 保存状态失败: {e}")
     
@@ -108,15 +107,14 @@ class CognitiveStatePersistence:
             状态数据，若不存在则返回 None
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            cursor.execute(
-                'SELECT state_data FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT 1',
-                (state_type,)
-            )
-            row = cursor.fetchone()
-            conn.close()
+                cursor.execute(
+                    'SELECT state_data FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT 1',
+                    (state_type,)
+                )
+                row = cursor.fetchone()
             
             if row:
                 return json.loads(row[0])
@@ -136,15 +134,14 @@ class CognitiveStatePersistence:
             状态历史列表
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            cursor.execute(
-                'SELECT timestamp, state_data, importance FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT ?',
-                (state_type, limit)
-            )
-            rows = cursor.fetchall()
-            conn.close()
+                cursor.execute(
+                    'SELECT timestamp, state_data, importance FROM cognitive_states WHERE state_type = ? ORDER BY timestamp DESC LIMIT ?',
+                    (state_type, limit)
+                )
+                rows = cursor.fetchall()
             
             history = []
             for row in rows:
@@ -169,15 +166,14 @@ class CognitiveStatePersistence:
             状态变化历史列表
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            cursor.execute(
-                'SELECT timestamp, old_state, new_state, change_score FROM state_changes WHERE state_type = ? ORDER BY timestamp DESC LIMIT ?',
-                (state_type, limit)
-            )
-            rows = cursor.fetchall()
-            conn.close()
+                cursor.execute(
+                    'SELECT timestamp, old_state, new_state, change_score FROM state_changes WHERE state_type = ? ORDER BY timestamp DESC LIMIT ?',
+                    (state_type, limit)
+                )
+                rows = cursor.fetchall()
             
             changes = []
             for row in rows:
@@ -232,25 +228,24 @@ class CognitiveStatePersistence:
             days: 保留天数
         """
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            with closing(sqlite3.connect(self.db_path)) as conn:
+                cursor = conn.cursor()
             
-            cutoff_time = time.time() - (days * 24 * 3600)
+                cutoff_time = time.time() - (days * 24 * 3600)
             
-            # 清理旧状态
-            cursor.execute(
-                'DELETE FROM cognitive_states WHERE timestamp < ?',
-                (cutoff_time,)
-            )
+                # 清理旧状态
+                cursor.execute(
+                    'DELETE FROM cognitive_states WHERE timestamp < ?',
+                    (cutoff_time,)
+                )
             
-            # 清理旧变化记录
-            cursor.execute(
-                'DELETE FROM state_changes WHERE timestamp < ?',
-                (cutoff_time,)
-            )
+                # 清理旧变化记录
+                cursor.execute(
+                    'DELETE FROM state_changes WHERE timestamp < ?',
+                    (cutoff_time,)
+                )
             
-            conn.commit()
-            conn.close()
+                conn.commit()
         except Exception as e:
             log.warning(f"[CognitiveStatePersistence] 清理旧数据失败: {e}")
 

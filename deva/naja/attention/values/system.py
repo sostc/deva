@@ -237,6 +237,18 @@ def initialize_value_system() -> ValueSystem:
     return None
 
 
+def get_value_system() -> Optional[ValueSystem]:
+    """获取价值观系统单例。
+
+    ❗``__all__`` 与实际符号不一致的历史遗留：``__all__`` 一直导出这个名字，
+    且 ``.trae/skills/philosophy-configurator/scripts/generate_philosophy_config.py``
+    确实按 ``from ...system import get_value_system`` 调用，但模块里只有
+    ``initialize_value_system``，导致该调用 ImportError。这里补上别名，语义为
+    「取得已初始化的单例」，与容器实现保持一致。
+    """
+    return initialize_value_system()
+
+
 __all__ = [
     "ValueSystem",
     "get_value_system",

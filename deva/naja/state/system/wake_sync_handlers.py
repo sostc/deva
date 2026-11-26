@@ -237,78 +237,82 @@ class NewsFetcherWakeSync:
             async def fetch_news_list_async() -> List[Jin10NewsItem]:
                 """异步获取金十新闻列表"""
                 session = requests.Session()
-                session.headers.update({
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'Origin': 'https://www.jin10.com',
-                    'Referer': 'https://www.jin10.com/',
-                })
+                try:
+                    session.headers.update({
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Origin': 'https://www.jin10.com',
+                        'Referer': 'https://www.jin10.com/',
+                    })
 
-                all_news = []
-                maxid = 0
+                    all_news = []
+                    maxid = 0
 
-                for _ in range(100):
-                    try:
-                        # 阻塞 POST 丢到线程池，避免卡住事件循环
-                        response = await asyncio.to_thread(
-                            session.post,
-                            self.JIN10_IMPORTANT_API,
-                            json={
-                                "channel": "-8200",
-                                "maxid": maxid,
-                                "category": "1",
-                                "limit": 20
-                            },
-                            timeout=15
-                        )
+                    for _ in range(100):
+                        try:
+                            # 阻塞 POST 丢到线程池，避免卡住事件循环
+                            response = await asyncio.to_thread(
+                                session.post,
+                                self.JIN10_IMPORTANT_API,
+                                json={
+                                    "channel": "-8200",
+                                    "maxid": maxid,
+                                    "category": "1",
+                                    "limit": 20
+                                },
+                                timeout=15
+                            )
 
-                        if response.status_code == 200:
-                            data = response.json()
-                            if data.get('status') == 200:
-                                items = data.get('data', [])
-                                if not items:
-                                    break
+                            if response.status_code == 200:
+                                data = response.json()
+                                if data.get('status') == 200:
+                                    items = data.get('data', [])
+                                    if not items:
+                                        break
 
-                                for item in items:
-                                    time_str = item.get('time', '')
-                                    if time_str:
+                                    for item in items:
+                                        time_str = item.get('time', '')
+                                        if time_str:
+                                            try:
+                                                item_time = datetime.fromtimestamp(float(time_str))
+                                                if item_time < start:
+                                                    break
+                                                if item_time <= end:
+                                                    news_url = item.get('url', '')
+                                                    if not news_url:
+                                                        news_url = f"https://www.jin10.com/news/{item.get('id', '')}"
+                                                    all_news.append(Jin10NewsItem(
+                                                        id=str(item.get('id', '')),
+                                                        content=item.get('content', ''),
+                                                        url=news_url,
+                                                        time=time_str,
+                                                    ))
+                                            except:
+                                                pass
+
+                                    maxid = data.get('maxid', maxid + 20)
+
+                                    if item and time_str:
                                         try:
-                                            item_time = datetime.fromtimestamp(float(time_str))
-                                            if item_time < start:
+                                            last_item_time = datetime.fromtimestamp(float(time_str))
+                                            if last_item_time < start:
                                                 break
-                                            if item_time <= end:
-                                                news_url = item.get('url', '')
-                                                if not news_url:
-                                                    news_url = f"https://www.jin10.com/news/{item.get('id', '')}"
-                                                all_news.append(Jin10NewsItem(
-                                                    id=str(item.get('id', '')),
-                                                    content=item.get('content', ''),
-                                                    url=news_url,
-                                                    time=time_str,
-                                                ))
                                         except:
                                             pass
-
-                                maxid = data.get('maxid', maxid + 20)
-
-                                if item and time_str:
-                                    try:
-                                        last_item_time = datetime.fromtimestamp(float(time_str))
-                                        if last_item_time < start:
-                                            break
-                                    except:
-                                        pass
+                                else:
+                                    break
                             else:
                                 break
-                        else:
-                            break
 
-                    except Exception as e:
-                        log.warning(f"[WakeSync] NewsFetcher: 获取列表失败 - {e}")
-                        await asyncio.sleep(1)
+                        except Exception as e:
+                            log.warning(f"[WakeSync] NewsFetcher: 获取列表失败 - {e}")
+                            await asyncio.sleep(1)
 
-                return all_news
+                    return all_news
+                finally:
+                    # ❗Session 持有 HTTP 连接池，任何退出路径都必须关闭，否则每次唤醒同步泄漏连接
+                    session.close()
 
             async def fetch_news_detail_async(session: requests.Session, news: Jin10NewsItem) -> Optional[Jin10NewsItem]:
                 """异步获取单条新闻详情（阻塞 GET 丢到线程池）"""
@@ -357,49 +361,53 @@ class NewsFetcherWakeSync:
                     return {"success": False, "message": "未获取到新闻", "details": {}}
 
                 session = requests.Session()
-                session.headers.update({
-                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                })
+                try:
+                    session.headers.update({
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    })
 
-                fetched_detail_count = 0
-                published_count = 0
+                    fetched_detail_count = 0
+                    published_count = 0
 
-                # ① 详情抓取并发化：只对内容不完整的新闻发起，受信号量限流
-                need_detail = [
-                    n for n in news_list
-                    if not (n.content and len(n.content) > 100)
-                ]
-                if need_detail:
-                    sem = asyncio.Semaphore(WAKE_SYNC_DETAIL_CONCURRENCY)
+                    # ① 详情抓取并发化：只对内容不完整的新闻发起，受信号量限流
+                    need_detail = [
+                        n for n in news_list
+                        if not (n.content and len(n.content) > 100)
+                    ]
+                    if need_detail:
+                        sem = asyncio.Semaphore(WAKE_SYNC_DETAIL_CONCURRENCY)
 
-                    async def _guarded(n):
-                        async with sem:
-                            return await fetch_news_detail_async(session, n)
+                        async def _guarded(n):
+                            async with sem:
+                                return await fetch_news_detail_async(session, n)
 
-                    results = await asyncio.gather(
-                        *(_guarded(n) for n in need_detail),
-                        return_exceptions=True,
-                    )
-                    fetched_detail_count = sum(1 for r in results if r and not isinstance(r, Exception))
+                        results = await asyncio.gather(
+                            *(_guarded(n) for n in need_detail),
+                            return_exceptions=True,
+                        )
+                        fetched_detail_count = sum(1 for r in results if r and not isinstance(r, Exception))
 
-                # ② 发布保持顺序（下游认知处理对时序敏感），仅压缩节流间隔
-                for news in news_list:
-                    await publish_to_radar(news)
-                    published_count += 1
-                    await asyncio.sleep(WAKE_SYNC_PUBLISH_THROTTLE_SECONDS)
+                    # ② 发布保持顺序（下游认知处理对时序敏感），仅压缩节流间隔
+                    for news in news_list:
+                        await publish_to_radar(news)
+                        published_count += 1
+                        await asyncio.sleep(WAKE_SYNC_PUBLISH_THROTTLE_SECONDS)
 
-                return {
-                    "success": True,
-                    "message": f"同步成功，获取并发布 {published_count} 条新闻（详情获取 {fetched_detail_count} 条）",
-                    "details": {
-                        "count": published_count,
-                        "detail_count": fetched_detail_count,
-                        "first_news": news_list[0].content[:100] if news_list else "",
-                        "last_news": news_list[-1].content[:100] if news_list else "",
+                    return {
+                        "success": True,
+                        "message": f"同步成功，获取并发布 {published_count} 条新闻（详情获取 {fetched_detail_count} 条）",
+                        "details": {
+                            "count": published_count,
+                            "detail_count": fetched_detail_count,
+                            "first_news": news_list[0].content[:100] if news_list else "",
+                            "last_news": news_list[-1].content[:100] if news_list else "",
+                        }
                     }
-                }
+                finally:
+                    # ❗Session 持有 HTTP 连接池，任何退出路径都必须关闭，否则每次唤醒同步泄漏连接
+                    session.close()
 
             return asyncio.run(main_async())
 

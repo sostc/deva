@@ -464,7 +464,11 @@ class StrategyLearning:
         ) if use_bandit else None
         self.rules = RuleBasedStrategySelector() if use_rules_fallback else None
         
-        self._selection_history: List[StrategySelection] = []
+        # ❗原为无界 list，只 append 不裁剪，长跑进程内存持续增长；
+        # 访问模式只有 append/[-1]/迭代/len/clear，改用有界 deque 安全。
+        self._selection_history: deque = deque(maxlen=1000)
+        # 累计计数与窗口解耦：get_selection_summary 的 total_selections 保持累计语义。
+        self._total_selections: int = 0
         self._last_selection: Optional[StrategySelection] = None
         
     def select_strategies(
@@ -497,12 +501,14 @@ class StrategyLearning:
                 selection = self.bandit.select(state, available_strategies, top_k)
                 self._last_selection = selection
                 self._selection_history.append(selection)
+                self._total_selections += 1
                 return selection
-        
+
         if self.rules:
             selection = self.rules.select(state, available_strategies, top_k)
             self._last_selection = selection
             self._selection_history.append(selection)
+            self._total_selections += 1
             return selection
         
         return StrategySelection(
@@ -572,7 +578,7 @@ class StrategyLearning:
     def get_selection_summary(self) -> Dict[str, Any]:
         """获取选择摘要"""
         return {
-            'total_selections': len(self._selection_history),
+            'total_selections': self._total_selections,
             'current_state': (
                 self._selection_history[-1].market_state.get_state_name()
                 if self._selection_history else None
