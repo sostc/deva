@@ -71,12 +71,16 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     # 会造出**第二个实例**（一个语义两套实例）。改由下方 custom 工厂复用模块级单例。
 
     # ── Bandit ──
+    # ❗adaptive_cycle / bandit_runner / signal_listener / virtual_portfolio 不在此声明：
+    #   这四个由 AppContainer 独占持有（见 container.CONTAINER_OWNED_SINGLETONS），
+    #   在 _register_container_components_as_singletons() 里以自身实例注册。
+    #   此处若再声明一个 `Class()` 工厂，SR() 会在容器覆盖**之前**先造出一个
+    #   第二实例 —— 启动日志里的「单例 virtual_portfolio 已注册，将被覆盖」就是它，
+    #   而 portfolio_manager 通过 SR('virtual_portfolio') 拿到的是那个没人启动的副本：
+    #   持仓写进 A、页面读 B，表现为「持仓不更新」而一切日志正常。
     ("market_data_bus",    ".bandit.market_data_bus",       "MarketDataBus",           ["mode_manager"]),
     ("market_observer",    ".bandit.market_observer",       "MarketDataObserver",      []),
     ("stock_block_map",    ".bandit.stock_block_map",       "StockBlockMap",           ["stock_registry"]),
-    ("adaptive_cycle",     ".bandit.adaptive_cycle",        "AdaptiveCycle",           ["market_data_bus"]),
-    ("bandit_runner",      ".bandit.runner",                "BanditAutoRunner",        ["market_data_bus"]),
-    ("signal_listener",    ".bandit.signal_listener",       "SignalListener",          []),
     ("bandit_tracker",     ".bandit.tracker",               "BanditPositionTracker",   ["bandit_optimizer"]),
 
     # ── 认知 ──
@@ -98,7 +102,6 @@ SIMPLE_SINGLETONS: List[Tuple[str, str, str, List[str]]] = [
     ("bandit_optimizer",       ".bandit.optimizer",                 "BanditOptimizer",     ["market_data_bus"]),
     ("bandit_tuner",           ".bandit.tuner",                     "BanditTuner",         ["market_data_bus"]),
     ("bandit_attribution",     ".bandit.attribution",               "BanditAttribution",   ["strategy_result_store"]),
-    ("virtual_portfolio",      ".bandit.virtual_portfolio",         "VirtualPortfolio",    []),
     # 做 T 降本运行器：把 core_holdings 里登记的长期底仓接到行情总线上。
     # 注意它只是「注册」，真正启动在 AppContainer._start_schedulers()，
     # 别指望懒加载会自己跑起来。
@@ -219,14 +222,12 @@ def _register_custom_singletons():
     register_singleton('strategy_manager', _create_strategy_manager, deps=[])
     logger.debug("  ✓ strategy_manager")
 
-    # --- portfolio_manager: 创建后自动加载持仓配置 ---
-    def _create_portfolio_manager():
-        from .bandit.portfolio_manager import PortfolioManager
-        vp = SR('virtual_portfolio')
-        pm = PortfolioManager(virtual_portfolio=vp)
-        return pm
-    register_singleton('portfolio_manager', _create_portfolio_manager, deps=['virtual_portfolio'])
-    logger.debug("  ✓ portfolio_manager")
+    # --- portfolio_manager: 由 AppContainer 独占装配，不在此声明 ---
+    # 曾经的写法是 `vp = SR('virtual_portfolio')` + `PortfolioManager(virtual_portfolio=vp)`。
+    # ❗它踩的正是「重复装配」：这句 SR() 在容器覆盖之前执行，取到的是静态工厂造的
+    #   第二个 VirtualPortfolio。于是 PortfolioManager 写 A，页面/runner 读 B ——
+    #   「持仓有了但不更新价格」这类现象就来自这里，而且任何日志都不报错。
+    #   现在 PortfolioManager 由 container 用 self._virtual_portfolio 创建并注册。
 
     # --- attention_integration: 延迟初始化（不阻塞启动） ---
     def _create_attention_integration():

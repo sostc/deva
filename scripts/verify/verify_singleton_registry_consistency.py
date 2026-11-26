@@ -111,7 +111,73 @@ def collect_registered(sources: Dict[str, str]) -> Set[str]:
                             v = _const_str(el.elts[0])
                             if v:
                                 names.add(v)
+                # AppContainer 独占清单也是「已注册」：容器在
+                # _register_container_components_as_singletons 里以自身实例注册。
+                owned = any(isinstance(t, ast.Name) and t.id == "CONTAINER_OWNED_SINGLETONS"
+                            for t in targets)
+                if owned and isinstance(node.value, (ast.Tuple, ast.List)):
+                    for el in node.value.elts:
+                        v = _const_str(el)
+                        if v:
+                            names.add(v)
     return names
+
+
+def collect_container_owned(sources: Dict[str, str]) -> Set[str]:
+    """收集 ``CONTAINER_OWNED_SINGLETONS`` 里的字面量名字。"""
+    out: Set[str] = set()
+    for src in sources.values():
+        if "CONTAINER_OWNED_SINGLETONS" not in src:
+            continue
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if not any(isinstance(t, ast.Name) and t.id == "CONTAINER_OWNED_SINGLETONS"
+                       for t in targets):
+                continue
+            if isinstance(node.value, (ast.Tuple, ast.List)):
+                for el in node.value.elts:
+                    v = _const_str(el)
+                    if v:
+                        out.add(v)
+    return out
+
+
+def collect_static_registrations(sources: Dict[str, str]) -> Dict[str, List[str]]:
+    """收集**静态**注册点：SIMPLE_SINGLETONS 表项 + register_singleton('x', ...)。
+
+    只用于「容器独占组件不许重复声明」这一条，与 :func:`collect_registered` 的区别是
+    这里保留出处（文件名），便于报错时直接指到行前的模块。
+    """
+    out: Dict[str, List[str]] = {}
+    for path, src in sources.items():
+        try:
+            tree = ast.parse(src)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            name = None
+            if isinstance(node, ast.Call):
+                if _func_name(node.func) in ("register_singleton", "_register_singleton") and node.args:
+                    name = _const_str(node.args[0])
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if any(isinstance(t, ast.Name) and t.id == "SIMPLE_SINGLETONS" for t in targets):
+                    if isinstance(node.value, ast.List):
+                        for el in node.value.elts:
+                            if isinstance(el, ast.Tuple) and el.elts:
+                                v = _const_str(el.elts[0])
+                                if v:
+                                    out.setdefault(v, []).append(path)
+                    continue
+            if name:
+                out.setdefault(name, []).append(path)
+    return out
 
 
 def collect_used(sources: Dict[str, str]) -> Dict[str, Set[str]]:
@@ -279,9 +345,26 @@ def main() -> int:
     for fname, cls in directs:
         print(f"  · {fname:34s} → return {cls}()")
 
+    # ④ 容器独占组件不许再有静态工厂。
+    #    ❗这一条不是风格问题：两个装配点都在时，SR() 先命中的那个会被
+    #    后注册的覆盖，而先造出来的实例已经被人拿走了 —— 一个收数据、一个被读，
+    #    全程不报错。历史上表现为「持仓有但不更新价格」和启动日志的
+    #    「单例 virtual_portfolio 已注册，将被覆盖」。
+    owned = collect_container_owned(sources)
+    static = collect_static_registrations(sources)
+    dups = {n: where for n, where in static.items() if n in owned}
+    print("\n④ 容器独占组件是否被重复声明")
+    if not dups:
+        print(f"  ✅ 无（独占 {len(owned)} 个：{', '.join(sorted(owned))}）")
+    for n, where in sorted(dups.items()):
+        print(f"  ✗ {n} 仍在 {', '.join(where)} 静态声明 —— 会造出第二个实例")
+
     print("\n" + "=" * 72)
-    if errors:
-        print(f"结论：失败 —— {len(errors)} 处「取了没注册」")
+    if errors or dups:
+        if errors:
+            print(f"结论：失败 —— {len(errors)} 处「取了没注册」")
+        if dups:
+            print(f"结论：失败 —— {len(dups)} 处容器独占组件被重复声明")
         return 1
     if args.strict and skips:
         print(f"结论：失败（--strict）—— {len(skips)} 处豁免未清")

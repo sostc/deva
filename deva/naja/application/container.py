@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from .runtime_config import AppRuntimeConfig
 from .runtime_modes import RuntimeModeInitializer
@@ -39,6 +39,22 @@ def _record_boot_report(report: dict[str, Any]):
     global _last_boot_report, _last_boot_report_ts
     _last_boot_report = report
     _last_boot_report_ts = time.time()
+
+
+#: 由 AppContainer 独占持有的组件名。
+#:
+#: ❗这些名字**不允许**在 ``register.py`` 里再声明一次工厂。声明了的后果不是报错，
+#:   而是 SR() 在容器覆盖**之前**先造出第二个实例：一个收数据、另一个被读取。
+#:   历史表现：启动日志「单例 virtual_portfolio 已注册，将被覆盖」，
+#:   以及 portfolio_manager 拿到没人启动的副本 → 「持仓有但不更新价格」。
+#: ``scripts/verify/verify_singleton_registry_consistency.py`` 会静态检查这一点。
+CONTAINER_OWNED_SINGLETONS = (
+    "virtual_portfolio",
+    "portfolio_manager",
+    "adaptive_cycle",
+    "bandit_runner",
+    "signal_listener",
+)
 
 
 class AppContainer:
@@ -224,6 +240,40 @@ class AppContainer:
 
         # 把 AppContainer 自己也注册成 'app_container' 单例
         register_singleton("app_container", lambda: self)
+
+        self._verify_container_owned_singletons(components)
+
+    def _verify_container_owned_singletons(self, components: Dict[str, Any]) -> None:
+        """启动即证：容器独占的组件，注册表返回的必须**就是**容器这一个对象。
+
+        ❗重复装配从不抛错，它只是让一个实例收数据、另一个实例被读取 ——
+        现象是「持仓不更新」「策略不动」，而日志一切正常，排查会绕很远。
+        所以宁可启动时报错。
+
+        ❗只在对象**已经**创建时校验（``components`` 里非 None），
+        不为了断言去懒创建：启动期不该因为一条校验多造一堆对象。
+        """
+        from ..infra.registry.singleton_registry import SR
+
+        missing = [n for n in CONTAINER_OWNED_SINGLETONS if n not in components]
+        if missing:
+            raise RuntimeError(f"独占清单里有未在 components 中出现的名字: {missing}")
+
+        bad: List[str] = []
+        for name in CONTAINER_OWNED_SINGLETONS:
+            inst = components.get(name)
+            if inst is None:
+                continue
+            try:
+                got = SR(name)
+            except Exception as e:  # noqa: BLE001
+                bad.append(f"{name}: 取不到（{type(e).__name__}: {e}）")
+                continue
+            if got is not inst:
+                bad.append(
+                    f"{name}: SR() 返回 {type(got).__name__}，容器持有 {type(inst).__name__}")
+        if bad:
+            raise RuntimeError("单例装配出现第二个实例（容器独占组件）：" + "；".join(bad))
 
     def _register_health_checks(self) -> None:
         """把子系统的健康检查项注册进全局 HealthCheckManager。
