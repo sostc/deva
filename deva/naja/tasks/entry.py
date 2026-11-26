@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 import asyncio
 import time
 from datetime import datetime, timedelta
@@ -226,11 +227,7 @@ class TaskEntry(RecoverableUnit):
                         future = executor.submit(asyncio.run, result)
                         result = future.result(timeout=30)
                 except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        result = loop.run_until_complete(result)
-                    finally:
-                        loop.close()
+                    result = run_coroutine_sync(result)
 
             self._state.success_count += 1
             self._state.last_result = str(result)[:500] if result is not None else "None"

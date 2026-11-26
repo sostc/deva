@@ -7,6 +7,7 @@ from typing import Any, Optional
 from .runtime_config import AppRuntimeConfig
 from .runtime_modes import RuntimeModeInitializer
 from ..register import SR
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 
 log = logging.getLogger(__name__)
 
@@ -989,6 +990,7 @@ def execute() -> dict:
             if not existing:
                 func_code = '''
 import logging
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 import asyncio
 log = logging.getLogger(__name__)
 
@@ -1000,13 +1002,8 @@ def execute() -> dict:
             get_ai_compute_trend,
         )
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(refresh_openrouter_data())
-        finally:
-            loop.close()
-        
+        result = run_coroutine_sync(refresh_openrouter_data())
+
         if result:
             trend = get_ai_compute_trend()
             return {
@@ -1091,14 +1088,7 @@ def _run_coro(coro):
         pass
     else:
         raise RuntimeError("_run_coro 不能在已有 running loop 的线程里调用")
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.close()
-        except Exception:
-            pass
+    return run_coroutine_sync(coro)
 
 
 def execute() -> dict:

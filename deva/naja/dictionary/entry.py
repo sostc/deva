@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 from deva import NB
 
 from ..infra.runtime.recoverable import (
@@ -150,19 +151,11 @@ class DictionaryEntry(RecoverableUnit):
             is_async = asyncio.iscoroutinefunction(func)
 
             if is_async:
-                loop = asyncio.new_event_loop()
-                try:
-                    data = loop.run_until_complete(func())
-                finally:
-                    loop.close()
+                data = run_coroutine_sync(func())
             else:
                 data = func()
                 if asyncio.iscoroutine(data):
-                    loop = asyncio.new_event_loop()
-                    try:
-                        data = loop.run_until_complete(data)
-                    finally:
-                        loop.close()
+                    data = run_coroutine_sync(data)
 
             self.apply_fresh_data(data)
             self._log("INFO", "fetch_data executed", id=self.id)

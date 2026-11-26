@@ -225,20 +225,19 @@ _EMPTY_QUOTE = MarketQuote(
 @dataclass
 class PendingRequest:
     codes: Set[str]
-    _future: Optional[asyncio.Future] = field(default=None, init=False)
+    # ❗用 concurrent.futures.Future 而非 asyncio.Future：这里纯粹是「同步线程
+    # 等待另一次 fetch 完成」的线程间信号，只用 done/set_result/result(timeout)，
+    # 从不需要 await。旧代码在无 running loop 的同步线程里 new_event_loop() 只
+    # 为造一个 asyncio.Future，那个 loop 从不 close → 每次 50ms 合并窗口泄漏一个。
+    _future: Optional[concurrent.futures.Future] = field(default=None, init=False)
     _future_lock: threading.Lock = field(default_factory=threading.Lock, init=False)
     created_at: float = field(default_factory=time.time)
 
     @property
-    def future(self) -> asyncio.Future:
+    def future(self) -> concurrent.futures.Future:
         with self._future_lock:
             if self._future is None:
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                self._future = asyncio.Future()
+                self._future = concurrent.futures.Future()
         return self._future
 
     def resolve(self, result: Dict[str, "MarketQuote"]):
@@ -308,6 +307,10 @@ class MarketDataBus:
 
         self._fetch_in_progress: Set[str] = set()
         self._lock_fetch = threading.Lock()
+        # ❗必须持有 task 强引用：event loop 只弱引用 task，一旦被 GC，
+        # _fetch_async 的 finally（清理 _fetch_in_progress）永不执行，
+        # 该 code 就永久滞留在「正在抓取」里，此后所有取数被静默跳过。
+        self._fetch_tasks: Set[asyncio.Task] = set()
         # 已经喊过「总线不覆盖这个代码」的集合（同一只票只喊一次，别刷屏）
         self._unrouted_warned: Set[str] = set()
 
@@ -500,6 +503,21 @@ class MarketDataBus:
         except Exception as e:
             log.debug(f"[MarketDataBus] 持久化行情失败: {e}")
 
+    def _clear_fetch_marks(self, codes: List[str]) -> None:
+        """兜底清理「正在抓取」标记，确保任何失败路径都不会永久滞留。"""
+        with self._lock_fetch:
+            for c in codes:
+                self._fetch_in_progress.discard(_normalize_code(c))
+
+    def _on_fetch_task_done(self, task, codes: List[str]) -> None:
+        """task 结束时释放强引用并兜底清标记（幂等）。
+
+        标记的权威清理在 _fetch_async 的 finally；这里再清一次是双保险——
+        防止 task 在极端情况下（loop 提前关闭等）没走到 finally 而永久滞留。
+        """
+        self._fetch_tasks.discard(task)
+        self._clear_fetch_marks(codes)
+
     def _trigger_async_fetch(self, codes: List[str]):
         if not codes:
             return
@@ -511,15 +529,53 @@ class MarketDataBus:
             for c in new_codes:
                 self._fetch_in_progress.add(_normalize_code(c))
 
-        asyncio.create_task(self._fetch_async(new_codes))
+        # ❗这里可能被没有 running loop 的线程调用（如 PositionMonitor 的 daemon
+        # 线程经 get_prices 进来）。旧代码无条件 asyncio.create_task → 抛
+        # RuntimeError: no running event loop，被上层宽泛 except 吞掉，但上面
+        # 已加的标记永不清除 → 这些 code 永久无法取价。分两条路提交，并对
+        # 任何提交失败做标记兜底清理。
+        coro = self._fetch_async(new_codes)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            task = loop.create_task(coro)
+            self._fetch_tasks.add(task)
+            task.add_done_callback(lambda t: self._on_fetch_task_done(t, new_codes))
+        else:
+            # 无 running loop：提交到进程级共享 loop（自带后台线程），避免
+            # asyncio.run 在同步调用栈里阻塞，也不会因线程结束丢失 task。
+            try:
+                from deva.naja.infra.runtime.async_loop import run_async_in_thread
+
+                future = run_async_in_thread(coro)
+
+                def _done(fut):
+                    try:
+                        fut.result()
+                    except Exception as e:
+                        log.debug(f"[MarketDataBus] 异步取数失败: {e}")
+                    finally:
+                        self._clear_fetch_marks(new_codes)
+
+                future.add_done_callback(_done)
+            except Exception as e:
+                # 提交本身就失败（共享 loop 不可用等）→ 协程未启动，必须关掉
+                # 避免 "coroutine was never awaited" 警告，并立即清标记。
+                coro.close()
+                self._clear_fetch_marks(new_codes)
+                log.debug(f"[MarketDataBus] 异步取数提交失败: {e}")
 
     async def _fetch_async(self, codes: List[str]):
         try:
             await self._do_fetch_async(codes)
+        except asyncio.CancelledError:
+            self._clear_fetch_marks(codes)
+            raise
         finally:
-            with self._lock_fetch:
-                for c in codes:
-                    self._fetch_in_progress.discard(_normalize_code(c))
+            self._clear_fetch_marks(codes)
 
     async def _do_fetch_async(self, codes: List[str]):
         await asyncio.sleep(0)

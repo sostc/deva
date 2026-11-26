@@ -15,6 +15,7 @@ from deva.core.namespace import NS
 
 from ..infra.runtime.recoverable import RecoverableUnit, UnitStatus
 from ..infra.runtime.thread_pool import get_thread_pool
+from ..infra.runtime.async_runner import run_coroutine_sync
 from .output_controller import get_output_controller
 from deva.naja.register import SR
 from .models import (
@@ -544,11 +545,7 @@ class StrategyEntry(RecoverableUnit):
                     future = executor.submit(asyncio.run, result)
                     result = future.result(timeout=30)
             except RuntimeError:
-                loop = asyncio.new_event_loop()
-                try:
-                    result = loop.run_until_complete(result)
-                finally:
-                    loop.close()
+                result = run_coroutine_sync(result)
         return result
 
     def _process_window(self, data: Any) -> Any:
@@ -592,11 +589,7 @@ class StrategyEntry(RecoverableUnit):
                         future = executor.submit(asyncio.run, result)
                         result = future.result(timeout=30)
                 except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        result = loop.run_until_complete(result)
-                    finally:
-                        loop.close()
+                    result = run_coroutine_sync(result)
             return result
 
         elif window_type == "timed":
@@ -644,11 +637,7 @@ class StrategyEntry(RecoverableUnit):
                         future = executor.submit(asyncio.run, result)
                         result = future.result(timeout=30)
                 except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        result = loop.run_until_complete(result)
-                    finally:
-                        loop.close()
+                    result = run_coroutine_sync(result)
             return result
         else:
             with self._window_lock:
@@ -681,11 +670,7 @@ class StrategyEntry(RecoverableUnit):
                         future = executor.submit(asyncio.run, result)
                         result = future.result(timeout=30)
                 except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    try:
-                        result = loop.run_until_complete(result)
-                    finally:
-                        loop.close()
+                    result = run_coroutine_sync(result)
             return result
 
     def _parse_interval(self, interval_str: str) -> float:

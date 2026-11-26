@@ -39,6 +39,7 @@ def _resolve_awaitable(value):
     import asyncio
     import inspect
     import threading
+    from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 
     if not inspect.isawaitable(value):
         return value
@@ -50,22 +51,15 @@ def _resolve_awaitable(value):
         loop_running = False
 
     if not loop_running:
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(value)
-        finally:
-            loop.close()
+        return run_coroutine_sync(value)
 
     box = {{"value": None, "error": None}}
 
     def _runner():
-        loop = asyncio.new_event_loop()
         try:
-            box["value"] = loop.run_until_complete(value)
+            box["value"] = run_coroutine_sync(value)
         except Exception as e:
             box["error"] = e
-        finally:
-            loop.close()
 
     t = threading.Thread(target=_runner, daemon=True)
     t.start()

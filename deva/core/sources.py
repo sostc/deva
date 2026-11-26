@@ -841,6 +841,27 @@ class RedisStream(Stream):
         self.redis = client
         return self.redis
 
+    @gen.coroutine
+    def _close_redis(self):
+        """关闭当前 Redis 客户端并释放连接池（重连/停止路径共用）。
+
+        ❗旧代码在 loop/_send 的重试分支里直接 ``self.redis = None`` 丢弃客户端，
+        redis.asyncio.Redis 持有的连接池不会因此释放 —— 每次重连漏一套 TCP 连接。
+        stop() 里有正确的关闭逻辑但重试路径绕过了它，统一到这里。
+        """
+        client = self.redis
+        self.redis = None
+        if client is None:
+            return
+        try:
+            close = getattr(client, 'aclose', None) or getattr(client, 'close', None)
+            if close:
+                ret = close()
+                if asyncio.iscoroutine(ret) or isinstance(ret, gen.Future):
+                    yield ret
+        except Exception as e:
+            logger.debug("RedisStream(%s) 关闭旧客户端失败: %s", self.topic, e)
+
     @staticmethod
     def _get_payload(fields):
         payload = None
@@ -927,7 +948,7 @@ class RedisStream(Stream):
                 )
                 if retry_count > self.retries:
                     raise
-                self.redis = None
+                yield self._close_redis()
                 yield gen.sleep(min(30, self.retry_backoff * retry_count))
 
     @gen.coroutine
@@ -960,7 +981,7 @@ class RedisStream(Stream):
                     retry_count,
                     self.retries,
                 )
-                self.redis = None
+                yield self._close_redis()
                 if retry_count > self.retries:
                     raise
                 yield gen.sleep(min(10, self.retry_backoff * retry_count))
@@ -992,17 +1013,7 @@ class RedisStream(Stream):
         """停止Redis流处理"""
         self.stopped = True
         if self.redis is not None:
-            @gen.coroutine
-            def _close():
-                try:
-                    close = getattr(self.redis, 'aclose', None) or getattr(self.redis, 'close', None)
-                    if close:
-                        ret = close()
-                        if asyncio.iscoroutine(ret) or isinstance(ret, gen.Future):
-                            yield ret
-                finally:
-                    self.redis = None
-            self.loop.add_callback(_close)
+            self.loop.add_callback(self._close_redis)
 
 @Stream.register_api(staticmethod)
 class from_redis(Stream):

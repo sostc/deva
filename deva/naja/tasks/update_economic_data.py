@@ -26,16 +26,9 @@ def _run_coro(coro):
     后者取本线程默认 loop，而那个 loop 在调度线程里早已关闭 →
     RuntimeError: Event loop is closed。详见 container._start_merrill_clock_task。
     """
-    import asyncio
+    from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.close()
-        except Exception:
-            pass
+    return run_coroutine_sync(coro)
 
 
 def execute() -> Dict[str, Any]:

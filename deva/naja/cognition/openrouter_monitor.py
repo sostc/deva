@@ -26,6 +26,7 @@ radar/openrouter_monitor.py 保留为向后兼容的转发层。
 4. 异常时发送雷达事件
 """
 
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 import asyncio
 import logging
 import re
@@ -1308,10 +1309,7 @@ def get_ai_compute_trend() -> Optional[Dict]:
 def scheduled_openrouter_check():
     """调度任务：每周一执行"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(refresh_openrouter_data())
-        loop.close()
+        result = run_coroutine_sync(refresh_openrouter_data())
 
         if result:
             logger.debug(f"[OpenRouter Scheduler] 检查完成: {result.get('message', '')}")

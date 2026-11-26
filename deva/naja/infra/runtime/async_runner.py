@@ -65,12 +65,7 @@ class AsyncRunner:
     @classmethod
     def _run_in_new_loop(cls, coro_func: Callable, *args, **kwargs) -> Any:
         """在没有事件循环的线程中执行"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro_func(*args, **kwargs))
-        finally:
-            loop.close()
+        return run_coroutine_sync(coro_func(*args, **kwargs))
 
     @classmethod
     def _wait_for_future(cls, future: concurrent.futures.Future, timeout: float) -> Any:
@@ -87,6 +82,42 @@ class AsyncRunner:
         if cls._shared_executor is not None:
             cls._shared_executor.shutdown(wait=wait)
             cls._shared_executor = None
+
+
+def run_coroutine_sync(coro):
+    """在独立事件循环中同步跑完协程，并确保回收默认执行器线程。
+
+    ❗为什么不能只用 new_event_loop() + run_until_complete() + close()：
+    aiohttp / httpx 的 DNS 解析内部走 ``loop.run_in_executor(None, ...)``，
+    会为这个临时循环创建默认 ThreadPoolExecutor（线程名 ``asyncio_0``）。
+    Python 3.13 的 ``loop.close()`` 不会关闭它——每调用一次遗留一个线程，
+    长期运行的服务会累积数百个（2026-11-26 实测：每 15 秒 +1）。必须显式
+    ``shutdown_default_executor()`` 才能回收。协程对象本身由调用方创建。
+
+    注意 ``asyncio.run()`` 内部已自动 shutdown default executor，用它的地方
+    不需要本函数；本函数只替代手动 new_event_loop 的模式。
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        # 若协程抛异常， cleanup 绝不能掩盖原始异常；若 coro 未消耗完
+        # （如提交失败），close() 前 shutdown 仍可正常执行。
+        try:
+            if not loop.is_closed():
+                loop.run_until_complete(loop.shutdown_default_executor(timeout=5))
+        except Exception:
+            pass
+        try:
+            loop.close()
+        except Exception:
+            pass
+        finally:
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
 
 
 def async_safe(coro_func: Callable) -> Callable:

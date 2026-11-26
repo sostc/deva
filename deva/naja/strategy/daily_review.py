@@ -66,6 +66,7 @@ def send_imessage(phone: str, text: str) -> bool:
         return False
 
 
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 from deva.naja.infra.notify_recipient import get_notify_phone
 from deva.naja.cognition.narrative import get_narrative_tracker
 from deva.naja.cognition.semantic.keyword_registry import DYNAMICS_KEYWORDS, SENTIMENT_KEYWORDS
@@ -1591,12 +1592,7 @@ class DailyReviewAnalyzer:
 
             def run_sync():
                 try:
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    try:
-                        return new_loop.run_until_complete(generate_async())
-                    finally:
-                        new_loop.close()
+                    return run_coroutine_sync(generate_async())
                 except Exception as e:
                     log.error(f"[DailyReviewAnalyzer] LLM生成洞察失败: {e}")
                     return ""

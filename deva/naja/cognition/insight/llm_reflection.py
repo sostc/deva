@@ -23,6 +23,7 @@ from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 from deva import NB, log
 
 from ...config import get_llm_config
@@ -1538,12 +1539,7 @@ _反思生成时间: {datetime.fromtimestamp(reflection.ts).strftime('%Y-%m-%d %
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 def run_in_new_loop():
                     try:
-                        new_loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(new_loop)
-                        try:
-                            return new_loop.run_until_complete(call_async())
-                        finally:
-                            new_loop.close()
+                        return run_coroutine_sync(call_async())
                     except Exception as e:
                         log.error(f"[LLMReflection] ThreadPool中的LLM调用失败: {e}")
                         return None

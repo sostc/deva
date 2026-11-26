@@ -39,6 +39,35 @@ def _is_shutdown_artifact(exc: BaseException) -> bool:
     return any(m in text for m in _SHUTDOWN_MARKERS)
 
 
+def _run_coro_in_fresh_loop(coro):
+    """在独立事件循环里跑协程，并确保回收默认执行器线程。
+
+    aiohttp 的 ``getaddrinfo`` 内部走 ``loop.run_in_executor(None, ...)``，
+    会为当前循环创建一个默认 ThreadPoolExecutor（线程名 ``asyncio_0``）。
+    Python 3.13 的 ``loop.close()`` **不会**关闭这个执行器——实测每轮行情
+    抓取都会遗留一个 ``asyncio_0`` 线程，跑一晚累积数百个。必须显式
+    ``shutdown_default_executor()`` 才能把线程收干净。
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    finally:
+        # 关键：先关默认执行器（DNS 解析的线程在这里），再 close loop。
+        # 若捕获阶段 loop 已失效，忽略即可，绝不让清理动作掩盖业务异常。
+        try:
+            if not loop.is_closed():
+                loop.run_until_complete(loop.shutdown_default_executor(timeout=5))
+        except Exception:
+            pass
+        try:
+            loop.close()
+        except Exception:
+            pass
+        finally:
+            asyncio.set_event_loop(None)
+
+
 # ---------------------------------------------------------------------------
 # 重试装饰器
 # ---------------------------------------------------------------------------
@@ -315,20 +344,14 @@ def _fetch_sina_sync(force_trading: bool = False) -> Optional[pd.DataFrame]:
     log.debug(f"[SINA_SYNC] 开始 PID={os.getpid()}")
     try:
         log.debug("[_fetch_sina_sync] 开始获取 Sina 数据")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         log.debug("[SINA_SYNC] 创建事件循环完成")
-        try:
-            result = loop.run_until_complete(_fetch_all_stocks_async())
-            log.debug(f"[SINA_SYNC] run_until_complete 完成, result={len(result) if result is not None else None}")
-            if result is not None:
-                log.debug(f"[_fetch_sina_sync] 获取完成: result={type(result)}, len={len(result)}")
-            else:
-                log.debug("[_fetch_sina_sync] 获取完成: result is None")
-            return result
-        finally:
-            loop.close()
-            log.debug("[SINA_SYNC] 事件循环已关闭")
+        result = _run_coro_in_fresh_loop(_fetch_all_stocks_async())
+        log.debug(f"[SINA_SYNC] run_until_complete 完成, result={len(result) if result is not None else None}")
+        if result is not None:
+            log.debug(f"[_fetch_sina_sync] 获取完成: result={type(result)}, len={len(result)}")
+        else:
+            log.debug("[_fetch_sina_sync] 获取完成: result is None")
+        return result
     except Exception as e:
         log.error(f"[SINA_SYNC] 异常: {e}")
         log.error(f"[_fetch_sina_sync] 异常: {e}")
@@ -344,17 +367,12 @@ def _fetch_sina_by_symbols_sync(symbols: List[str]) -> Optional[pd.DataFrame]:
     log.debug(f"[SINA_SYNC_SYMBOLS] 开始 PID={os.getpid()}, symbols数量={len(symbols)}")
     try:
         log.debug(f"[_fetch_sina_by_symbols_sync] 开始获取 {len(symbols)} 只股票")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(_fetch_sina_batch_async(symbols))
-            log.debug(f"[SINA_SYNC_SYMBOLS] 完成, result={len(result) if result else 0} 条")
-            if result:
-                df = pd.DataFrame(result).T
-                return df
-            return None
-        finally:
-            loop.close()
+        result = _run_coro_in_fresh_loop(_fetch_sina_batch_async(symbols))
+        log.debug(f"[SINA_SYNC_SYMBOLS] 完成, result={len(result) if result else 0} 条")
+        if result:
+            df = pd.DataFrame(result).T
+            return df
+        return None
     except Exception as e:
         log.error(f"[SINA_SYNC_SYMBOLS] 异常: {e}")
         log.error(f"[_fetch_sina_by_symbols_sync] 异常: {e}")

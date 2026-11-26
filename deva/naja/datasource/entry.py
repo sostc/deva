@@ -19,6 +19,7 @@ from ..infra.runtime.recoverable import (
     UnitStatus,
 )
 from ..infra.runtime.thread_pool import get_thread_pool
+from ..infra.runtime.async_runner import run_coroutine_sync
 from ..scheduler import (
     parse_cron_expr,
     build_event_condition_checker,
@@ -676,17 +677,10 @@ class DataSourceEntry(RecoverableUnit):
             # 1. 只计算 fetch_data 的执行时间
             data = self._invoke_fetch_func(func, event_payload=event_payload)
             if asyncio.iscoroutine(data):
-                # 在新的事件循环中运行协程，避免与主事件循环冲突
-                def run_async_in_new_loop(coro):
-                    new_loop = asyncio.new_event_loop()
-                    try:
-                        return new_loop.run_until_complete(coro)
-                    finally:
-                        new_loop.close()
-
                 # 使用全局线程池执行，避免频繁创建线程导致资源耗尽
+                # run_coroutine_sync 内部新建循环并回收默认执行器线程（DNS）
                 pool = get_thread_pool()
-                future = pool.submit(run_async_in_new_loop, data)
+                future = pool.submit(run_coroutine_sync, data)
                 if future is None:
                     raise RuntimeError("线程池过载，无法提交任务")
                 try:
@@ -904,7 +898,17 @@ class DataSourceEntry(RecoverableUnit):
             self._stop_event.wait(interval)
 
         if self._event_loop and not self._event_loop.is_closed():
-            self._event_loop.close()
+            # 长生命周期 loop 若跑过 aiohttp DNS，默认执行器线程需显式回收
+            try:
+                self._event_loop.run_until_complete(
+                    self._event_loop.shutdown_default_executor(timeout=5)
+                )
+            except Exception:
+                pass
+            try:
+                self._event_loop.close()
+            except Exception:
+                pass
 
     def _emit_data(self, data: Any, is_batch: bool = False):
         """发送数据到流（通过防抖器）

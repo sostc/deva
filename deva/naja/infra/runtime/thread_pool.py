@@ -133,18 +133,25 @@ class ThreadPoolManager:
     
     @max_workers.setter
     def max_workers(self, value: int):
-        old_pool = self._pool
+        # ❗旧实现只改 self._max_workers 字段，从不作用于真正的 executor：
+        # _ensure_pool() 仅在 _pool is None 时创建，所以 auto_tuner/性能监控
+        # 里所有「扩容」调用都是无效操作，日志显示改了、实际线程数纹丝不动。
+        # ThreadPoolExecutor 在下次 submit 时会读 _max_workers 走 _adjust_thread_count
+        # 懒扩容，因此直接同步这个属性即可（Python 3.11+ 支持动态调整）。
         self._max_workers = max(self.MIN_WORKERS, min(value, self.MAX_WORKERS))
         self._ensure_pool()
-        if old_pool is not None and old_pool != self._pool:
-            old_pool.shutdown(wait=False)
-    
+        if self._pool is not None and self._pool._max_workers != self._max_workers:
+            self._pool._max_workers = self._max_workers
+
     @property
     def max_queue_size(self) -> int:
         return self._max_queue_size
-    
+
     @max_queue_size.setter
     def max_queue_size(self, value: int):
+        # submit() 的过载闸门用的是 self._max_queue_size（in-flight 计数），
+        # 所以改这个字段是生效的；_task_queue 只是个从未被 submit 使用的
+        # 死队列，同步它的 maxsize 没有意义（SimpleQueue 也不支持该属性）。
         self._max_queue_size = max(self.MIN_QUEUE_SIZE, min(value, self.MAX_QUEUE_SIZE))
     
     def get_stats(self) -> Dict[str, Any]:
@@ -158,7 +165,9 @@ class ThreadPoolManager:
                 'total_completed': self._total_completed,
                 'total_rejected': self._total_rejected,
                 'pending_tasks': self._total_submitted - self._total_completed - self._total_rejected,
-                'active_threads': self._pool._work_queue.qsize() if self._pool else 0
+                # ❗旧实现用 work_queue.qsize()（积压任务数）冒充「活跃线程数」，
+                # 语义完全错误；executor._threads 才是真实的存活工作线程集合。
+                'active_threads': len(self._pool._threads) if self._pool else 0
             }
             return stats
     

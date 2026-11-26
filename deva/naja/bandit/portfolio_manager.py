@@ -755,10 +755,6 @@ def init_us_portfolios():
     cutie = pm.get_us_portfolio("Cutie")
     log.info(f"[init_us_portfolios] spark={spark} cutie={cutie}")
 
-    import asyncio
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
     price_map = {}
     prev_close_map = {}
 
@@ -773,9 +769,10 @@ def init_us_portfolios():
 
     # 批量更新价格
     if all_symbols:
+        from deva.naja.infra.runtime.async_runner import run_coroutine_sync
         from .us_stock_price_manager import get_us_stock_price_manager
         price_manager = get_us_stock_price_manager()
-        loop.run_until_complete(price_manager.update_prices(list(all_symbols), force=True))
+        run_coroutine_sync(price_manager.update_prices(list(all_symbols), force=True))
         price_map = price_manager.get_price_map()
         prev_close_map = price_manager.get_prev_close_map()
 

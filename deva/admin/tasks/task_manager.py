@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ast
+from deva.naja.infra.runtime.async_runner import run_coroutine_sync
 import asyncio
 import hashlib
 import threading
@@ -313,12 +314,7 @@ class TaskManager(BaseManager[TaskUnit]):
                     future = executor.submit(asyncio.run, task.execute_task(context))
                     result = future.result(timeout=30)
             except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    result = loop.run_until_complete(task.execute_task(context))
-                finally:
-                    loop.close()
+                result = run_coroutine_sync(task.execute_task(context))
         except Exception as e:
             error = e
             with self._stats_lock:

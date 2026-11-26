@@ -419,6 +419,18 @@ def fetch_data() -> Any:
                 loop.run_until_complete(_aclose_session())
             except Exception:
                 pass
+            # aiohttp 的 DNS 解析走 loop.run_in_executor(None, ...)，会为这个
+            # 临时循环创建默认执行器线程（asyncio_0）。loop.close() 不会关它，
+            # 每轮取数都漏一个，必须显式 shutdown 才能回收（2026-11-26 实测）。
+            try:
+                if not loop.is_closed():
+                    loop.run_until_complete(loop.shutdown_default_executor(timeout=5))
+            except Exception:
+                pass
+            try:
+                asyncio.set_event_loop(None)
+            except Exception:
+                pass
             try:
                 loop.close()
             except Exception:
