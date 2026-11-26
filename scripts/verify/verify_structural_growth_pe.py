@@ -597,6 +597,38 @@ def check_missing_flagged_samples_excluded() -> list:
     return bad
 
 
+def check_dual_rulers_wired() -> list:
+    """两把尺子必须同时在结果和页面上（缺一把就会误读成「整池便宜」）。
+
+    尺子一：``pe_bands`` 全池横截面 —— 只回答「相对同行贵不贵」。
+    尺子二：``own_percentile`` 自身 3 年 PE 分位 —— 回答「相对自己贵不贵」。
+
+    只留尺一的后果是：主题行情把整池一起抬高时，横截面会集体显示「便宜」，
+    而这正是 ``pe_bands`` 文件头自认的盲区。所以这里断言「两把都在场」，
+    并且**页面列数必须跟着改**（改一半会串列，比没有这列更糟）。
+    """
+    svc = SG_DIR / "repricing_service.py"
+    pages = NAJA / "web_ui" / "pages.py"
+    bad = []
+    if not svc.exists() or not pages.exists():
+        return ["repricing_service.py / web_ui/pages.py 不存在"]
+    src = svc.read_text(encoding="utf-8")
+    for needle, why in (
+        ("def own_percentile", "自身分位方法不存在"),
+        ('out["own_percentile"]', "evaluate 没把自身分位放进结果（页面拿不到）"),
+        ("daily_closes", "自身分位没用真实日线 —— 算不出历史 PE 序列"),
+        ("build_valuation", "自身分位没走 fundamental.valuation 的统一口径"),
+    ):
+        if needle not in src:
+            bad.append(why)
+    ui = pages.read_text(encoding="utf-8")
+    if "自身分位" not in ui:
+        bad.append("页面没有「自身分位」列 —— 第二把尺子用户看不到")
+    if 'colspan="8"' not in ui:
+        bad.append("表格占位行还是 7 列 —— 加了列会串位")
+    return bad
+
+
 def check_classifier_input_is_quarterly() -> list:
     """分类输入必须来自**季频基本面层**，不许回到年度 4 期。
 
@@ -1023,6 +1055,7 @@ _ALL = [
     check_confidence_is_net_margin,
     check_missing_flagged_samples_excluded,
     check_classifier_input_is_quarterly,
+    check_dual_rulers_wired,
     check_missing_net_profit_not_forged,
     check_volatility_metric_is_scale_robust,
     check_bands_measured_when_enough_samples,

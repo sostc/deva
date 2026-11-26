@@ -52,6 +52,10 @@ class RepricingService:
         self._phase_provider = phase_provider   # Optional[Callable[[str], str]]
         self._classify_cache: Dict[str, tuple] = {}   # code -> (ts, result)
         self._pe_cache: Dict[str, tuple] = {}         # code -> (ts, pe, source, note)
+        #: ❗财报序列本身也要缓存：分类和「自身分位」用的是同一份序列，
+        #: 各取一次等于每只票多拉一遍 SEC（36 只 × 数秒）。
+        self._series_cache: Dict[str, tuple] = {}     # code -> (ts, points, status, why)
+        self._own_pct_cache: Dict[str, tuple] = {}    # code -> (ts, dict)
         #: ❗财报抓取状态 ``code -> (status, reason)``。没有它，页面只能把
         #: 「我们没取到」和「这家确实没有财报」都写成一句含糊的「分类未定」。
         self._fetch_status: Dict[str, tuple] = {}
@@ -72,6 +76,26 @@ class RepricingService:
         return [i for i, codes in self._industry_stocks.items()
                 if c in {x.upper() for x in codes}]
 
+    def _series(self, code: str) -> tuple:
+        """``(points, status, why)`` —— 季频财报序列 + 三态状态，带缓存。
+
+        ❗分类器与「自身分位」吃的是同一份序列。各取一次 = 每只票多拉一遍 SEC，
+        36 只票下就是几十秒的重复网络开销，而且两份可能取到不同版本。
+        """
+        c = (code or "").upper()
+        now = time.time()
+        hit = self._series_cache.get(c)
+        if hit and (now - hit[0]) < CLASSIFY_TTL:
+            return hit[1], hit[2], hit[3]
+        try:
+            from ..fundamental.service import get_fundamental_service
+            points, status, why = get_fundamental_service().series_with_status(c)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[RepricingService] %s 财报获取失败: %s", c, e)
+            points, status, why = [], "error", f"{type(e).__name__}: {e}"
+        self._series_cache[c] = (now, points, status, why)
+        return points, status, why
+
     def _classify(self, code: str) -> Optional[ClassificationResult]:
         """分类输入走**季频基本面层**（约 20 期 TTM），不再用年度 4 期。
 
@@ -83,14 +107,7 @@ class RepricingService:
         hit = self._classify_cache.get(code)
         if hit and (now - hit[0]) < CLASSIFY_TTL:
             return hit[1]
-        try:
-            from ..fundamental.service import get_fundamental_service
-            points, status, why = get_fundamental_service().series_with_status(code)
-        except Exception as e:  # noqa: BLE001
-            log.warning("[RepricingService] %s 财报获取失败: %s", code, e)
-            self._fetch_status[code] = ("error", f"{type(e).__name__}: {e}")
-            self._classify_cache[code] = (now, None)
-            return None
+        points, status, why = self._series(code)
         # ❗状态照原样落下来：``error``（我们没取到）与 ``empty``（这类标的没有财报）
         #   在 UI 上是两句话，合并就是「静默失效」。
         self._fetch_status[code] = (status, why)
@@ -131,6 +148,46 @@ class RepricingService:
         out = (float(getattr(fd, "pe_ratio", 0.0) or 0.0), src, "")
         self._pe_cache[code] = (now,) + out
         return out
+
+    def own_percentile(self, code: str, years: int = 3) -> Dict:
+        """自身历史 PE 分位 —— **与全池横截面是两把不同的尺子**。
+
+        ❗为什么非要两把：
+        ``build_peers()/pe_bands`` 那把尺子只回答「它相对同行贵不贵」。当整池
+        一起被抬高（主题行情 / 牛市），横截面分位会集体显示「便宜」——
+        这正是 ``pe_bands`` 自己写明的盲区。自身历史分位回答「它相对自己贵不贵」。
+        两把同时偏高才叫真重定价；只有一把动，往往是市场整体在动。
+
+        数据来源与口径都在 ``fundamental.valuation``（不复权真实价 + 时点 TTM EPS），
+        亏损期不产生 PE。信息不足时**不给分位**，只给原因。
+        """
+        c = (code or "").upper()
+        now = time.time()
+        hit = self._own_pct_cache.get(c)
+        if hit and (now - hit[0]) < CLASSIFY_TTL:
+            return hit[1]
+        from ..fundamental import prices as price_source
+        from ..fundamental.valuation import build as build_valuation
+
+        out: Dict = {"ok": False, "years": years, "caveats": []}
+        points, status, why = self._series(c)
+        if not points:
+            out["caveats"].append("无财报序列" + (f"（{why}）" if why else ""))
+            self._own_pct_cache[c] = (now, out)
+            return out
+        try:
+            closes = price_source.daily_closes(c, years=years)
+        except Exception as e:  # noqa: BLE001
+            log.warning("[RepricingService] %s 日线拉取失败: %s", c, e)
+            closes = []
+        if not closes:
+            out["caveats"].append(f"无{years}年日线（富途 OpenD 未连接，或该标的无历史）")
+            self._own_pct_cache[c] = (now, out)
+            return out
+        v = build_valuation(c, closes, points).to_dict()
+        v["years"] = years
+        self._own_pct_cache[c] = (now, v)
+        return v
 
     def _phase(self, industry_id: str) -> str:
         if self._phase_provider is None:
@@ -175,6 +232,9 @@ class RepricingService:
             try:
                 self._classify(c)
                 self._pe(c)
+                # 自身分位要日线，也在预热里做掉：列表页 36 只票各拉一次日线，
+                # 放到请求里同步等就是几十个往返。
+                self.own_percentile(c)
             except Exception as e:  # noqa: BLE001
                 log.warning("[RepricingService] 预热 %s 失败: %s", c, e)
 
@@ -239,9 +299,11 @@ class RepricingService:
                 "fetch_reason": why,
             })
 
-        # ---- 尺子：全池共享，且排除自己 ----
+        # ---- 尺子一：全池共享，且排除自己 ----
         bands = build_bands(self.build_peers(), exclude_code=c)
         out["bands"] = bands.to_dict()
+        # ---- 尺子二：自身 3 年历史分位（池子整体被抬高时才说得清）----
+        out["own_percentile"] = self.own_percentile(c)
         out["phase"] = self._phase(target_industry) if target_industry else ""
 
         # ---- 闸门：三条缺一不可 ----

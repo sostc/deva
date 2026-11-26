@@ -196,6 +196,37 @@ def test_gate_wiring():
            f"无基本面结论应打七折，实得 {gate['forward_size_scale']}")
 
 
+def test_own_percentile_is_independent_ruler():
+    """自身历史分位必须能说「相对自己贵」，哪怕全池一起涨。
+
+    构造：EPS 恒为 2.0，前 700 天价格 40（PE 20），最后 100 天涨到 80（PE 40）。
+    全池横截面在整池同涨时会集体显示「便宜」（pe_bands 自己写明的盲区），
+    而自身分位必须显示接近 1 —— 这是两把尺子存在的唯一理由。
+    """
+    from datetime import date, timedelta
+
+    pts = [FundamentalPoint(
+        as_of="2023-02-01", period_end="2023-01-01", eps_ttm=2.0, bps=20.0,
+        net_profit_ttm=100.0, revenue_ttm=500.0, cashflow_ttm=120.0,
+        gross_margin=40.0, source="test", basis="ttm",
+    )]
+    start = date(2024, 1, 1)
+    prices = [
+        ((start + timedelta(days=i)).isoformat(), 40.0 if i < 700 else 80.0)
+        for i in range(800)
+    ]
+    v = build("TEST", prices, pts)
+    _check(v.ok, "自身分位构造数据应可用")
+    _check(v.pe_percentile is not None and v.pe_percentile > 0.85,
+           f"末期 PE 翻倍，自身分位应接近 1，实得 {v.pe_percentile}")
+    _check(v.samples >= 120, f"样本数应达下限，实得 {v.samples}")
+
+    # 没有日线时必须「不给分位 + 说原因」，不能返回 0 或 1 这种假结论
+    empty = build("TEST", [], pts)
+    _check(empty.pe_percentile is None, "无日线却给出了分位")
+    _check(bool(empty.caveats), "无日线时必须写明原因")
+
+
 def main() -> int:
     for fn in (
         test_a_share_ttm,
@@ -205,6 +236,7 @@ def main() -> int:
         test_score_tiers,
         test_missing_not_full_marks,
         test_gate_wiring,
+        test_own_percentile_is_independent_ruler,
     ):
         try:
             fn()

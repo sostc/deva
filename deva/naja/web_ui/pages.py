@@ -839,13 +839,14 @@ async def structural_growth_page():
                             <th style="padding:10px 12px;text-align:right;color:#94a3b8;">PE</th>
                             <th style="padding:10px 12px;text-align:left;color:#94a3b8;">分类</th>
                             <th style="padding:10px 12px;text-align:left;color:#94a3b8;">定价进度</th>
+                            <th style="padding:10px 12px;text-align:right;color:#94a3b8;">自身分位</th>
                             <th style="padding:10px 12px;text-align:right;color:#94a3b8;">上行/下行</th>
                             <th style="padding:10px 12px;text-align:right;color:#94a3b8;">不对称比</th>
                             <th style="padding:10px 12px;text-align:left;color:#94a3b8;">判读</th>
                         </tr>
                     </thead>
                     <tbody id="repricing-body">
-                        <tr><td colspan="7" style="padding:24px;text-align:center;color:#64748b;">加载中...</td></tr>
+                        <tr><td colspan="8" style="padding:24px;text-align:center;color:#64748b;">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1302,7 +1303,7 @@ async def structural_growth_page():
               var body = document.getElementById('repricing-body');
               var ruler = document.getElementById('repricing-ruler');
               if(!d.success) {{
-                  body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:#f87171;">加载失败: ' + (d.error||'') + '</td></tr>';
+                  body.innerHTML = '<tr><td colspan="8" style="padding:24px;text-align:center;color:#f87171;">加载失败: ' + (d.error||'') + '</td></tr>';
                   ruler.textContent = '尺子加载失败';
                   return;
               }}
@@ -1328,12 +1329,15 @@ async def structural_growth_page():
                   if(exN > 0) txt += '　❗' + exN + ' 只因 PE 缺失/异常未进尺子';
                   ruler.innerHTML = txt
                       + '<br><span style="color:#475569;">❗这是<b>相对尺子</b>：定价进度 = 它的 PE 在同类池里的位置，'
-                      + '不是绝对估值。池子整体高估时，这把尺子测不出高估。</span>';
+                      + '不是绝对估值。池子整体高估时，这把尺子测不出高估。</span>'
+                      + '<br><span style="color:#475569;">❗两把尺子测的不是一件事：<b>定价进度</b>= 全池横截面（相对同行）；'
+                      + '<b>自身分位</b>= 该股近 3 年 PE 历史（相对自己）。池子整体被抬高时横截面会集体显「便宜」，'
+                      + '那时只有自身分位还说得清。</span>';
                   if(b.note) ruler.innerHTML += '<br><span style="color:#f97316;">' + b.note + '</span>';
               }}
 
               if(rows.length === 0) {{
-                  body.innerHTML = '<tr><td colspan="7" style="padding:24px;text-align:center;color:#64748b;">无数据</td></tr>';
+                  body.innerHTML = '<tr><td colspan="8" style="padding:24px;text-align:center;color:#64748b;">无数据</td></tr>';
                   return;
               }}
               var html = '';
@@ -1346,7 +1350,7 @@ async def structural_growth_page():
                       html += '<tr>'
                           + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#94a3b8;">' + r.code + '</td>'
                           + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;">' + pe + '</td>'
-                          + '<td colspan="4" style="padding:8px 12px;border-bottom:1px solid #334155;color:#475569;font-size:12px;">'
+                          + '<td colspan="5" style="padding:8px 12px;border-bottom:1px solid #334155;color:#475569;font-size:12px;">'
                           + '— 不可用：' + (r.reason||'未知原因') + '</td>'
                           + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#475569;font-size:12px;">数据不足，不做判断</td>'
                           + '</tr>';
@@ -1366,6 +1370,17 @@ async def structural_growth_page():
                   var upc = (r.upside_pct === null || r.upside_pct === undefined) ? '#475569' : (r.upside_pct > 0 ? '#10b981' : '#f87171');
                   var as = (r.asymmetry === null || r.asymmetry === undefined) ? '-' : r.asymmetry.toFixed(2);
                   var ac = asymColor(r.asymmetry);
+                  // ---- 尺子二：自身 3 年 PE 分位（只和它自己比，不看同行）----
+                  // 分位越低越便宜；与「定价进度」同为高=贵，风险色口径一致
+                  var op = r.own_percentile || {{}};
+                  var oc = op.pe_percentile;
+                  var opTxt = (oc === null || oc === undefined) ? '-' : (oc*100).toFixed(0) + '%';
+                  var opColor = (oc === null || oc === undefined) ? '#475569'
+                      : (oc >= 0.8 ? '#f87171' : (oc >= 0.6 ? '#f97316' : (oc >= 0.3 ? '#38bdf8' : '#10b981')));
+                  // ❗算不出来时必须说原因：空白和「还算着呢」长得一模一样
+                  var opSub = (oc === null || oc === undefined)
+                      ? ((op.caveats||[])[0] || '无数据')
+                      : ((op.years||3) + 'y 中位 ' + (op.pe_median === null || op.pe_median === undefined ? '-' : op.pe_median.toFixed(0)) + 'x · ' + (op.samples||0) + ' 天');
                   html += '<tr>'
                       + '<td style="padding:8px 12px;border-bottom:1px solid #334155;color:#e2e8f0;font-weight:600;">' + r.code + '</td>'
                       + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;color:#e2e8f0;">' + pe + '</td>'
@@ -1374,6 +1389,8 @@ async def structural_growth_page():
                       + '<div style="color:#475569;font-size:10px;line-height:1.4;">' + ((r.evidence||[])[0] || '') + '</div></td>'
                       + '<td style="padding:8px 12px;border-bottom:1px solid #334155;"><span style="color:' + pc + ';font-weight:600;">' + piTxt + '</span>' + bar
                       + '<div style="color:#475569;font-size:10px;">' + (r.priced_in_label||'') + '</div></td>'
+                      + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;"><span style="color:' + opColor + ';font-weight:600;">' + opTxt + '</span>'
+                      + '<div style="color:#475569;font-size:10px;">' + opSub + '</div></td>'
                       + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;"><span style="color:' + upc + ';">' + up + '</span>'
                       + ' <span style="color:#64748b;">/</span> <span style="color:#f87171;">' + dn + '</span></td>'
                       + '<td style="padding:8px 12px;border-bottom:1px solid #334155;text-align:right;color:' + ac + ';font-weight:600;">' + as + '</td>'
